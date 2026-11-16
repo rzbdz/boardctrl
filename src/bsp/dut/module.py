@@ -990,6 +990,11 @@ class DutModule(Module):
         """Serial and USB devices on this host right now (as the port watcher last saw them)."""
         return self.port_watcher.current if self.port_watcher else {}
 
+    def usb_ports(self) -> list[dict[str, Any]]:
+        """USB devices that may be a board's download port, as `probe --dry-run` reports them."""
+        from .probe import Prober
+        return list(Prober(self, pins=None, consoles=None, identify=False, default_sdks=None).usb_snapshot().values())
+
     def _ports_changed(self, change: dict, now: dict) -> None:
         # A new adapter is a new slot with its own console; one that went away drops its slot, or leaves it offline
         # (and the card greyed) while a board is registered there.

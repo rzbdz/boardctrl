@@ -483,6 +483,20 @@ def dut_bind(fleet: Fleet, args) -> tuple[Any, str]:
                + _status_text(r))
 
 
+def dut_ports(fleet: Fleet, args) -> tuple[Any, str]:
+    """USB devices that may be a board's download port, for choosing a DUT's fastboot selector."""
+    hs = fleet.require()
+    if getattr(args, "host", None):
+        hs = [h for h in hs if h.id == args.host]
+        if not hs:
+            raise RemoteError(f"host {args.host!r} not reachable", hint=f"reachable: {', '.join(h.id for h in fleet.hosts())}")
+    elif len(hs) > 1:
+        raise InvalidRequest("several board hosts are reachable", hint=f"pass --host ({', '.join(h.id for h in hs)})")
+    r = _ok(hs[0], hs[0].call("dut_ports"))
+    lines = [f"{d['usb']}  {d.get('vid', '')}:{d.get('pid', '')}  {d.get('product', '')}".rstrip() for d in r]
+    return r, "\n".join(lines) or "no download ports on the bus"
+
+
 def dut_add(fleet: Fleet, args) -> tuple[Any, str]:
     spec = args.spec
     if spec.startswith("@"):
@@ -777,6 +791,8 @@ def add_parsers(sub) -> None:
     bd.add_argument("--fdl", choices=["strapped", "button"], default="button",
                     help="button (default): the person also holds BOOT/download; strapped: a reset enters download mode")
     bd.add_argument("--host", help="board host the console and USB are attached to (needed with several hosts)")
+    dp = ds.add_parser("ports", help="USB devices that may be a board's download port on a host")
+    dp.add_argument("--host", help="board host to ask (needed with several hosts)")
     bd.add_argument("--replace", action="store_true", help="overwrite an existing DUT with this name")
     b = ds.add_parser("boot", help="boot an SDK (--method load: RAM boot | download: flash), "
                                    "or local files in order (--files, RAM boot)")
@@ -853,6 +869,8 @@ def run(fleet: Fleet, args, book: LeaseBook):
         raise InvalidRequest("missing dut action", hint="bsp dut --help")
     if args.dut_cmd == "list":
         return dut_list(fleet, args)
+    if args.dut_cmd == "ports":
+        return dut_ports(fleet, args)
     if args.dut_cmd == "add":
         return dut_add(fleet, args)
     if args.dut_cmd == "bind":

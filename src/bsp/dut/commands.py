@@ -169,6 +169,10 @@ def build_commands(mod: "DutModule") -> list[Command]:
         cmd("dut.export", "All DUT specs on this host (save into <site>/duts/ to make them static)",
             mod.export, mutating=False,
             render=lambda r: __import__("yaml").safe_dump(r, sort_keys=False, allow_unicode=True)),
+        cmd("dut.ports", "USB devices that may be a board's download port, with their fastboot selector",
+            mod.usb_ports, mutating=False,
+            render=lambda r: "\n".join(f"{d['usb']}  {d.get('vid', '')}:{d.get('pid', '')}  {d.get('product', '')}"
+                                       for d in r) or "no download ports on the bus"),
         cmd("dut.probe", "Discover boards on this host: pulse free GPIOs, watch consoles + USB, identify",
             mod.probe,
             [Param("pins", help="comma list of candidate reset pins (default: all free header GPIOs)", required=False),
