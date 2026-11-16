@@ -44,6 +44,89 @@ def test_artifact_store_checks_content_and_keeps_one_copy(tmp_path):
         store.upload("not-a-sha", "x")
 
 
+def test_a_file_the_host_already_has_is_adopted_without_a_transfer(tmp_path):
+    """`host:/path` and a Samba mount: bspd reads the file itself; nothing is uploaded."""
+    store = ArtifactStore(tmp_path / "cache")
+    src = tmp_path / "samba" / "Image.itb"
+    src.parent.mkdir()
+    src.write_bytes(b"kernel" * 1000)
+    r = store.adopt_path(str(src))
+    assert r["sha256"] == _sha(src.read_bytes()) and Path(r["path"]).read_bytes() == src.read_bytes()
+    assert Path(r["path"]).name == "Image.itb"
+    with pytest.raises(InvalidRequest):
+        store.adopt_path("relative/Image.itb")
+    with pytest.raises(InvalidRequest):
+        store.adopt_path(str(tmp_path / "missing.itb"))
+
+
+def test_ssh_transport_copies_a_file_with_scp_not_an_http_body(tmp_path, monkeypatch):
+    """The registry's bsp CLI scps to the ticket path; only ticket/adopt are small JSON calls."""
+    import subprocess
+
+    from bsp.cli.transport import SshTransport
+
+    src = tmp_path / "Image.itb"
+    src.write_bytes(b"kernel FIT" * 1000)
+    sha = _sha(src.read_bytes())
+    transport = SshTransport("user@host", token="t")
+    seen = []
+
+    def request(method, path, body=None, timeout=90):
+        seen.append((method, path))
+        if "/ticket" in path:
+            return {"ok": True, "result": {"id": "a" * 32,
+                                           "path": f"/var/lib/bsp/.incoming/{'a' * 32}/Image.itb"}}
+        assert "adopt" in path
+        return {"ok": True, "result": {"sha256": sha, "path": "/var/lib/bsp/artifacts/x/Image.itb",
+                                       "size": src.stat().st_size, "stored": True}}
+
+    calls = []
+
+    class Done:
+        returncode = 0
+        stdout = b""
+        stderr = b""
+
+    def run(argv, **kw):
+        calls.append(argv)
+        return Done()
+
+    monkeypatch.setattr(transport, "request", request)
+    monkeypatch.setattr(subprocess, "run", run)
+    r = transport.upload("/api/v1/artifacts/ignored", str(src), sha256=sha, name="Image.itb")
+    assert r["ok"] and r["result"]["sha256"] == sha
+    scp = [c for c in calls if c[0] == "scp"]
+    assert len(scp) == 1 and scp[0][-2] == str(src) and scp[0][-1].startswith("user@host:/var/lib/bsp/.incoming/")
+    assert not any(c[0] == "curl" for c in calls)
+    assert [p for _, p in seen if "/ticket" in p] and [p for _, p in seen if "adopt" in p]
+
+
+def test_a_ticket_path_is_scp_then_adopted(tmp_path):
+    """A large file arrives by scp at a path bspd gave; only the small adopt call goes through HTTP."""
+    store = ArtifactStore(tmp_path)
+    data = b"kernel FIT" * 1000
+    ticket = store.ticket(_sha(data), "../../Image.itb")
+    assert ticket["id"] and ticket["path"].endswith("/.incoming/%s/Image.itb" % ticket["id"])
+    Path(ticket["path"]).write_bytes(data)
+    assert any(p.name == "Image.itb" for p in (tmp_path / ".incoming" / ticket["id"]).iterdir())
+    r = store.adopt_ticket(ticket["id"], _sha(data), "Image.itb")
+    assert r["stored"] and Path(r["path"]).read_bytes() == data
+    assert store.get(_sha(data)) == Path(r["path"])
+    assert not (tmp_path / ".incoming" / ticket["id"]).exists()
+    # A wrong file is refused and never enters the cache.
+    other = store.ticket(_sha(b"right"), "other.img")
+    Path(other["path"]).write_bytes(b"wrong")
+    with pytest.raises(InvalidRequest):
+        store.adopt_ticket(other["id"], _sha(b"right"), "other.img")
+    with pytest.raises(InvalidRequest):
+        store.get(_sha(b"right"))
+    # A ticket whose file was never copied says so.
+    missing = store.ticket(_sha(b"missing"), "missing.img")
+    with pytest.raises(InvalidRequest) as e:
+        store.adopt_ticket(missing["id"], _sha(b"missing"), "missing.img")
+    assert "did not arrive" in e.value.message
+
+
 def test_lease_renew_keeps_holder_and_token(tmp_path):
     lm = LeaseManager(tmp_path / "l.json")
     a = lm.acquire("b1", "boardlab:user:alice", 60, "debug")

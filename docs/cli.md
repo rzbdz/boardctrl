@@ -33,7 +33,7 @@ How hosts are chosen without `-r`/`--url` is described in
 | `bsp dut boot DUT --sdk SDK [--method load\|download] [--variant V] [--no-wait] [--timeout S]` | Run the SDK's boot recipe; streams progress, exit code is the result |
 | `bsp dut boot DUT --files FILE… [--no-reset] [--first-wait S] [--later-wait S] [--port-timeout S] [--no-wait]` | Boot from RAM with local files in order (see [Booting local files](#booting-local-files)) |
 | `bsp dut flash DUT --package PATH\|URL [--sha256 HEX] [--flasher NAME] [--timeout S] [--no-reset] [--no-wait]` | Write a package (images and their layout) to the board's media (see [Flashing a package](#flashing-a-package)) |
-| `bsp dut stage DUT FILE [--no-continue] [--timeout S]` | Send a local file to the host (once, by sha256) and load it into RAM: `fastboot stage` + `continue` |
+| `bsp dut stage DUT FILE [--no-continue] [--timeout S]` | Copy a local file to the host with scp (once, by sha256) and load it into RAM: `fastboot stage` + `continue` |
 | `bsp dut present DUT` | Whether the board's download/fastboot port is on the USB bus |
 | `bsp dut console DUT "CMD" [--expect RE] [--timeout S]` | Run one shell command on the console and print its output |
 | `bsp dut console DUT` | Attach interactively over ssh (Ctrl-A Ctrl-X detaches, as in picocom) |
@@ -104,18 +104,22 @@ fails with a fastboot timeout. Scripts and agents should run such commands in th
 ### Booting local files
 
 `bsp dut boot DUT --files FSBL.bin u-boot-opensbi.itb Image.itb` boots a board from RAM with
-files from your machine. Each file is sent to the board host once (by sha256; unchanged files
-are not sent again, over HTTP or the ssh tunnel), then the host puts the board into download
+files from your machine. Each local file is copied to the board host with scp once (by sha256;
+unchanged files are not copied again), then the host puts the board into download
 mode (skip with `--no-reset`) and for each file runs `fastboot stage` + `continue` and waits for
 the download port to come back before the next one: `--first-wait` seconds after the first file
 (default 8, while the boot ROM hands over), `--later-wait` after later ones (default 3), then up
 to `--port-timeout` more (default 20). If the port does not return, the boot stops and names the
-file. It runs as a background job like `--sdk` boots, with the path and sha256 of every file in
-the job log. Nothing is flashed.
+file. A `host:/absolute/path` file is read on the host itself (a Samba mount, say), and an
+`http(s)://` file is downloaded by the host; neither passes through the registry. It runs as a
+background job like `--sdk` boots, with the path and sha256 of every file in the job log.
+Nothing is flashed.
 
-Programs can do the same over HTTP: `PUT /api/v1/artifacts/<sha256>?name=FILE` with the file as
-the body (checked against the sha256; `GET` the same URL to see whether it is cached), then
-`dut_stage` or `dut_boot_files` with the sha256 values.
+Programs can create a ticket, copy the file with scp, then adopt it:
+`POST /api/v1/artifacts/ticket?sha256=HEX&name=FILE` returns a path on the host; scp the file
+there; `POST /api/v1/artifacts/adopt?ticket=ID&sha256=HEX&name=FILE` checks and caches it. Then
+`dut_stage` or `dut_boot_files` takes the sha256. File bytes never go through an HTTP request
+body, because large bodies crash Node on some RISC-V hosts.
 
 ### Flashing a package
 

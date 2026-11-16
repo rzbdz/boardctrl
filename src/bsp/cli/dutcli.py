@@ -186,12 +186,17 @@ def dut_cmd(fleet: Fleet, args, book: LeaseBook) -> tuple[Any, str]:
             raise InvalidRequest("give either --sdk SDK or --files F1 [F2 ...]",
                                  hint="--sdk runs the SDK's boot recipe; --files boots these local files in order")
         if args.files:
-            arts = [upload(h, f, out) for f in args.files]
+            refs = []
+            for f in args.files:
+                if f.startswith("host:") or re.match(r"^https?://", f):
+                    refs.append(f)          # the host reads it itself; never uploaded
+                else:
+                    refs.append(upload(h, f, out)["sha256"])
             r = _ok(h, h.call("dut_boot_files", {
-                "dut": dut, "files": ",".join(a["sha256"] for a in arts), "lease": _lease(args, book, dut),
+                "dut": dut, "files": ",".join(refs), "lease": _lease(args, book, dut),
                 "reset": not args.no_reset, "first_wait": args.first_wait, "later_wait": args.later_wait,
                 "port_timeout": args.port_timeout}))
-            print(f"{dut} @ {h.id}: boot {len(arts)} file(s) job {r['job']}", file=out, flush=True)
+            print(f"{dut} @ {h.id}: boot {len(refs)} file(s) job {r['job']}", file=out, flush=True)
         else:
             r = _ok(h, h.call("dut_boot", {"dut": dut, "sdk": args.sdk, "method": args.method,
                                             "variant": args.variant, "brk": args.brk, "lease": _lease(args, book, dut)}))
@@ -276,7 +281,7 @@ def upload(h: HostHandle, path: str, out=None) -> dict[str, Any]:
     if not have.get("present"):
         t0 = time.time()
         _ok(h, h.transport.upload(f"/api/v1/artifacts/{sha}?name={quote(name)}", path,
-                                  timeout=max(120.0, size / (1 << 20) * 3)))
+                                  timeout=max(120.0, size / (1 << 20) * 3), sha256=sha, name=name))
         if out:
             print(f"  sent {name} to {h.id} ({size:,} B in {time.time() - t0:.1f}s)", file=out, flush=True)
     elif out:

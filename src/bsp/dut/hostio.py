@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 import shlex
+import stat
 import subprocess
 import time
 from datetime import date
@@ -352,6 +353,22 @@ class ArtifactStore:
             raise InvalidRequest(f"not a sha256: {sha256!r}", hint="64 lowercase hex digits")
         return Upload(self, sha256, _clean_name(name))
 
+    def adopt_path(self, path: str) -> dict[str, Any]:
+        """Copy a file already on this host into the cache (a Samba mount, a path bspd can read)."""
+        p = Path(path).expanduser()
+        if not p.is_absolute():
+            raise InvalidRequest(f"host file path must be absolute: {path}")
+        if not p.is_file():
+            raise InvalidRequest(f"no such file on this host: {path}")
+        if not p.stat().st_size:
+            raise InvalidRequest(f"refusing an empty file: {path}")
+        sha = _sha256(p)
+        if self.find(sha) is None:
+            with open(p, "rb") as f:
+                self.put(sha, p.name, iter(lambda: f.read(1 << 20), b""))
+        final = self.get(sha)
+        return {"sha256": sha, "path": str(final), "size": final.stat().st_size, "name": final.name}
+
     def adopt(self, tmp: Path, sha256: str, name: str) -> Path:
         """Move a file whose content was checked to hash to `sha256` into the cache (same filesystem)."""
         have = self.find(sha256)
@@ -373,6 +390,51 @@ class ArtifactStore:
             return up.commit()
         finally:
             up.abort()
+
+    # ------------------------------------------------------ scp tickets --
+    def ticket(self, sha256: str, name: str) -> dict[str, str]:
+        """A place on this host for a file arriving over scp, and the id that adopts it.
+
+        The caller copies the file there with scp (never through bspd's HTTP body), then `adopt_ticket`
+        checks the content and moves it into the cache. The directory is under the cache, so the move is
+        atomic and no large file is ever read into memory.
+        """
+        if not SHA256.fullmatch(sha256 or ""):
+            raise InvalidRequest(f"not a sha256: {sha256!r}", hint="64 lowercase hex digits")
+        import uuid
+
+        incoming = self.root / ".incoming"
+        incoming.mkdir(parents=True, exist_ok=True)
+        ticket = uuid.uuid4().hex
+        d = incoming / ticket
+        d.mkdir(mode=0o700)
+        path = d / _clean_name(name)
+        return {"id": ticket, "path": str(path)}
+
+    def adopt_ticket(self, ticket: str, sha256: str, name: str) -> dict[str, Any]:
+        """Take a file copied to a `ticket` path into the cache, after checking it is that content."""
+        if not re.fullmatch(r"[0-9a-f]{32}", ticket or ""):
+            raise InvalidRequest(f"not an upload ticket: {ticket!r}")
+        path = self.root / ".incoming" / ticket / _clean_name(name)
+        try:
+            st = path.lstat()
+        except FileNotFoundError:
+            raise InvalidRequest("the file did not arrive on this host",
+                                 hint="copy it to the ticket's path with scp, then adopt it again") from None
+        if not stat.S_ISREG(st.st_mode):
+            raise InvalidRequest("the ticket path is not a regular file")
+        if not st.st_size:
+            raise InvalidRequest("refusing an empty file")
+        got = _sha256(path)
+        if got != sha256:
+            raise InvalidRequest(f"the file copied to this host does not match its sha256 (got {got[:16]}...)")
+        had = self.find(sha256) is not None
+        final = self.adopt(path, sha256, name)
+        try:
+            path.parent.rmdir()
+        except OSError:
+            pass
+        return {"sha256": sha256, "path": str(final), "size": final.stat().st_size, "stored": not had}
 
 
 def _clean_name(name: str) -> str:

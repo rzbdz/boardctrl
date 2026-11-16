@@ -1,14 +1,17 @@
-"""Transports to a bsp-hostd: direct HTTP, or HTTP tunnelled over SSH.
+"""Transports to a bsp-hostd: direct HTTP, or HTTP over SSH.
 
 Networks often allow only SSH between subnets (build server -> board host:
 port 22 open, 8765 filtered). SshTransport runs `curl` against the host's
 loopback over one multiplexed SSH connection, so the CLI works unchanged.
+Large files are copied with scp, never through an HTTP request body.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import shlex
 import socket
 import subprocess
@@ -16,7 +19,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 # never route bsp traffic through an HTTP proxy from the environment
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -67,7 +70,8 @@ class HttpTransport:
         except (urllib.error.URLError, OSError) as e:
             raise Unreachable(self.url, getattr(e, "reason", e)) from None
 
-    def upload(self, path: str, file: str, timeout: float = 600) -> Any:
+    def upload(self, path: str, file: str, timeout: float = 600, sha256: str | None = None,
+               name: str | None = None) -> Any:
         """PUT a file as the request body, streamed from disk (kernel FITs are ~100 MB)."""
         size = os.path.getsize(file)
         with open(file, "rb") as f:
@@ -98,13 +102,28 @@ class HttpTransport:
             raise Unreachable(self.url, getattr(e, "reason", e)) from None
 
 
-def _ssh_base(target: str) -> list[str]:
+def _ssh_options() -> list[str]:
     cdir = Path(os.environ.get("XDG_RUNTIME_DIR") or Path.home() / ".cache") / "bsp-ssh"
     cdir.mkdir(parents=True, exist_ok=True, mode=0o700)
     # BSP_SSH_OPTIONS: more ssh options, for a program driving bsp with ssh setup of its own (boardlab: its key).
     extra = shlex.split(os.environ.get("BSP_SSH_OPTIONS", ""))
-    return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new",
-            "-o", "ControlMaster=auto", "-o", f"ControlPath={cdir}/%r@%h:%p", "-o", "ControlPersist=300", *extra, target]
+    return ["-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "ControlMaster=auto", "-o", f"ControlPath={cdir}/%r@%h:%p", "-o", "ControlPersist=300", *extra]
+
+
+def _ssh_base(target: str) -> list[str]:
+    return ["ssh", *_ssh_options(), target]
+
+
+_REMOTE_SAFE = re.compile(r"/[A-Za-z0-9._/-]+")
+
+
+def _sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 class SshTransport:
@@ -152,9 +171,46 @@ class SshTransport:
         except ValueError:
             raise Unreachable(self.label, f"non-JSON reply: {r.stdout[:120]!r}") from None
 
-    def upload(self, path: str, file: str, timeout: float = 600) -> Any:
-        """PUT a file over the ssh tunnel: ssh streams it into `curl -T -` on the host, which sends it on
-        without buffering the whole file (unlike --data-binary)."""
+    def upload(self, path: str, file: str, timeout: float = 600, sha256: str | None = None,
+               name: str | None = None) -> Any:
+        """Copy a file to the host over scp, never through an HTTP body.
+
+        bspd gives a ticket path under its artifact cache; scp writes the bytes there; bspd then checks
+        the sha256 and moves the file into the cache. Old bspd without tickets still gets the streamed
+        PUT, so a mixed-version lab keeps working.
+        """
+        if not os.path.isfile(file):
+            raise FileNotFoundError(file)
+        size = os.path.getsize(file)
+        sha = sha256 or _sha256(file)
+        label = name or os.path.basename(file)
+        query = f"sha256={quote(sha)}&name={quote(label)}"
+        ticket = self.request("POST", f"/api/v1/artifacts/ticket?{query}", timeout=30)
+        if not ticket.get("ok"):
+            return self._upload_http(path, file, timeout)
+        target = (ticket.get("result") or {}).get("path")
+        if not isinstance(target, str) or not target.startswith("/") or not _REMOTE_SAFE.fullmatch(target):
+            raise Unreachable(self.label, f"bspd gave an unusable upload path: {target!r}")
+        t0 = os.times().elapsed
+        try:
+            r = subprocess.run(["scp", "-q", *_ssh_options(), file, f"{self.target}:{target}"],
+                               capture_output=True, text=True, timeout=timeout + 15)
+        except subprocess.TimeoutExpired:
+            raise Unreachable(self.label, "scp timed out") from None
+        if r.returncode == 255:
+            raise Unreachable(self.label, (r.stderr.strip() or "scp failed")[-200:])
+        if r.returncode != 0:
+            raise Unreachable(self.label, f"scp rc={r.returncode}: {r.stderr.strip()[-200:]}")
+        adopted = self.request("POST", f"/api/v1/artifacts/adopt?ticket={quote((ticket['result'])['id'])}&{query}",
+                               timeout=60)
+        if not adopted.get("ok"):
+            raise Unreachable(self.label, f"bspd did not adopt the file: {adopted}")
+        if os.environ.get("BSP_DEBUG"):
+            print(f"scp {label} ({size:,} B) to {self.target} in {os.times().elapsed - t0:.1f}s", flush=True)
+        return adopted
+
+    def _upload_http(self, path: str, file: str, timeout: float) -> Any:
+        """PUT a file over the ssh tunnel for a bspd that predates scp tickets."""
         cmd = ["curl", "-sS", "--noproxy", "*", "-m", str(int(timeout)), "-T", "-",
                "-H", "Content-Type: application/octet-stream", "-H", "Accept: application/json"]
         if self.token:

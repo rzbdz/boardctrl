@@ -28,4 +28,15 @@ def artifact_router(mod) -> APIRouter:
     async def get_artifact(sha256: str):
         return {"ok": True, "result": mod.artifact_has(sha256)}
 
+    @r.post("/api/v1/artifacts/ticket", summary="A path on this host to scp a file to, before adopting it")
+    async def ticket_artifact(sha256: str, name: str = "file"):
+        return {"ok": True, "result": mod.store.ticket(sha256, name)}
+
+    @r.post("/api/v1/artifacts/adopt", summary="Check a file copied to a ticket path and put it in the cache")
+    async def adopt_artifact(ticket: str, sha256: str, name: str = "file"):
+        res = mod.store.adopt_ticket(ticket, sha256, name)
+        if res["stored"]:
+            mod._event("artifact", sha256=sha256, file=Path(res["path"]).name, size=res["size"])
+        return {"ok": True, "result": res}
+
     return r

@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+from pathlib import Path
 
 from typing import Any
 
@@ -500,11 +501,20 @@ class DutModule(Module):
         self._guard_busy(dut)
         shas = [s.strip() for s in (files or "").split(",") if s.strip()]
         if not shas:
-            raise InvalidRequest("no files to boot", hint="files = comma list of sha256 of uploaded files, in boot order")
+            raise InvalidRequest("no files to boot", hint="files = comma list of sha256, host:/absolute/path or http(s) URL, in boot order")
         items = []
-        for sha in shas:
-            p = self.store.get(sha)
-            items.append({"sha256": sha, "path": str(p), "name": p.name, "size": p.stat().st_size})
+        for spec in shas:
+            if spec.startswith("host:"):
+                got = self.store.adopt_path(spec[5:])
+            elif spec.startswith("http://") or spec.startswith("https://"):
+                from . import flashpkg
+
+                got = flashpkg.fetch(self.store, spec, None, lambda _line: None)
+                got = {**got, "name": Path(got["path"]).name}
+            else:
+                p = self.store.get(spec)
+                got = {"sha256": spec, "path": str(p), "size": p.stat().st_size, "name": p.name}
+            items.append(got)
         runner = b.runner(self)
         names = " ".join(i["name"] for i in items)
         job = self._start_job(dut, f"boot files {names}",
