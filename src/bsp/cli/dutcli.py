@@ -110,7 +110,13 @@ def _resolve(fleet: Fleet, ref: str, c: str) -> tuple[HostHandle, str, dict[str,
 
 def dut_cmd(fleet: Fleet, args, book: LeaseBook) -> tuple[Any, str]:
     c = args.dut_cmd
-    h, dut, slot = _resolve(fleet, args.dut, c)
+    h, dut, slot = _resolve(fleet, args.dut, c) if c != "ports" else (None, None, None)
+    if c == "ports":
+        rows = [r.get("result") or [] for _, r in fleet.fan("dut_ports", {}) if r.get("ok")]
+        if len(rows) != len(fleet.require()):
+            raise Unreachable("dut ports", "a host did not return its port snapshot")
+        ports = [p for row in rows for p in row]
+        return ports, "\n".join(p["usb"] for p in ports) or "(none)"
     if slot and not slot.get("dut"):        # an empty slot: only its console
         return slot_cmd_on(h, slot, "pipe" if c == "pipe" else "console" if c == "console" else "status", args)
     if c == "status":
@@ -676,6 +682,7 @@ def add_parsers(sub) -> None:
     dl.add_argument("--soc", help="only this SoC (as named in the SoC profiles)")
     dl.add_argument("--sdk", help="only DUTs that can run this SDK")
     dl.add_argument("--free", action="store_true", help="only DUTs nobody leases")
+    ds.add_parser("ports", help="download-port candidates from the host's port watcher (no discovery or reset)")
     ex = ds.add_parser("export", help="registered DUT specs as YAML; --dir writes one <site>/duts/<id>.yaml per board")
     ex.add_argument("--dir", help="write each board to DIR/<id>.yaml (e.g. $BSP_SITE/duts) instead of printing")
     ex.add_argument("--host", help="only boards of this host")
