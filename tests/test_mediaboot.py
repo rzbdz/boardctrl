@@ -49,20 +49,23 @@ class Board:
             self.out += "SPL 2022.10\n"
         return "OKAY"
 
-    # console
+    # console: use SerialConsole's marker shape, with the log's byte stream as backing.
     alias = "s1"
 
     def mark(self):
-        return len(self.out)
+        # The real SerialConsole returns a (Path, byte offset), never an integer usable as read_since's marker.
+        from pathlib import Path
+        return Path("console.log"), len(self.out)
 
     def read_since(self, mark):
-        return self.out[mark:]
+        path, offset = mark
+        return self.out[offset:]
 
     def tail(self, n):
         return self.out.splitlines()[-n:]
 
     def wait(self, mark, rx, fail, timeout, *rest):
-        if not re.search(rx, self.out[mark:]):
+        if not re.search(rx, self.out[mark[1]:]):
             raise HardwareTimeout(f"/{rx}/ not seen")
 
     # control
@@ -87,10 +90,27 @@ def image(tmp_path, data=IMAGE):
 
 
 def test_an_already_waiting_download_port_uses_its_existing_rom_evidence_without_a_reset(tmp_path):
-    # The person (or an earlier relay reset) already left this strapped board in FDL. No new banner arrives now:
-    # judging only the console text since this request would falsely reject the valid NOR download state.
+    from bsp.dut.hostio import SerialConsole
+
+    # Exercise the production marker: a retained ROM banner read through SerialConsole, not an integer offset.
+    con = SerialConsole("board-a", log_dir=str(tmp_path))
+    con.log_dir.mkdir()
+    con._log_path().write_text(BANNER)
     b = Board()
-    b.out = BANNER
+    b.mark, b.read_since = con.mark, con.read_since
+    b.tail = lambda n=50: con.tail(n)
+    b.wait = con.wait
+    command = b.cmd
+
+    def cmd(*args, **kwargs):
+        result = command(*args, **kwargs)
+        if args[0] == "continue":
+            # The real serial backend appends the boot output to the console log, not to a fake string.
+            with con._log_path().open("a") as f:
+                f.write("SPL 2022.10\n")
+        return result
+
+    b.cmd = cmd
     lines = []
     r = MediaBoot(spec(), profile(image(tmp_path))).run(runner(b), lines.append)
     assert b.calls == ["getvar rom-version", "stage handoff.bin", "continue"]

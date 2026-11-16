@@ -101,14 +101,16 @@ class MediaBoot:
         # Current state is not necessarily new console output: a board already sitting in FDL may have printed its
         # ROM banner before this request. Check retained console output first; only a reset needs a new log window.
         # This applies equally to relay and human controls (and their different notification/timeout behavior).
-        before = runner.console.read_since(0)
+        retained = runner.console.mark()
+        # A marker is (log path, byte offset), not a bare integer. Offset zero retains the earlier ROM banner.
+        before = runner.console.read_since((retained[0], 0))
         try:
             waiting = runner.fb.state() is not None
         except Exception:  # no download port is the normal reason to reset, not a stale-log success
             waiting = False
         if waiting and before.strip():
             log(f"{self.name}: the download port is already present; verify the existing ROM state")
-            runner.run_steps(self.cfg["steps"], log, images=images, what=self.name, since=0)
+            runner.run_steps(self.cfg["steps"], log, images=images, what=self.name, since=(retained[0], 0))
         else:
             since = runner.console.mark()
             runner.enter_fdl(log)
