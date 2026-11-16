@@ -1028,6 +1028,22 @@ class DutModule(Module):
         """Serial and USB devices on this host right now (as the port watcher last saw them)."""
         return self.port_watcher.current if self.port_watcher else {}
 
+    def download_ports(self) -> list[dict[str, str]]:
+        """Known download-port candidates from the existing watcher snapshot; no board discovery or reset.
+
+        Registration needs only these selectors, not a full probe plan. The watcher keeps vendor/product ids; the
+        configured SoC vendor filter removes ordinary USB devices without running a hook for every page view.
+        """
+        vids = {str(v).lower() for v in (self.probe_cfg.get("usb_vids") or self.socs.usb_vids())}
+        out = []
+        for entry in self.ports().get("usb", []):
+            usb, _, ids = str(entry).partition(" ")
+            vid, _, pid = ids.partition(":")
+            if vids and vid.lower() not in vids:
+                continue
+            out.append({"usb": usb, "vid": vid, "pid": pid})
+        return out
+
     def _ports_changed(self, change: dict, now: dict) -> None:
         # A new adapter is a new slot with its own console; one that went away drops its slot, or leaves it offline
         # (and the card greyed) while a board is registered there.

@@ -30,6 +30,8 @@ def build_commands(mod: "DutModule") -> list[Command]:
             render=_render_list, mutating=False),
         cmd("dut.status", "One DUT: lease, stage (fdl/fastboot/os), fastboot, control lines, console tail",
             mod.status, [DUT], render=_render_status, mutating=False),
+        cmd("dut.ports", "USB download-port candidates from the host's port watcher (no discovery or reset)",
+            mod.download_ports, [], render=lambda ds: "\n".join(d["usb"] for d in ds) or "(none)", mutating=False),
         cmd("dut.acquire", "Lease a DUT (needed for reset/boot/console); returns a token",
             mod.acquire,
             [DUT, Param("holder", help="who holds it (user or agent id)", required=False, positional=False,
