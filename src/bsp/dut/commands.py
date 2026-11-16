@@ -183,7 +183,8 @@ def build_commands(mod: "DutModule") -> list[Command]:
              Param("register_found", "boolean", "register each board the moment it is found", required=False,
                    default=False),
              Param("known", "boolean", "only try reset lines slots had before (fast recovery after re-cabling)",
-                   required=False, default=False)],
+                   required=False, default=False),
+             Param("prefer", help="try these header GPIOs first, as written on the board (12,13 / GPIO12)", required=False)],
             render=_render_probe,
             description="Hook-driven (hooks/probe/*). Results are proposals: confirm with `bsp dut add`, "
                         "or pass register=true to register each board as it is found."),

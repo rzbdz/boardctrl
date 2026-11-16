@@ -502,21 +502,28 @@ def probe(fleet: Fleet, args) -> tuple[Any, str]:
     params = {"pins": args.pins, "consoles": consoles, "identify": not args.no_identify,
               "sdks": args.sdks, "dry_run": args.dry_run, "human": args.human, "rounds": args.rounds,
               "wait_s": args.wait, "register_found": bool(args.register or (args.yes and not args.dry_run)),
-              "known": args.known, "prefer": args.prefer}
+              "known": args.known}
+    # Older board hosts do not know `prefer`; only send it when a person named pins.
+    if args.prefer:
+        params["prefer"] = args.prefer
     if args.human and len(fleet.require()) > 1:
         raise InvalidRequest("a human probe asks a person to reset boards on one host at a time",
                              hint=f"pick the host with -r ({', '.join(h.id for h in fleet.hosts())})")
     out = sys.stderr if args.json else sys.stdout
-    jobs = []
+    jobs, failed = [], []
     for h, r in fleet.fan("dut_probe", params):
         if not r.get("ok"):
             print(f"[{h.id}] probe not started: {r['error']['message']}", file=out)
+            failed.append(f"{h.id}: {r['error']['message']}")
             continue
         if args.dry_run:
             jobs.append((h, r["result"]))
             continue
         print(f"[{h.id}] probing (job {r['result']['job']}) ...", file=out, flush=True)
         jobs.append((h, r["result"]["job"]))
+    if not jobs:
+        raise RemoteError("probe did not start on any host" + (f": {'; '.join(failed)}" if failed else ""),
+                          hint="check the host's bspd version and token (`bsp hosts`)")
     if args.dry_run:
         return {h.id: res for h, res in jobs}, json.dumps({h.id: res for h, res in jobs}, indent=2, ensure_ascii=False)
     results: dict[str, Any] = {}
