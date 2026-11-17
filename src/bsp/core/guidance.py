@@ -123,10 +123,13 @@ def resolve(args: Any, site: Path | None = None) -> tuple[Any, str]:
         skill = sdk_skill(args.sdk, site)
         if skill:
             blocks.append(skill)
-    if not blocks:
+    asked = bool(getattr(args, "soc", None) or getattr(args, "sdk", None))
+    if not blocks and not asked:
         blocks = _docs("hints", site)
     if not blocks:
-        return [], "nothing configured for this (see `bsp hints --list`)"
+        what = " ".join(x for x in (getattr(args, "soc", None) and f"--soc {args.soc}",
+                                    getattr(args, "sdk", None) and f"--sdk {args.sdk}") if x)
+        return [], f"nothing configured for {what} (see `bsp hints --list`; a board's host may name its SoC and SDKs)"
     parts = []
     for block in blocks:
         title = f"## {block['name']}" + (f"  ({block['layer']})" if block.get("layer") else "")

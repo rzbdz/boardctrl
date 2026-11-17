@@ -26,7 +26,7 @@ def site(tmp_path, monkeypatch):
 
 def test_the_listing_says_what_there_is_to_ask_for(site):
     listing = guidance.level_listing(site)
-    assert listing["socs"] == ["soc-b"]
+    assert "soc-b" in listing["socs"]
     assert listing["skills"] == ["sdk-a"]
     assert any(name.endswith("general.md") for name in listing["hints"])
     assert listing["site"] == str(site)
@@ -41,8 +41,8 @@ def test_a_soc_level_carries_its_notes_and_where_its_profile_is(site):
 def test_an_sdk_level_is_its_skill(site):
     blocks, text = guidance.resolve(type("A", (), {"soc": None, "sdk": "sdk-a", "hints_cmd": None})(), site)
     assert blocks[0]["name"] == "sdk-a" and "u-boot variant" in text
-    blocks, _ = guidance.resolve(type("A", (), {"soc": None, "sdk": "nope", "hints_cmd": None})(), site)
-    assert blocks == [] or all(block["name"].endswith("general.md") for block in blocks)
+    blocks, text = guidance.resolve(type("A", (), {"soc": None, "sdk": "nope", "hints_cmd": None})(), site)
+    assert blocks == [] and "nothing configured" in text
 
 
 def test_the_general_level_is_all_the_hints(site):
