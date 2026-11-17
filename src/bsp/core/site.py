@@ -9,8 +9,8 @@ hints/), merged in order; later layers override earlier ones:
          <site>/bsp.yaml; default: every pack in the repo). A future "distribution" is
          a curated set of packs plus procedure templates.
   site   private, outside the repo: hosts, build servers, SDK trees and layouts, boot /
-         flash recipes, probe images, DUTs, credentials, hints. Found at $BSP_SITE,
-         ~/.config/bsp/site or /etc/bsp/site.
+         flash recipes, probe images, DUTs, credentials, hints. Found at $BOARDCTRL_SITE,
+         ~/.config/boardctrl/site or /etc/boardctrl/site (and the older bsp paths).
 
 examples/site/ in the repo is a complete, made-up site showing every format.
 """
@@ -27,7 +27,12 @@ PACKS = REPO / "packs"
 
 
 def site_dir() -> Path | None:
-    cands = [naming.get("BOARDCTRL_SITE"), str(Path.home() / ".config" / "bsp" / "site"), "/etc/bsp/site"]
+    """The site this client reads: $BOARDCTRL_SITE, ~/.config/boardctrl/site, /etc/boardctrl/site.
+    The paths the command used before its rename are read when the new one does not exist."""
+    home = Path.home()
+    cands = [naming.get("BOARDCTRL_SITE"),
+             str(home / ".config" / "boardctrl" / "site"), str(home / ".config" / "bsp" / "site"),
+             "/etc/boardctrl/site", "/etc/bsp/site"]
     for c in cands:
         if c and Path(c).expanduser().is_dir():
             return Path(c).expanduser().resolve()

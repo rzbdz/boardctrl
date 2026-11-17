@@ -33,7 +33,7 @@ def test_single_sdk_sentence_and_backup(tmp_path):
     assert res["sdks"] == ["bsp-a"] and res["file"].endswith("linux/SKILL.md")
     assert "already configured as the SDK `bsp-a`" in text and "`board-1` @ lab-1" in text
     assert "board-2" not in text
-    assert text.startswith("---\nname: bsp-dev-loop")                               # frontmatter kept first
+    assert text.startswith("---\nname: boardctrl")                                  # frontmatter kept first
     assert install.SKILL_SRC.read_text().split("---", 2)[2].strip() in text         # full skill copied
     res2 = install.install(tree / "linux", cat, DUTS, "bsp")
     assert res2["backup"] and Path(res2["backup"]).exists()

@@ -5,8 +5,8 @@ Resolution order for which instance a command talks to (per invocation):
 
 Remotes = the site list (<site>/remotes.json, see core/site.py; the repo ships none),
 then the hosts that announced themselves to a registry ("registry": URL in remotes.json, or
-$BSP_REGISTRY; their addresses take precedence), overlaid by the user file ($BSP_CONFIG, else $XDG_CONFIG_HOME/bsp/remotes.json,
-else ~/.config/bsp/remotes.json). The user file and its default (`bsp remote use`)
+$BSP_REGISTRY; their addresses take precedence), overlaid by the user file ($BOARDCTRL_CONFIG, else $XDG_CONFIG_HOME/boardctrl/remotes.json,
+else ~/.config/boardctrl/remotes.json — a host set up before the rename keeps its bsp path). The user file and its default (`bsp remote use`)
 are a convenience for interactive shells only. Agents and parallel jobs should
 pass -r/--url or set $BSP_REMOTE per process; --stateless ($BSP_STATELESS=1)
 enforces that by ignoring the user file and refusing to fall back to a default.
@@ -77,7 +77,8 @@ def user_config_path() -> Path:
     if naming.get("BOARDCTRL_CONFIG"):
         return Path(naming.get("BOARDCTRL_CONFIG") or "")
     base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
-    return base / "bsp" / "remotes.json"
+    current, old = base / "boardctrl" / "remotes.json", base / "bsp" / "remotes.json"
+    return old if old.is_file() and not current.exists() else current
 
 
 def _read(path: Path) -> dict[str, Any]:

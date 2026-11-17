@@ -2,7 +2,7 @@
 
 Fleet = the bsp hosts this CLI talks to, discovered with zero configuration:
   * host mode  — a boardctrld answers on 127.0.0.1: only that host (it drives its own boards)
-  * remote mode — otherwise: every configured remote (built-in list + ~/.config/bsp/remotes.json)
+  * remote mode — otherwise: every configured remote (built-in list + ~/.config/boardctrl/remotes.json)
   `-r NAME[,NAME|all]` overrides either.
 DUT commands are routed to whichever host owns the DUT.
 """
@@ -24,9 +24,13 @@ from .transport import Unreachable
 
 
 def config_dir() -> Path:
+    """Where this client keeps its state: $BOARDCTRL_CONFIG's directory, else ~/.config/boardctrl.
+    A directory that only exists under the old name (`~/.config/bsp`) is used, not copied."""
     if naming.get("BOARDCTRL_CONFIG"):
         return Path(naming.get("BOARDCTRL_CONFIG") or "").parent
-    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "bsp"
+    base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    current, old = base / "boardctrl", base / "bsp"
+    return old if old.is_dir() and not current.exists() else current
 
 
 # ------------------------------------------------------------- leases --

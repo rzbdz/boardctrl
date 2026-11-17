@@ -1,6 +1,6 @@
 """`bsp install` — write ./SKILL.md for agents working in this directory.
 
-The file is the generic bsp skill (skills/bsp-dev-loop/SKILL.md) with a short
+The file is the generic bsp skill (skills/boardctrl/SKILL.md) with a short
 generated section on top saying what this directory is (which configured SDK
 targets live here), which boards can run them, and the hints of the active
 configuration layers (packs, then the site: `<layer>/hints/*.md`), so an agent
@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parents[3]
-SKILL_SRC = REPO / "skills" / "bsp-dev-loop" / "SKILL.md"
+SKILL_SRC = REPO / "skills" / "boardctrl" / "SKILL.md"
 
 
 def _aliases(path: str, server_raw: dict[str, Any]) -> list[str]:

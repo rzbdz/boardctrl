@@ -387,13 +387,14 @@ def _pipe_to(h: HostHandle, st: dict[str, Any], what: str) -> tuple[Any, str]:
 
     sock = st.get("console_socket")
     if not sock:
-        raise InvalidRequest(f"{h.id} does not report console sockets", hint="update bsp on that host")
+        raise InvalidRequest(f"{h.id} does not report console sockets", hint="update the board host on that machine")
     if not st.get("console_up"):
-        raise BspError(f"console {st.get('console') or st.get('alias')} of {what} is not running on {h.id}",
-                       hint=f"see `bsp slot list -r {h.id}`: its adapter may be unplugged")
+        raise BspError(f"the console of {what} is not running on {h.id}",
+                       hint=f"see `boardctrl dut status {what} -r {h.id}`: a trace console comes up with its "
+                            f"debug session; a serial one when its adapter is plugged in")
     loopback = isinstance(h.transport, HttpTransport) and \
         re.match(r"https?://(127\.0\.0\.1|localhost|\[::1\])(:|/|$)", h.transport.url)
-    if loopback and os.path.exists(sock):
+    if loopback and pipe.reachable(sock):
         return Quiet(pipe.local(sock)), None
     target = getattr(h.transport, "target", None) or h.remote.ssh
     if not target:
@@ -500,21 +501,7 @@ def dut_ports(fleet: Fleet, args) -> tuple[Any, str]:
             raise RemoteError(f"host {args.host!r} not reachable", hint=f"reachable: {', '.join(h.id for h in fleet.hosts())}")
     elif len(hs) > 1:
         raise InvalidRequest("several board hosts are reachable", hint=f"pass --host ({', '.join(h.id for h in hs)})")
-    r = _ok(hs[0], hs[0].call("dut_ports"))
-    lines = [f"{d['usb']}  {d.get('vid', '')}:{d.get('pid', '')}  {d.get('product', '')}".rstrip() for d in r]
-    return r, "\n".join(lines) or "no download ports on the bus"
-
-
-def dut_ports(fleet: Fleet, args) -> tuple[Any, str]:
-    """USB devices that may be a board's download port, for choosing a DUT's fastboot selector."""
-    hs = fleet.require()
-    if getattr(args, "host", None):
-        hs = [h for h in hs if h.id == args.host]
-        if not hs:
-            raise RemoteError(f"host {args.host!r} not reachable", hint=f"reachable: {', '.join(h.id for h in fleet.hosts())}")
-    elif len(hs) > 1:
-        raise InvalidRequest("several board hosts are reachable", hint=f"pass --host ({', '.join(h.id for h in hs)})")
-    r = _ok(hs[0], hs[0].call("dut_ports"))
+    r = _ok(hs[0], hs[0].call("dut_ports", {}))
     lines = [f"{d['usb']}  {d.get('vid', '')}:{d.get('pid', '')}  {d.get('product', '')}".rstrip() for d in r]
     return r, "\n".join(lines) or "no download ports on the bus"
 

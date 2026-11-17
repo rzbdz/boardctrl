@@ -13,10 +13,18 @@ import shlex
 BRIDGE = r'''
 import os, select, socket
 
-def bridge(path, fin, fout):
+def connect(target):
+    """A Unix socket path, or a loopback "127.0.0.1:port"."""
+    if target.startswith("/") or os.path.exists(target):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.connect(target)
+        return s
+    host, _, port = target.rpartition(":")
+    return socket.create_connection((host or "127.0.0.1", int(port)), timeout=5)
+
+def bridge(target, fin, fout):
     """Copy fin -> socket and socket -> fout until either side closes."""
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.connect(path)
+    s = connect(target)
     try:
         while True:
             ready, _, _ = select.select([fin, s], [], [])
@@ -46,5 +54,10 @@ def remote_command(sock_path: str) -> str:
     return f"python3 -c {shlex.quote(code)} {shlex.quote(sock_path)}"
 
 
-def local(sock_path: str) -> int:
-    return bridge(sock_path, 0, 1) if os.path.exists(sock_path) else 1
+def reachable(target: str) -> bool:
+    """Whether this machine can open `target` itself (a Unix socket that exists, or any loopback address)."""
+    return not target.startswith("/") or os.path.exists(target)
+
+
+def local(target: str) -> int:
+    return bridge(target, 0, 1) if reachable(target) else 1

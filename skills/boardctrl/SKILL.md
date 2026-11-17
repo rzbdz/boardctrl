@@ -1,16 +1,16 @@
 ---
-name: bsp-dev-loop
-description: Develop, build and hardware-test BSP / kernel / bootloader code on real boards through the `bsp` CLI. Use when asked to change SDK code and verify it on a board, build an SDK, boot or flash a board (DUT), reset it, read its serial console or dmesg, find which boards and SDKs exist, manage boards, or extend bsp with a new SDK, board or procedure.
+name: boardctrl
+description: Develop, build and hardware-test BSP / kernel / bootloader code on real boards through the `boardctrl` CLI. Use when asked to change SDK code and verify it on a board, build an SDK, boot or flash a board (DUT), reset it, read its serial console or dmesg, find which boards and SDKs exist, manage boards, or extend boardctrl with a new SDK, board or procedure.
 ---
 
-# bsp dev loop
+# boardctrl
 
-> **Stay on the CLI.** If `bsp` commands do what you need, do not read bsp's source, configs or
+> **Stay on the CLI.** If `bsp` commands do what you need, do not read boardctrl's source, configs or
 > hooks, and do not ssh into board hosts or build servers to look around — it only costs time.
-> Act on `error.hint` first. Dig into bsp internals only when a command keeps failing and its hint
+> Act on `error.hint` first. Dig into boardctrl internals only when a command keeps failing and its hint
 > does not resolve it, or when the user asks you to extend bsp (see the last sections).
 
-`bsp` is the only tool you need. It hides the network: SDK source trees live on build
+`boardctrl` (formerly `bsp`) is the only tool you need. It hides the network: SDK source trees live on build
 servers, boards (DUTs) hang off board hosts. You never ssh anywhere yourself for the normal
 loop and never touch GPIO, fastboot or serial devices directly. Names below in `<angle
 brackets>` come from `boardctrl sdk list` / `boardctrl dut list` (or the header of a generated SKILL.md).
