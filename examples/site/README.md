@@ -11,7 +11,7 @@ Addresses use the documentation range 192.0.2.0/24. The test suite runs against 
 | `remotes.json` | CLI | board hosts: url, fallback urls, ssh target |
 | `hosts/<id>.yaml` | bsp-hostd | modules of one board host |
 | `deploy/<id>.env` | `deploy/deploy.sh <id>` | how to reach and install a host |
-| `boards/*.yaml` | gpio_relay | header pin maps of host controller boards |
+| `boards/*.yaml` | gpio | header pin maps of host controller boards |
 | `sdk/families/*.yaml` | CLI + hosts | build styles (make targets, env script + function, tree script) |
 | `sdk/servers/*.yaml` | CLI | build servers (ssh, path aliases, job environment) |
 | `sdk/workspaces/*.yaml` | CLI | source trees shared by several SDK targets (unit of locking) |

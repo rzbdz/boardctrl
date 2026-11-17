@@ -2,7 +2,7 @@
 reset/FDL, fastboot boot (load / download), serial console, and auto-discovery (probe).
 
 Each DUT (`Board`) is the three services of the host bound to one board:
-  relay controller   its control backend (`control.py`): gpio_relay lines, or a person
+  relay controller   its control backend (`control.py`): gpio service lines, or a person
   download path      fastboot on its USB port and the artifact cache (`hostio.py`, `boot.py`)
   serial console     its serial-mux daemon (`consoles.py`, `hostio.SerialConsole`)
 Commands (`commands.py`) are the atomic layer under `bsp dut ...` / `bsp probe`."""
@@ -14,12 +14,13 @@ import logging
 import os
 import re
 from pathlib import Path
+from pathlib import Path
 
 from typing import Any
 
 from ..core.commands import Command
 from ..core.env import expand
-from ..core.errors import Conflict, HardwareError, InvalidRequest, BspError
+from ..core.errors import Conflict, HardwareError, InvalidRequest, NotFound, BspError
 from ..core.hooks import HookRunner
 from ..core.module import MODULES, Module, ModuleContext
 from ..core.net import local_addresses
@@ -33,13 +34,36 @@ from .mediaboot import MediaBoot
 from .leases import LeaseManager
 
 class Board:
-    """Runtime handles for one DUT (built from its spec)."""
+    """Runtime handles for one DUT (built from its spec): each role filled by the provider its record names."""
 
     def __init__(self, spec: DutSpec, mod: "DutModule"):
+        from . import services as bindings
+        from ..core.providers import build
+
         self.spec = spec
+        self.bindings = bindings.bindings(spec)
         self.control = make_control(spec, mod.ctx.service)
         self.fastboot = Fastboot(spec.usb, mod.fastboot_bin)
-        self.console = SerialConsole(spec.console_alias, mod.smtty, mod.serial_log_dir)
+        console = self.bindings.get("console") or {}
+        try:
+            self.console = build("console", console.get("provider", "serial-mux"), mod.ctx, spec, mod.ctx.service)
+        except BspError:
+            # A console provider that cannot start (no serial-mux here, a board without one): the rest still works.
+            from .console_providers import NoneConsole
+
+            self.console = NoneConsole(spec, {"provider": "none"})
+        debug = self.bindings.get("debug") or {}
+        from .debug import NoDebug
+
+        try:
+            self.debug = (build("debug", debug.get("provider", "none"), mod.ctx, spec, mod.ctx.service)
+                          if debug.get("provider", "none") != "none" else NoDebug(spec, debug))
+        except BspError:
+            self.debug = NoDebug(spec, debug)
+
+    @property
+    def console_alias(self) -> str | None:
+        return getattr(self.console, "alias", None)
 
     def runner(self, mod: "DutModule") -> BootRunner:
         expect = (self.spec.control.get("fdl") or {}).get("expect") or mod.socs.download_mode(self.spec.soc)
@@ -322,7 +346,7 @@ class DutModule(Module):
             ctl = {"error": e.message}
         try:
             tail = b.console.tail(4)
-        except OSError:
+        except (OSError, BspError):
             tail = []
         return {**b.spec.summary(), "sdks": self.effective_sdks(b.spec), "sdks_explicit": bool(b.spec.sdks),
                 "origin": self.registry.origin(dut), "lease": self.leases.view(dut),
@@ -331,16 +355,26 @@ class DutModule(Module):
                           else _stage(fb, self.socs.download_mode(b.spec.soc).get("fastboot"))),
                 "needs_human": self.attention.view(dut),
                 "control_state": ctl, "console_tail": tail,
-                "console_attach": f"{self.smtty} {b.console.alias}",     # interactive: run this on the host
-                "console_socket": str(self.consoles.socket(b.console.alias)),   # `bsp dut pipe` connects here
-                "console_up": self.consoles.up(b.console.alias), "slot": self.slot_of(dut),
+            # Preserve which actor performs each role when a human coordinates an FDL button and a relay pulses reset.
+            "control": {"backend": b.spec.control.get("backend"), "reset": dict(b.spec.control.get("reset") or {}),
+                        "fdl": dict(b.spec.control.get("fdl") or {})},
+                # interactive: run this on the host; and where `bsp dut pipe` connects
+                "console_attach": b.console.attach() or b.console.describe().get("attach"),
+                "console_socket": b.console.socket(),
+                "console_up": b.console.up(), "slot": self.slot_of(dut),
+                # what fills each role of this board (provider names only; the page and the CLI read them)
+                "services": {role: (b.bindings.get(role) or {}).get("provider") for role in
+                             ("relay", "console", "download", "flash", "debug")}
+                | ({"debug": b.debug.shelf()} if b.debug.kinds else {}),
                 # its slot's adapter is plugged in (False: unplugged or moved, the host may need a rebuild)
                 "slot_online": self._slot_online(b),
                 # how a plain reset boots its media: `reset` (FDL not strapped), the SoC's media boot, or not at all
                 "media_boot": self._media_state(b)}
 
     def _slot_online(self, b: Board) -> bool | None:
-        slot = self.slots.by_alias(b.console.alias)
+        if not b.console_alias:
+            return None
+        slot = self.slots.by_alias(b.console_alias)
         return self.slots.view(slot)["online"] if slot else None
 
     def _media_state(self, b: Board) -> dict[str, Any]:
@@ -461,6 +495,51 @@ class DutModule(Module):
         self._event("console", dut=dut, cmd=cmd)
         return {"dut": dut, **out}
 
+    # ---------------------------------------------------------------- debug
+    def debug_shelf(self) -> list[dict[str, Any]]:
+        """Every board's debug provider, for the page and `bsp debug list`."""
+        out = []
+        for dut, b in sorted(self.boards.items()):
+            try:
+                state = b.debug.state() if hasattr(b.debug, "state") else {}
+            except BspError as e:
+                state = {"error": e.message}
+            out.append({"dut": dut, "host": self.ctx.host_id, **b.debug.shelf(), **({"state": state} if state else {})})
+        return out
+
+    def debug_status(self, dut: str) -> dict[str, Any]:
+        b = self.board(dut)
+        return {"dut": dut, "host": self.ctx.host_id, **b.debug.info(),
+                **({"state": b.debug.state()} if hasattr(b.debug, "state") else {})}
+
+    def debug_start(self, dut: str, lease: str | None) -> dict[str, Any]:
+        """Bring a board's debug path up (a session under the board's lease)."""
+        b = self.board(dut)
+        self.leases.check(dut, lease)
+        self._guard_busy(dut)
+        out = b.debug.start(lease=lease)
+        self._event("debug", dut=dut, action="start")
+        return out
+
+    def debug_stop(self, dut: str, lease: str | None) -> dict[str, Any]:
+        b = self.board(dut)
+        self.leases.check(dut, lease)
+        out = b.debug.stop()
+        self._event("debug", dut=dut, action="stop")
+        return out
+
+    def debug_action(self, dut: str, action: str, lease: str | None) -> dict[str, Any]:
+        """One action of the provider (halt, run, reset, step, regs, …); the lease is held once, end to end."""
+        b = self.board(dut)
+        self.leases.check(dut, lease)
+        if action not in b.debug.kinds:
+            raise InvalidRequest(f"{dut}: its debug provider ({b.debug.provider_name}) offers {', '.join(b.debug.kinds) or 'nothing'}",
+                                 hint=f"bsp debug status {dut} shows what it has")
+        self._guard_busy(dut)
+        out = b.debug.action(action)
+        self._event("debug", dut=dut, action=action)
+        return {"dut": dut, "action": action, **out}
+
     def renew(self, dut: str, lease: str | None, ttl: int) -> dict[str, Any]:
         self.board(dut)
         out = self.leases.renew(dut, lease, ttl)
@@ -494,7 +573,7 @@ class DutModule(Module):
         return {"dut": dut, "sha256": sha256, "file": path.name, "size": path.stat().st_size,
                 "continued": continued, "output": out}
 
-    def boot_files(self, dut: str, files: str, lease: str | None, reset: bool, first_wait: float,
+    def boot_files(self, dut: str, files: list[str], lease: str | None, reset: bool, first_wait: float,
                    later_wait: float, port_timeout: float) -> dict[str, Any]:
         b = self.board(dut)
         self.leases.check(dut, lease)
@@ -758,8 +837,21 @@ class DutModule(Module):
         if fields.get("usb"):
             raw["fastboot"]["usb"] = fields["usb"]
             changed.append("usb")
+        for role in ("reset", "fdl"):
+            if fields.get(f"{role}_actor") != "human":
+                continue
+            raw["control"].pop(role, None)
+            if role == "fdl":
+                raw["control"]["backend"] = "human"
+                raw["control"]["fdl"]["strategy"] = "button"
+            changed.append(f"{role}_actor")
         if fields.get("reset_pin"):
             raw["control"]["reset"]["pin"] = fields["reset_pin"]
+            # Both roles relay-driven means no human coordinator; otherwise a person handles FDL and this pin resets.
+            if spec.control.get("backend") == "human" and (raw["control"].get("fdl") or {}).get("pin"):
+                raw["control"]["backend"] = "gpio-relay"
+            elif spec.control.get("backend") != "human":
+                raw["control"]["backend"] = "gpio-relay"
             changed.append("reset_pin")
         if fields.get("pulse_ms"):
             raw["control"]["reset"]["pulse_ms"] = int(fields["pulse_ms"])
@@ -785,7 +877,7 @@ class DutModule(Module):
 
     def _drop_aliases(self, dut: str) -> None:
         try:
-            self.ctx.service("gpio_relay").alias_delete(dut, prefix=True)
+            self.ctx.service("gpio").alias_delete(dut, prefix=True)
         except BspError:
             pass
 
@@ -989,6 +1081,27 @@ class DutModule(Module):
     def ports(self) -> dict[str, list[str]]:
         """Serial and USB devices on this host right now (as the port watcher last saw them)."""
         return self.port_watcher.current if self.port_watcher else {}
+
+    def usb_ports(self) -> list[dict[str, Any]]:
+        """USB devices that may be a board's download port, as `probe --dry-run` reports them."""
+        from .probe import Prober
+        return list(Prober(self, pins=None, consoles=None, identify=False, default_sdks=None).usb_snapshot().values())
+
+    def download_ports(self) -> list[dict[str, str]]:
+        """Known download-port candidates from the existing watcher snapshot; no board discovery or reset.
+
+        Registration needs only these selectors, not a full probe plan. The watcher keeps vendor/product ids; the
+        configured SoC vendor filter removes ordinary USB devices without running a hook for every page view.
+        """
+        vids = {str(v).lower() for v in (self.probe_cfg.get("usb_vids") or self.socs.usb_vids())}
+        out = []
+        for entry in self.ports().get("usb", []):
+            usb, _, ids = str(entry).partition(" ")
+            vid, _, pid = ids.partition(":")
+            if vids and vid.lower() not in vids:
+                continue
+            out.append({"usb": usb, "vid": vid, "pid": pid})
+        return out
 
     def usb_ports(self) -> list[dict[str, Any]]:
         """USB devices that may be a board's download port, as `probe --dry-run` reports them."""

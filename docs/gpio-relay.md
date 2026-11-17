@@ -28,14 +28,14 @@ from a board map (`boards/<id>.yaml`) in a pack or the site, selected by
 | `button` | `press`, `release`, `click` | A relay preset: active low, open drain. Pressing pulls the line to ground; releasing leaves it floating |
 
 ```bash
-bsp -r lab-1 gpio list
-bsp -r lab-1 gpio config P11 --mode button
-bsp -r lab-1 button click P11 --ms 300
-bsp -r lab-1 relay on bench/fan
+boardctrl -r lab-1 gpio list
+boardctrl -r lab-1 gpio config P11 --mode button
+boardctrl -r lab-1 button click P11 --ms 300
+boardctrl -r lab-1 relay on bench/fan
 ```
 
 Changes made with `gpio config` (or in the web console) are stored on the host as a runtime
-overlay. `bsp gpio export` prints the merged channels and aliases as YAML for
+overlay. `boardctrl gpio export` prints the merged channels and aliases as YAML for
 `hosts/<host>.yaml`, where they become the baseline.
 
 ## Wiring a reset button
@@ -59,12 +59,12 @@ sensitive) under `protected:` in the host configuration.
 
 Aliases give pins meaningful, hierarchical names such as `board-1/reset`. Components register
 the aliases they own — the `dut` module registers `<dut>/reset` and `<dut>/fdl` for each board —
-so a command can be passed straight through: `bsp dut reset board-1` becomes
+so a command can be passed straight through: `boardctrl dut reset board-1` becomes
 `button click board-1/reset` on the right pin.
 
 - Names are case-insensitive paths; they cannot look like a pin reference (`P12`, `33`, `GPIO5`).
 - Registering the same mapping twice is a no-op; pointing a name elsewhere needs `--replace`.
-- `bsp gpio alias list board-1` filters by prefix; `bsp gpio alias delete board-1 --prefix`
+- `boardctrl gpio alias list board-1` filters by prefix; `boardctrl gpio alias delete board-1 --prefix`
   removes a whole subtree.
 - Aliases in the host configuration are read-only.
 

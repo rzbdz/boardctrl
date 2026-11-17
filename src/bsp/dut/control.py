@@ -1,6 +1,6 @@
 """DUT control backends (strategy): how a board is reset / put into FDL.
 
-    gpio-relay      bsp gpio_relay on the same host (default)
+    gpio-relay      the host's gpio service (default)
     human           a person presses the buttons when asked (alias: manual). The request
                     shows in `bsp dut status/list` and as an event; the waiting reset/boot
                     continues when someone runs `bsp dut confirm <dut>` or when bsp sees the
@@ -127,6 +127,7 @@ class Attention:
 
 
 class ControlBackend(ABC):
+    """The board's two control roles. `fdl.strategy` decides topology; a role's GPIO/human actor only performs it."""
     needs_human = False      # reset/enter_fdl block until a person acts (run them as jobs)
 
     def __init__(self, dut: DutSpec, services: Callable[[str], Any]):
@@ -167,11 +168,11 @@ CONTROL_BACKENDS: Registry[type[ControlBackend]] = Registry("dut control backend
 
 @CONTROL_BACKENDS.register("gpio-relay")
 class GpioRelayControl(ControlBackend):
-    """Uses the host's gpio_relay service. Lines are registered as aliases
+    """Uses the host's gpio service. Lines are registered as aliases
     `<dut>/reset` and `<dut>/fdl` (pass-through rule: callers may use either)."""
 
     def _gpio(self):
-        return self._services("gpio_relay")
+        return self._services("gpio")
 
     def _alias(self, role: str) -> str:
         return f"{self.dut.id}/{role}"

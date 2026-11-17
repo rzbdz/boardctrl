@@ -1,18 +1,15 @@
-"""`bsp` — the atomic CLI for the bsp dev loop (humans and agents alike).
+"""`boardctrl` — the atomic CLI for a board host (humans and agents alike). `bsp` is its old name and still works.
 
 Client-side groups:
-    bsp hosts | init                    which board hosts are reachable (local or remote mode)
-    bsp probe                           discover boards on the host(s) and register them
-    bsp dut list|status|log|acquire|renew|release|reset|boot|stage|present|console|pipe|confirm|bind|logins|
-            add|remove|rename|set|export
-                                        boards, routed to whichever host owns them
-    bsp sdk list|show|status|plan|acquire|release|build|job|jobs|exec|get|put
-                                        SDK targets on build servers (lease, task branch, build)
-    bsp catalog list|get|put|recipe|rm|history|rollback|import|export|status
-                                        the SDK catalog in the registry (shared, versioned, validated)
-    bsp install                         write ./SKILL.md for AI agents working in this directory
-    bsp hints                           hints from the configuration (packs, site)
-    bsp remote list|add|remove|use|show manage known hosts (~/.config/bsp/remotes.json)
+    boardctrl hosts | init                  which board hosts are reachable (local or remote mode)
+    boardctrl probe                         discover boards on the host(s) and register them
+    boardctrl dut ...                       boards: list, status, lease, reset, boot, flash, console
+    boardctrl debug ...                      a board's debug path: list, status, start, stop, action, pipe
+    boardctrl sdk ...                       SDK targets on build servers (lease, task branch, build)
+    boardctrl catalog ...                   the SDK catalog in the registry (shared, versioned, validated)
+    boardctrl install                       write ./SKILL.md for agents working in this directory
+    boardctrl hints                         guidance by level: the site, one SoC, one SDK, or a board
+    boardctrl remote ...                    manage known hosts (~/.config/bsp/remotes.json)
 
 Host-level groups are fetched from the host and passed through
 (`gpio`, `relay`, `button`, `board`, `job`, `events`, `status`); pick the host
@@ -26,6 +23,8 @@ Exit codes: 0 ok, 1 failed, 2 usage error, 3 host unreachable.
 """
 
 from __future__ import annotations
+
+from ..core import naming
 
 import argparse
 import json
@@ -43,7 +42,7 @@ from .remotes import Remote, RemoteError, RemoteStore
 from .transport import Unreachable
 
 EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_UNREACHABLE = 0, 1, 2, 3
-CLIENT_GROUPS = {"hosts", "init", "probe", "dut", "slot", "sdk", "install", "hints", "catalog", "images"}
+CLIENT_GROUPS = {"hosts", "init", "probe", "dut", "slot", "debug", "sdk", "install", "hints", "catalog", "images"}
 
 
 def eprint(*a: Any) -> None:
@@ -74,7 +73,7 @@ def _probe_remote(r: Remote) -> dict[str, Any]:
 
 
 def remote_main(store: RemoteStore, argv: list[str], as_json: bool) -> int:
-    ap = argparse.ArgumentParser(prog="bsp remote", description="Manage named bsp host instances")
+    ap = argparse.ArgumentParser(prog="boardctrl remote", description="Manage named board host instances")
     sub = ap.add_subparsers(dest="cmd", metavar="<action>")
     ls = sub.add_parser("list", help="list instances with live status")
     ls.add_argument("--no-check", action="store_true", help="do not contact the instances")
@@ -127,14 +126,14 @@ def _global_parser() -> argparse.ArgumentParser:
     g = argparse.ArgumentParser(add_help=False)
     g.add_argument("-r", "--remote")
     g.add_argument("--url")
-    g.add_argument("--token", default=os.environ.get("BSP_TOKEN"))
+    g.add_argument("--token", default=naming.get("BOARDCTRL_TOKEN"))
     g.add_argument("--json", action="store_true")
     g.add_argument("--stateless", action="store_true")
     return g
 
 
 def _client_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="bsp", formatter_class=argparse.RawDescriptionHelpFormatter,
+    p = argparse.ArgumentParser(prog="boardctrl", formatter_class=argparse.RawDescriptionHelpFormatter,
                                 description=__doc__)
     sub = p.add_subparsers(dest="cmd", metavar="<command>")
     dutcli.add_parsers(sub)
@@ -143,7 +142,12 @@ def _client_parser() -> argparse.ArgumentParser:
     ins = sub.add_parser("install", help="write ./SKILL.md for agents: full bsp skill + what this directory is")
     ins.add_argument("--dir", default=".", help="directory to write SKILL.md into (default: current)")
     ins.add_argument("--offline", action="store_true", help="do not query board hosts for the board snapshot")
-    sub.add_parser("hints", help="hints from the configuration layers (packs, site) for agents and people")
+    hi = sub.add_parser("hints", help="guidance from the configuration layers, by level: all of it, one SoC, one SDK, "
+                                      "or the levels a board's SoC and SDKs bring (`--list` shows what there is)")
+    hi.add_argument("--soc", help="one SoC's notes and where its profile is")
+    hi.add_argument("--sdk", help="one SDK's skill (skills/<id>.md in the site or a pack)")
+    hi.add_argument("--dut", help="a board on a host: its SoC's notes and its SDKs' skills (asked of its host)")
+    hi.add_argument("--list", dest="hints_list", action="store_true", help="what there is to ask for, by level")
     im = sub.add_parser("images", help="images hosts stage (probe images, media-boot helpers): list, or fetch into the site")
     im.add_argument("images_cmd", nargs="?", choices=["list", "sync"], default="list",
                     help="list: where each comes from and whether the site has it; sync: fetch the missing ones once")
@@ -229,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
             elif args.cmd == "install":
                 result, text = _install(fleet, args)
             elif args.cmd == "hints":
-                result, text = _hints()
+                result, text = _hints(fleet, args)
             elif args.cmd == "images":
                 result, text = _images(args)
             else:
@@ -278,7 +282,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(hosts[0].get("/api/v1/tools?format=anthropic"), indent=2, ensure_ascii=False))
         return EXIT_OK
     specs = [CommandSpec.from_dict(t) for t in hosts[0].get("/api/v1/tools")["tools"]]
-    parser = argparse.ArgumentParser(prog="bsp", description=f"host commands ({', '.join(h.id for h in hosts)})")
+    parser = argparse.ArgumentParser(prog="boardctrl", description=f"host commands ({', '.join(h.id for h in hosts)})")
     build_parser(specs, parent=parser)
     try:
         name, cargs = parse_tokens(parser, rest)
@@ -330,14 +334,37 @@ def _images(args) -> tuple[Any, str]:
                            + (f"  sha256 {r['sha256'][:16]}..." if r.get("sha256") else "") for r in rows) or "no images"
 
 
-def _hints() -> tuple[Any, str]:
-    from ..core.site import hints, site_dir
+def _hints(fleet, args) -> tuple[Any, str]:
+    """`bsp hints`: the configuration layers' guidance, by level (see core/guidance.py).
 
-    rows = [{"name": n, "text": t} for n, t in hints()]
-    site = site_dir()
-    if not rows:
-        return rows, f"no hints configured (add <site>/hints/*.md; site: {site or 'none found'})"
-    return rows, "\n\n".join(f"## {r['name']}\n{r['text']}" for r in rows)
+    `--dut` asks the board's host which SoC it has and which SDKs it runs, then answers with those levels: the
+    agent does not have to know which notes apply before it asks.
+    """
+    from ..core import guidance
+    from ..core.site import site_dir
+
+    args.hints_cmd = "list" if getattr(args, "hints_list", False) else None
+    soc, sdk = getattr(args, "soc", None), getattr(args, "sdk", None)
+    if getattr(args, "dut", None):
+        h, dut, _ = dutcli._resolve(fleet, args.dut, "hints")
+        st = dutcli._ok(h, h.call("dut_status", {"dut": dut}))
+        soc = soc or st.get("soc") or None
+        sdks = list(st.get("sdks") or [])
+        blocks: list[dict[str, Any]] = []
+        if soc:
+            blocks += guidance.soc_docs(soc, site_dir())
+        for name in ([sdk] if sdk else sdks):
+            skill = guidance.sdk_skill(name, site_dir())
+            if skill:
+                blocks.append(skill)
+        blocks += [{"name": doc["name"], "layer": doc["layer"], "text": doc["text"], "path": doc["path"]}
+                   for doc in guidance._docs("hints", site_dir())]
+        if not blocks:
+            return [], f"{dut}: nothing configured for {soc or 'its SoC'} (see `bsp hints --list`)"
+        text = "\n\n".join(f"## {b['name']}" + (f"  ({b['layer']})" if b.get("layer") else "") + f"\n{b['text']}" for b in blocks)
+        return blocks, text
+    args.soc, args.sdk = soc, sdk
+    return guidance.resolve(args, site_dir())
 
 
 def _install(fleet: Fleet, args) -> tuple[Any, str]:

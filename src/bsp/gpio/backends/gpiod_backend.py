@@ -71,6 +71,22 @@ class GpiodBackend(GpioBackend):
             return gpiod.LineSettings(direction=Direction.OUTPUT, output_value=Value.ACTIVE if value else Value.INACTIVE)
         return gpiod.LineSettings(direction=Direction.INPUT)
 
+    def locate(self, gpio: int) -> tuple[str, int]:
+        """The chip path and line offset a Linux GPIO number is on, for a service that drives it directly."""
+        return self._locate(gpio)
+
+    def chip_label(self, gpio: int) -> str:
+        """The chip's device-tree label (`d4019000.gpio-bank3`), for configs that name chips rather than numbers."""
+        import gpiod
+
+        path, _ = self._locate(gpio)
+        with gpiod.Chip(path) as c:
+            return c.get_info().label
+
+    def fast_line(self, gpio: int):
+        """A line held as output and driven without the guard's thread hop (bit-banged buses)."""
+        return _GpiodFastLine(self, gpio)
+
     def _apply(self, gpio: int, output: bool, value: int = 0) -> None:
         import gpiod
 
@@ -121,3 +137,34 @@ class GpiodBackend(GpioBackend):
 
     def info(self) -> dict:
         return {"name": self.name, "chips": self._chips, "requested": sorted(self._requests)}
+
+
+class _GpiodFastLine:
+    """A line requested as output on its own, written straight through the request (no guard, no lock hop)."""
+
+    def __init__(self, backend: "GpiodBackend", gpio: int):
+        import gpiod
+
+        self.gpio = gpio
+        self.path, self.offset = backend._locate(gpio)
+        self._req = gpiod.request_lines(self.path, consumer=backend.consumer,
+                                        config={self.offset: backend._settings(True, 0)})
+
+    def write(self, value: int) -> None:
+        from gpiod.line import Value
+
+        self._req.set_value(self.offset, Value.ACTIVE if value else Value.INACTIVE)
+
+    def read(self) -> int:
+        from gpiod.line import Value
+
+        return 1 if self._req.get_value(self.offset) == Value.ACTIVE else 0
+
+    def release(self) -> None:
+        import gpiod
+        from gpiod.line import Direction
+
+        try:
+            self._req.reconfigure_lines({self.offset: gpiod.LineSettings(direction=Direction.INPUT)})
+        finally:
+            self._req.release()

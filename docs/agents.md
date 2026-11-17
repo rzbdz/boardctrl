@@ -1,6 +1,6 @@
 # Using bsp with AI agents
 
-bsp was designed so a coding agent can run the whole hardware loop with nothing but a shell: no
+boardctrl was designed so a coding agent can run the whole hardware loop with nothing but a shell: no
 ssh sessions to manage, no device paths to discover, and errors that say what to do next.
 
 ## Give the agent the skill
@@ -17,7 +17,7 @@ Two ways to install them:
 - **Globally** for the agents on a machine: `deploy/install-skills.sh [USER@MACHINE]` copies
   them into `~/.claude/skills`, `~/.config/opencode/skill` and `~/.hermes/skills/embedded`
   (whichever agent directories exist).
-- **Per SDK tree:** run `bsp install` in the tree (on the machine where the agent works). It
+- **Per SDK tree:** run `boardctrl install` in the tree (on the machine where the agent works). It
   writes `./SKILL.md`: a header describing which configured SDK target this directory is, which
   boards can run it, the site's hints, and then the full `bsp-dev-loop` skill. An existing
   `SKILL.md` is backed up as `SKILL.md.bak.<timestamp>`. The directory is matched against the
@@ -29,12 +29,12 @@ Two ways to install them:
 ## Conventions agents should follow
 
 - Use `--json` and read `error.hint` first when something fails.
-- Several agents on one machine: pass `--stateless` (or set `BSP_STATELESS=1`), name the host
+- Several agents on one machine: pass `--stateless` (or set `BOARDCTRL_STATELESS=1`), name the host
   with `-r` where it matters, and pass lease tokens explicitly (`--lease`, or `BSP_LEASE` /
   `BSP_SDK_LEASE`). Otherwise leases are remembered per user in `~/.config/bsp/leases.json`.
-- On boards reset by a person (control backend `human`), run `bsp dut reset` and `bsp dut boot`
+- On boards reset by a person (control backend `human`), run `boardctrl dut reset` and `boardctrl dut boot`
   in the background, relay the `ACTION NEEDED` line to the user, and run
-  `bsp dut confirm DUT` when the user says it is done.
+  `boardctrl dut confirm DUT` when the user says it is done.
 - Release every lease at the end, also after failures.
 
 ## Tools over HTTP

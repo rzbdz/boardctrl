@@ -27,10 +27,10 @@ the example and keep it under version control privately:
 ```bash
 cp -r examples/site ~/bsp-site
 cd ~/bsp-site && git init && cd -
-export BSP_SITE=~/bsp-site
+export BOARDCTRL_SITE=~/bsp-site
 ```
 
-Keep the site repository at a location of your choice and point `BSP_SITE` at it.
+Keep the site repository at a location of your choice and point `BOARDCTRL_SITE` at it.
 `~/.config/bsp/site` is where `install-client.sh --site` installs *copies* of the site on other
 machines; the script refuses to overwrite a git checkout or symlink there.
 
@@ -50,13 +50,13 @@ can add SDKs later (step 6). Every file format is described in
 ## 3. Deploy the board host
 
 ```bash
-deploy/deploy.sh HOST             # uses $BSP_SITE/deploy/HOST.env
+deploy/deploy.sh HOST             # uses $BOARDCTRL_SITE/deploy/HOST.env
 deploy/deploy.sh HOST status      # service state and health check
 ```
 
 `deploy.sh` ships the committed bsp tree and the site to the host, installs a virtual
-environment, registers the `bsp-hostd` systemd service and checks that it answers. Commit your
-bsp changes first, or pass `--allow-dirty`. Use ssh keys; set `SSHPASS` only for hosts that
+environment, registers the `boardctrld` systemd service and checks that it answers. Commit your
+boardctrl changes first, or pass `--allow-dirty`. Use ssh keys; set `SSHPASS` only for hosts that
 accept nothing but a password. See [deployment.md](deployment.md) for all options.
 
 ## 4. Install the client
@@ -71,37 +71,37 @@ This copies bsp to `~/bsp-dev-loop`, links `~/.local/bin/bsp` (make sure it is o
 `PATH`) and installs the site at `~/.config/bsp/site`. It logs in with ssh keys only. Then:
 
 ```console
-$ bsp init
+$ boardctrl init
 config dir: /home/dev/.config/bsp
 mode: remote (talking to remote hosts)
   host lab-1            via http://192.0.2.20:8765  duts: -
-next: `bsp probe` to discover boards, `bsp dut list`, `bsp sdk list`
+next: `boardctrl probe` to discover boards, `boardctrl dut list`, `boardctrl sdk list`
 ```
 
 ## 5. Register boards
 
 ### Option A: probe (boards wired to GPIO reset lines)
 
-`bsp probe` pulses candidate GPIO lines one at a time and watches which console and USB port
+`boardctrl probe` pulses candidate GPIO lines one at a time and watches which console and USB port
 react, so it **drives pins on the header**. Without `--pins` the candidates are every header GPIO
 that is free, not protected and not muxed to another function; pins already configured as
 `button` or `relay` channels are tried first, raw `gpio` pins are pulsed low. Before the first
 probe:
 
 - list pins that must never be driven under `protected:` in the host config;
-- run `bsp probe --dry-run` to see the candidates without touching anything;
+- run `boardctrl probe --dry-run` to see the candidates without touching anything;
 - on any host where other header lines drive something, pass the reset lines explicitly with
   `--pins`, preferably configured as `button` channels (open drain).
 
 ```bash
-bsp probe --dry-run
-bsp probe --pins P33,P11          # interactive: review and name each board
+boardctrl probe --dry-run
+boardctrl probe --pins P33,P11          # interactive: review and name each board
 ```
 
 Probe identifies the SoC from its boot-ROM output and, if the SoC profile provides one, boots a
 known-good bootloader to read the board's identity. Rename boards with
-`bsp dut rename OLD NEW`. To keep them in the site, run `bsp dut export --dir $BSP_SITE/duts`
-(one file per board), remove the registered copies with `bsp dut remove`, and redeploy the host
+`boardctrl dut rename OLD NEW`. To keep them in the site, run `boardctrl dut export --dir $BOARDCTRL_SITE/duts`
+(one file per board), remove the registered copies with `boardctrl dut remove`, and redeploy the host
 so it loads the files. Boards can also simply stay registered on the host.
 
 ### Option B: bind (no GPIO wiring)
@@ -110,7 +110,7 @@ For a quick setup — batch flashing, or debugging together with a colleague —
 its console and USB port:
 
 ```bash
-bsp dut bind slot-1 --console /dev/ttyUSB0 --usb usb:1-1.2 --soc k3
+boardctrl dut bind slot-1 --console /dev/ttyUSB0 --usb usb:1-1.2 --soc k3
 ```
 
 Find the USB path with `fastboot devices -l` while the board is in download mode. Whenever a
@@ -130,13 +130,13 @@ and `sdk/families/` for the build style) — [sdk.md](sdk.md) explains each file
 recipe steps. Check the result without touching hardware, then boot:
 
 ```bash
-bsp sdk list
-bsp sdk plan MY_SDK --boot load      # the steps a RAM boot would run
-bsp sdk build MY_SDK kernel
-bsp dut acquire BOARD
-bsp dut boot BOARD --sdk MY_SDK
-bsp dut console BOARD "uname -a"
-bsp dut release BOARD
+boardctrl sdk list
+boardctrl sdk plan MY_SDK --boot load      # the steps a RAM boot would run
+boardctrl sdk build MY_SDK kernel
+boardctrl dut acquire BOARD
+boardctrl dut boot BOARD --sdk MY_SDK
+boardctrl dut console BOARD "uname -a"
+boardctrl dut release BOARD
 ```
 
 ## Next steps

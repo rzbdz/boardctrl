@@ -1,6 +1,6 @@
 # Porting
 
-bsp keeps hardware knowledge in data files and small hooks. Adding support for new hardware
+boardctrl keeps hardware knowledge in data files and small hooks. Adding support for new hardware
 rarely needs code.
 
 ## A new SoC
@@ -30,7 +30,7 @@ identify:                        # how probe reads a board's identity
   placeholders: {serial: ["0", "none"]}   # values meaning "not programmed"
   name: [product, mem, serial]            # parts of the proposed board name
 media_boot:                      # optional: how a board whose FDL strap is held down boots its media
-  name: rom-handoff              # shown in `bsp dut status`
+  name: rom-handoff              # shown in `boardctrl dut status`
   steps:                         # run after a reset into download mode; recipe steps (sdk.md)
     - {do: check, serial: "strap: nor"}            # the boot ROM banner: a board these steps suit
     - {do: getvar, name: rom-version, match: "^2"}
@@ -39,19 +39,19 @@ media_boot:                      # optional: how a board whose FDL strap is held
     - {do: wait, serial: "SPL 20", timeout: 60}
 ```
 
-- `fingerprint` lets `bsp probe` tell SoCs apart; pick lines that appear on every cold boot and
+- `fingerprint` lets `boardctrl probe` tell SoCs apart; pick lines that appear on every cold boot and
   are specific to the boot ROM.
 - `download_mode` is used by every `enter-fdl` step and by the human reset backend's
   auto-detection.
 - Probe images are looked up in every layer, highest first, and checked against `sha256`. Ship
   only images you may redistribute in a pack; otherwise keep them in the site, or list them there
-  with a `source` and let `bsp images sync` fetch them (see [configuration.md](configuration.md#site-images)).
+  with a `source` and let `boardctrl images sync` fetch them (see [configuration.md](configuration.md#site-images)).
 - `media_boot` is for SoCs that can boot a board's media from download mode. A plain reset
-  (`bsp dut reset --no-fdl`) and recipe steps marked `when: fdl-not-strapped` reset the board into
+  (`boardctrl dut reset --no-fdl`) and recipe steps marked `when: fdl-not-strapped` reset the board into
   download mode and run these steps. Use `check` and `getvar … match` first, so a board the steps
   do not suit is refused before anything is staged. Steps may also run a hook (`do: hook`). Boards
   with an FDL line never need this. A DUT can bring its own `control.media_boot`, or switch it off
-  with `control.media_boot: false`. `bsp dut status` shows how each board boots its media.
+  with `control.media_boot: false`. `boardctrl dut status` shows how each board boots its media.
 
 Then write boot recipes for the SDKs of that SoC ([sdk.md](sdk.md)).
 

@@ -1,13 +1,15 @@
 """Client-side state and fleet logic for the `bsp` CLI (stdlib only).
 
 Fleet = the bsp hosts this CLI talks to, discovered with zero configuration:
-  * host mode  — a bsp-hostd answers on 127.0.0.1: only that host (it drives its own boards)
+  * host mode  — a boardctrld answers on 127.0.0.1: only that host (it drives its own boards)
   * remote mode — otherwise: every configured remote (built-in list + ~/.config/bsp/remotes.json)
   `-r NAME[,NAME|all]` overrides either.
 DUT commands are routed to whichever host owns the DUT.
 """
 
 from __future__ import annotations
+
+from ..core import naming
 
 import json
 import os
@@ -22,8 +24,8 @@ from .transport import Unreachable
 
 
 def config_dir() -> Path:
-    if os.environ.get("BSP_CONFIG"):
-        return Path(os.environ["BSP_CONFIG"]).parent
+    if naming.get("BOARDCTRL_CONFIG"):
+        return Path(naming.get("BOARDCTRL_CONFIG") or "").parent
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "bsp"
 
 
@@ -68,7 +70,7 @@ class LeaseBook:
 
 # --------------------------------------------------------------- hosts --
 class HostHandle:
-    """One reachable bsp-hostd: its remote entry, working transport and host id."""
+    """One reachable boardctrld: its remote entry, working transport and host id."""
 
     def __init__(self, remote: Remote, transport: Any, status: dict[str, Any]):
         self.remote = remote
@@ -92,7 +94,7 @@ def connect(remote: Remote, quick: float = 2.0) -> HostHandle:
                 continue
             st = t.request("GET", "/api/v1/status", timeout=15)
             if not (st or {}).get("ok"):
-                errors.append(f"{t.label}: not a bsp-hostd")
+                errors.append(f"{t.label}: not a boardctrld")
                 continue
             return HostHandle(remote, t, st["result"])
         except Unreachable as e:
@@ -111,7 +113,7 @@ class Fleet:
         self.mode = "remote"
 
     def candidates(self) -> list[Remote]:
-        if self.url or self.selector or os.environ.get("BSP_URL") or os.environ.get("BSP_REMOTE"):
+        if self.url or self.selector or naming.get("BOARDCTRL_URL") or naming.get("BOARDCTRL_REMOTE"):
             return self.store.select(self.url, self.selector, self.token)
         rs = self.store.remotes()
         local = rs.get("local")

@@ -1,4 +1,4 @@
-"""gpio_relay command set: the single definition behind REST, CLI, console and AI tools."""
+"""gpio command set: the single definition behind REST, CLI, console and AI tools."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Any
 
 from ..core.cmdspec import CommandSpec, Param
 from ..core.commands import Command
-from .service import GpioRelayService
+from .service import GpioService
 
 TARGET = Param("target", help="pin ref: 33 | P33 | J40:33 | GPIO127 | alias (e.g. DUT3/reset)")
 FORCE = Param("force", "boolean", "write even if the pad is muxed to another function", required=False, default=False)
@@ -91,7 +91,7 @@ def render_yaml(d: Any) -> str:
 
 
 # ---------------------------------------------------------------- commands --
-def build_commands(svc: GpioRelayService) -> list[Command]:
+def build_commands(svc: GpioService) -> list[Command]:
     def cmd(name, summary, handler, params=(), render=render_pin, mutating=True, description=""):
         return Command(CommandSpec(name, summary, list(params), description, mutating), handler, render)
 
@@ -134,6 +134,17 @@ def build_commands(svc: GpioRelayService) -> list[Command]:
              Param("tag", help="only aliases carrying this tag", required=False),
              Param("target", help="only aliases of this pin", required=False, positional=False)],
             render=render_aliases, mutating=False),
+        cmd("gpio.claim", "Claim pins for one usage (a feature that drives its own timing); other usages cannot use them",
+            svc.claim_view,
+            [Param("usage", help="the usage name, e.g. swd"),
+             Param("pins", help="role=pin pairs, comma separated, e.g. swclk=J40:11,swdio=J40:13")],
+            render=lambda c: f"claimed {c['usage']}: " + ", ".join(f"{r}={p}" for r, p in c["pins"].items())),
+        cmd("gpio.claim_list", "Claims on this host's header pins", svc.claims_view, mutating=False,
+            render=lambda items: "\n".join(f"{c['usage']:<12} " + ", ".join(f"{p['pin']}={p['label']}" for p in c["pins"])
+                                          for c in items) or "(no claims)"),
+        cmd("gpio.claim_release", "Release a usage's claims", svc.release_claim_view,
+            [Param("usage", help="the usage name")],
+            render=lambda r: f"released {r['usage']}: " + (", ".join(r["pins"]) or "nothing")),
         cmd("gpio.alias.add", "Bind an alias (e.g. DUT3/reset) to a GPIO pin; usable as target everywhere",
             svc.alias_add,
             [Param("name", help="alias path, e.g. DUT3/reset"),

@@ -1,6 +1,6 @@
 """Serial consoles on a host: serial-mux daemons run as their own systemd units.
 
-A daemon started from inside bsp-hostd would live in the service's cgroup and be
+A daemon started from inside boardctrld would live in the service's cgroup and be
 killed whenever the service restarts. Each console is
 therefore a transient unit `bsp-console-<alias>` with Restart=always, created
 with systemd-run. Consoles already running some other way (e.g. a daemon an

@@ -127,6 +127,89 @@ def test_a_ticket_path_is_scp_then_adopted(tmp_path):
     assert "did not arrive" in e.value.message
 
 
+def test_a_file_the_host_already_has_is_adopted_without_a_transfer(tmp_path):
+    """`host:/path` and a Samba mount: bspd reads the file itself; nothing is uploaded."""
+    store = ArtifactStore(tmp_path / "cache")
+    src = tmp_path / "samba" / "Image.itb"
+    src.parent.mkdir()
+    src.write_bytes(b"kernel" * 1000)
+    r = store.adopt_path(str(src))
+    assert r["sha256"] == _sha(src.read_bytes()) and Path(r["path"]).read_bytes() == src.read_bytes()
+    assert Path(r["path"]).name == "Image.itb"
+    with pytest.raises(InvalidRequest):
+        store.adopt_path("relative/Image.itb")
+    with pytest.raises(InvalidRequest):
+        store.adopt_path(str(tmp_path / "missing.itb"))
+
+
+def test_ssh_transport_copies_a_file_with_scp_not_an_http_body(tmp_path, monkeypatch):
+    """The registry's bsp CLI scps to the ticket path; only ticket/adopt are small JSON calls."""
+    import subprocess
+
+    from bsp.cli.transport import SshTransport
+
+    src = tmp_path / "Image.itb"
+    src.write_bytes(b"kernel FIT" * 1000)
+    sha = _sha(src.read_bytes())
+    transport = SshTransport("user@host", token="t")
+    seen = []
+
+    def request(method, path, body=None, timeout=90):
+        seen.append((method, path))
+        if "/ticket" in path:
+            return {"ok": True, "result": {"id": "a" * 32,
+                                           "path": f"/var/lib/bsp/.incoming/{'a' * 32}/Image.itb"}}
+        assert "adopt" in path
+        return {"ok": True, "result": {"sha256": sha, "path": "/var/lib/bsp/artifacts/x/Image.itb",
+                                       "size": src.stat().st_size, "stored": True}}
+
+    calls = []
+
+    class Done:
+        returncode = 0
+        stdout = b""
+        stderr = b""
+
+    def run(argv, **kw):
+        calls.append(argv)
+        return Done()
+
+    monkeypatch.setattr(transport, "request", request)
+    monkeypatch.setattr(subprocess, "run", run)
+    r = transport.upload("/api/v1/artifacts/ignored", str(src), sha256=sha, name="Image.itb")
+    assert r["ok"] and r["result"]["sha256"] == sha
+    scp = [c for c in calls if c[0] == "scp"]
+    assert len(scp) == 1 and scp[0][-2] == str(src) and scp[0][-1].startswith("user@host:/var/lib/bsp/.incoming/")
+    assert not any(c[0] == "curl" for c in calls)
+    assert [p for _, p in seen if "/ticket" in p] and [p for _, p in seen if "adopt" in p]
+
+
+def test_a_ticket_path_is_scp_then_adopted(tmp_path):
+    """A large file arrives by scp at a path bspd gave; only the small adopt call goes through HTTP."""
+    store = ArtifactStore(tmp_path)
+    data = b"kernel FIT" * 1000
+    ticket = store.ticket(_sha(data), "../../Image.itb")
+    assert ticket["id"] and ticket["path"].endswith("/.incoming/%s/Image.itb" % ticket["id"])
+    Path(ticket["path"]).write_bytes(data)
+    assert any(p.name == "Image.itb" for p in (tmp_path / ".incoming" / ticket["id"]).iterdir())
+    r = store.adopt_ticket(ticket["id"], _sha(data), "Image.itb")
+    assert r["stored"] and Path(r["path"]).read_bytes() == data
+    assert store.get(_sha(data)) == Path(r["path"])
+    assert not (tmp_path / ".incoming" / ticket["id"]).exists()
+    # A wrong file is refused and never enters the cache.
+    other = store.ticket(_sha(b"right"), "other.img")
+    Path(other["path"]).write_bytes(b"wrong")
+    with pytest.raises(InvalidRequest):
+        store.adopt_ticket(other["id"], _sha(b"right"), "other.img")
+    with pytest.raises(InvalidRequest):
+        store.get(_sha(b"right"))
+    # A ticket whose file was never copied says so.
+    missing = store.ticket(_sha(b"missing"), "missing.img")
+    with pytest.raises(InvalidRequest) as e:
+        store.adopt_ticket(missing["id"], _sha(b"missing"), "missing.img")
+    assert "did not arrive" in e.value.message
+
+
 def test_lease_renew_keeps_holder_and_token(tmp_path):
     lm = LeaseManager(tmp_path / "l.json")
     a = lm.acquire("b1", "boardlab:user:alice", 60, "debug")
@@ -229,20 +312,52 @@ def test_boot_files_stages_in_order_and_waits_for_the_port(host):
         shas.append(_sha(data))
     r = _call(host, "dut_boot_files", dut="mock-board", files=",".join(shas), lease=token, reset=False,
               first_wait=0, port_timeout=0.5)
-    assert r["job"] and [f["name"] for f in r["files"]] == ["FSBL.bin", "Image.itb"]
+    assert r["job"] and [f["path"] for f in r["files"]] == shas
     job = _call(host, "job_get", id=r["job"], wait=10)
+    assert job["status"] == "failed" and job["result"] is None
     # the fake port never comes back after the first stage: the boot stops before the kernel
     assert job["status"] == "failed" and "did not come back" in job["error"]["message"]
     staged = [l.rsplit("/", 1)[-1] for l in host.log.read_text().splitlines() if " stage " in l]
     assert staged == ["FSBL.bin"]
 
     (host.tmp / "off-bus").unlink()            # port back: now the whole sequence runs
-    r = _call(host, "dut_boot_files", dut="mock-board", files=",".join(shas), lease=token, reset=False,
-              first_wait=0, port_timeout=0.5)
-    threading.Timer(0.2, lambda: (host.tmp / "off-bus").unlink(missing_ok=True)).start()
-    job = _call(host, "job_get", id=r["job"], wait=10)
-    assert job["status"] == "succeeded", job
-    assert any("file 2/2 Image.itb: staged" in l for l in job["lines"])
+    shared = host.tmp / "shared" / "Image.itb"
+    shared.parent.mkdir()
+    shared.write_bytes(b"kernel from the board host")
+    import http.server
+
+    class Image(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            body = b"kernel by URL"
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Image)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/Image.itb?version=1,2"
+        refs = [shas[0], f"host:{shared}", url]
+        r = _call(host, "dut_boot_files", dut="mock-board", files=refs, lease=token, reset=False,
+                  first_wait=0, port_timeout=0.5)
+        assert r["files"] == [{"source": "sha256", "path": shas[0]}, {"source": "host", "path": str(shared)},
+                              {"source": "url", "path": url}]
+        threading.Timer(0.2, lambda: (host.tmp / "off-bus").unlink(missing_ok=True)).start()
+        threading.Timer(0.7, lambda: (host.tmp / "off-bus").unlink(missing_ok=True)).start()
+        job = _call(host, "job_get", id=r["job"], wait=10)
+        assert job["status"] == "succeeded", job
+        assert [f["sha256"] for f in job["result"]["files"]] == [shas[0], _sha(b"kernel from the board host"), _sha(b"kernel by URL")]
+        assert any("file 3/3 Image.itb: staged" in l for l in job["lines"])
+    finally:
+        server.shutdown()
+        server.server_close()
+    missing = _call(host, "dut_boot_files", dut="mock-board", files="host:/missing/Image.itb", lease=token)
+    job = _call(host, "job_get", id=missing["job"], wait=10)
+    assert job["status"] == "failed" and job["error"]["code"] == "not_found"
     assert _call(host, "dut_boot_files", dut="mock-board", files="", lease=token)["code"] == "invalid_request"
 
 

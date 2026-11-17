@@ -3,9 +3,9 @@ from pathlib import Path
 import pytest
 
 from bsp.core.events import EventBus
-from bsp.gpio_relay.backends import create_backend
-from bsp.gpio_relay.board import BoardCatalog
-from bsp.gpio_relay.service import ConfigStore, GpioRelayService
+from bsp.gpio.backends import create_backend
+from bsp.gpio.board import BoardCatalog
+from bsp.gpio.service import ConfigStore, GpioService
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,7 +25,7 @@ def make_service(board, backend, tmp_path):
     def make(**kw):
         kw.setdefault("store", ConfigStore(tmp_path / "channels.json"))
         kw.setdefault("alias_path", tmp_path / "aliases.json")
-        return GpioRelayService(board, backend, EventBus(), **kw)
+        return GpioService(board, backend, EventBus(), **kw)
 
     return make
 

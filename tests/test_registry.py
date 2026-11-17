@@ -4,6 +4,7 @@ import json
 import socket
 import threading
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -160,6 +161,35 @@ def test_port_watcher_reports_cables_coming_and_going(tmp_path):
     (dev / "ttyUSB0").unlink()
     assert w.check()["removed"]["tty"] == [str(dev / "ttyUSB0")]
     assert len(changes) == 2
+
+
+def test_dut_ports_cli_uses_the_host_snapshot_without_a_dut_name(monkeypatch):
+    """Every read-only host command must also be accepted by the client parser, not only the server registry."""
+    from bsp.cli.main import main
+
+    called = []
+
+    class Host:
+        id = "test-host"
+
+        def call(self, tool, args, timeout=120):
+            called.append((tool, args))
+            return {"ok": True, "result": [{"usb": "usb:1-2", "vid": "361c", "pid": "1001"}]}
+
+    monkeypatch.setattr("bsp.cli.fleet.Fleet.require", lambda self: [Host()])
+    assert main(["--json", "--stateless", "-r", "test-host", "dut", "ports"]) == 0
+    assert called == [("dut_ports", {})]
+
+
+def test_download_port_choices_use_the_watchers_snapshot_not_a_discovery_plan():
+    from bsp.dut.module import DutModule
+
+    mod = object.__new__(DutModule)
+    mod.probe_cfg, mod.socs, mod.port_watcher = {}, types.SimpleNamespace(usb_vids=lambda: ["361c"]), types.SimpleNamespace(
+        current={"tty": [], "usb": ["usb:2-1.3 361c:1001", "usb:2-1.4 05c6:9008"]})
+    assert mod.download_ports() == [{"usb": "usb:2-1.3", "vid": "361c", "pid": "1001"}]
+    mod.probe_cfg = {"usb_vids": ["05c6"]}
+    assert mod.download_ports() == [{"usb": "usb:2-1.4", "vid": "05c6", "pid": "9008"}]
 
 
 def test_registry_publishes_port_changes(registry):

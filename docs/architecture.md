@@ -1,6 +1,6 @@
 # Architecture
 
-bsp is an atomic, scriptable layer over three kinds of resources — boards (DUTs), the board
+boardctrl is an atomic, scriptable layer over three kinds of resources — boards (DUTs), the board
 hosts that control them, and SDK source trees on build servers. Every capability is one
 command that works the same for a human at a terminal, an agent (`--json`), an HTTP client
 and the web console. This page describes the internals; start with the [README](../README.md) for an overview.
@@ -16,7 +16,7 @@ flowchart TB
     helper["sdk/helper.py over ssh<br/>leases · task branches · build jobs"]
   end
   subgraph host["Board host"]
-    hostd["bsp-hostd (FastAPI)"]
+    hostd["boardctrld (FastAPI)"]
     gpio["gpio_relay module<br/>channels · aliases"]
     sdkm["sdk module<br/>catalog (read-only)"]
     dut["dut module<br/>registry · leases · boot runner · probe · console logins"]
@@ -46,7 +46,7 @@ the three to each board:
 
 ```mermaid
 flowchart TB
-  subgraph hostd["bsp-hostd"]
+  subgraph hostd["boardctrld"]
     dutm["DUT manager (dut module)<br/>registry · leases · busy guard · jobs · probe"]
     subgraph relay["relay controller"]
       ctl["control backends<br/>gpio-relay · human"]
@@ -72,27 +72,27 @@ flowchart TB
 
 | Layer | Code | Its own commands | Extension point |
 |---|---|---|---|
-| Relay controller | `gpio_relay/`, `dut/control.py` | `bsp gpio`, `bsp relay`, `bsp button` | `GpioBackend`, `ControlBackend` |
-| Download path | `dut/hostio.py`, `dut/boot.py`, `dut/flashpkg.py` | `bsp dut stage`, `present`, `boot`, `flash` | recipe steps, `hooks/flash/*` |
-| Serial console service | `dut/consoles.py`, serial-mux | `bsp dut pipe`, `console`, `log` | serial-mux transports |
-| DUT manager | `dut/module.py`, `dut/commands.py`, `dut/leases.py`, `dut/probe.py` | `bsp dut …`, `bsp probe` | DUT specs, `hooks/probe/*` |
+| Relay controller | `gpio_relay/`, `dut/control.py` | `boardctrl gpio`, `boardctrl relay`, `boardctrl button` | `GpioBackend`, `ControlBackend` |
+| Download path | `dut/hostio.py`, `dut/boot.py`, `dut/flashpkg.py` | `boardctrl dut stage`, `present`, `boot`, `flash` | recipe steps, `hooks/flash/*` |
+| Serial console service | `dut/consoles.py`, serial-mux | `boardctrl dut pipe`, `console`, `log` | serial-mux transports |
+| DUT manager | `dut/module.py`, `dut/commands.py`, `dut/leases.py`, `dut/probe.py` | `boardctrl dut …`, `boardctrl probe` | DUT specs, `hooks/probe/*` |
 
 The serial console service is where a board host starts: every serial console is a **slot**
 (`dut/slots.py`), with a serial-mux console of its own as soon as its adapter is plugged in and
 before anything else is known. The DUT manager attaches the rest to slots as it learns it: the reset
 line, the download port and the board identity (the DUT). Slots outlive boards, and remember which
-lines, ports and boards they had: probe tries those lines first, `bsp dut refresh` re-reads a board
+lines, ports and boards they had: probe tries those lines first, `boardctrl dut refresh` re-reads a board
 swapped into a slot, and a DUT can be named by its slot (`<host>/s3`) wherever its name works.
 
 A board's lines are aliases on the relay controller (`<dut>/reset`, `<dut>/fdl`, and any other
 line a site names `<dut>/<role>`), so a person, a script or a front end can work one line by hand
-with `bsp relay`/`bsp button` while the DUT manager uses the same lines for resets.
+with `boardctrl relay`/`boardctrl button` while the DUT manager uses the same lines for resets.
 
 boardlab, the lab-wide registry and front end, drives board hosts through this CLI only (`--json
---stateless`): its `bsp` module maps its backend contract onto these layers — relay to `bsp dut
-reset`/`confirm` and to `bsp relay`/`bsp button` for single lines, download to `bsp dut
-stage`/`present`/`boot`, consoles to `bsp dut pipe`, inventory and discovery to `bsp dut list` and
-`bsp probe`, news to `bsp watch --registry`.
+--stateless`): its `bsp` module maps its backend contract onto these layers — relay to `boardctrl dut
+reset`/`confirm` and to `boardctrl relay`/`boardctrl button` for single lines, download to `boardctrl dut
+stage`/`present`/`boot`, consoles to `boardctrl dut pipe`, inventory and discovery to `boardctrl dut list` and
+`boardctrl probe`, news to `boardctrl watch --registry`.
 
 ## Concepts
 
@@ -122,7 +122,7 @@ formats are described in [configuration.md](configuration.md).
 
 ```mermaid
 flowchart LR
-  core["Core<br/>this repository"] -- "overridden by" --> packs["Packs<br/>packs/NAME"] -- "overridden by" --> site["Site<br/>BSP_SITE"]
+  core["Core<br/>this repository"] -- "overridden by" --> packs["Packs<br/>packs/NAME"] -- "overridden by" --> site["Site<br/>BOARDCTRL_SITE"]
 ```
 
 The same mechanism allows further layers between packs and sites — for example a curated set of
@@ -140,11 +140,11 @@ packs and recipe templates for one SoC family's upstream kernel work.
 | Board host | host id | `SITE/hosts/`, `SITE/remotes.json` | — |
 | DUT | DUT id: host, SoC, control backend, USB path, console | Registered on the host (`probe`, `bind`, `add`) or `SITE/duts/` | DUT lease on its host |
 | Reset / download-mode line | aliases `<dut>/reset`, `<dut>/fdl` | Registered by the dut module with gpio_relay | Through the DUT |
-| Slot | `s<N>` on its host (`<host>/s<N>`): one serial console, by its physical USB port | Found on the host (`bsp slot list`) | Through the DUT in it |
+| Slot | `s<N>` on its host (`<host>/s<N>`): one serial console, by its physical USB port | Found on the host (`boardctrl slot list`) | Through the DUT in it |
 | Console | serial-mux alias, systemd unit `bsp-console-<alias>` | serial-mux on the host | Through the DUT (writes) |
 | Build artifact | SHA-256 | Host cache `STATE_DIR/dut/artifacts/` | — |
 
-Aliases let commands pass straight through the layers: `bsp dut reset board-1` reaches the dut
+Aliases let commands pass straight through the layers: `boardctrl dut reset board-1` reaches the dut
 module, its control backend calls `button click board-1/reset`, and gpio_relay resolves that to
 a header pin.
 
@@ -161,7 +161,7 @@ overrides it with `control.fdl.expect`.
 | To add | Do this | Interface |
 |---|---|---|
 | A board host | `SITE/hosts/<id>.yaml`, `SITE/deploy/<id>.env`, an entry in `remotes.json`; `deploy/deploy.sh <id>` | Host configuration |
-| A board | `bsp probe`, `bsp dut bind`, or a file in `SITE/duts/` | DUT spec |
+| A board | `boardctrl probe`, `boardctrl dut bind`, or a file in `SITE/duts/` | DUT spec |
 | A SoC | `socs/<soc>/soc.yaml` in a pack; probe images in the site | SoC profile |
 | A probe mechanism | Replace `hooks/probe/{consoles,usb-devices,identify}` | JSON hook contract |
 | A reset mechanism | Subclass `ControlBackend`, register with `@CONTROL_BACKENDS.register` | `reset(log, ready)`, `enter_fdl(log, ready)`, `setup()` |
@@ -175,7 +175,7 @@ overrides it with `control.fdl.expect`.
 
 Long operations (boots, probes, human-assisted resets) run as background jobs
 (`core/jobs.py`) that report progress lines; changes are published on an event bus that feeds
-`bsp watch` and the web console.
+`boardctrl watch` and the web console.
 
 ## Shared source trees
 

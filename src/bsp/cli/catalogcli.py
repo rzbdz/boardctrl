@@ -8,6 +8,8 @@ based on, so editing a copy someone else has meanwhile changed is a conflict, no
 
 from __future__ import annotations
 
+from ..core import naming
+
 import hashlib
 import json
 import os
@@ -24,8 +26,8 @@ HEADER = re.compile(r"^# bsp catalog: (\S+) revision (\d+)\b.*\n?")
 
 
 def registry_url(store: RemoteStore | None = None) -> str | None:
-    if os.environ.get("BSP_REGISTRY"):
-        return os.environ["BSP_REGISTRY"]
+    if naming.get("BOARDCTRL_REGISTRY"):
+        return naming.get("BOARDCTRL_REGISTRY") or ""
     try:
         return (store or RemoteStore()).registry_url
     except RemoteError:
@@ -67,7 +69,7 @@ def registry_files(sync: bool = True) -> Path | None:
         import urllib.request
 
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        token = os.environ.get("BSP_REGISTRY_TOKEN") or os.environ.get("BSP_TOKEN")
+        token = os.environ.get("BSP_REGISTRY_TOKEN") or naming.get("BOARDCTRL_TOKEN")
 
         def get(path: str) -> bytes:
             req = urllib.request.Request(url.rstrip("/") + path)
@@ -86,7 +88,7 @@ def registry_files(sync: bool = True) -> Path | None:
 
 
 def _author(args) -> str:
-    return args.author or os.environ.get("BSP_HOLDER") or os.environ.get("USER") or "anonymous"
+    return args.author or naming.get("BOARDCTRL_HOLDER") or os.environ.get("USER") or "anonymous"
 
 
 def _read(path: str) -> tuple[str, int | None]:

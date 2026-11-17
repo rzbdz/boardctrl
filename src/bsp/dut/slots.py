@@ -3,7 +3,7 @@
 A slot is a serial console. Every UART on the host (a USB-UART adapter in one physical USB port) is a slot
 with its own serial-mux daemon, which follows that physical port across reconnects, so a slot's console can
 be watched and typed into before anything else is known about it. Everything else is optional and attached as
-it is learned: the reset line that restarts the board in it (a gpio_relay pin, or a person), the USB port its
+it is learned: the reset line that restarts the board in it (a gpio pin, or a person), the USB port its
 download mode enumerates on, and the DUT, the board identity registered there.
 
 Slots outlive the boards in them. Removing a DUT leaves its slot; registering a board on the slot's console

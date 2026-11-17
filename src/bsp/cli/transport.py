@@ -1,4 +1,4 @@
-"""Transports to a bsp-hostd: direct HTTP, or HTTP over SSH.
+"""Transports to a boardctrld: direct HTTP, or HTTP over SSH.
 
 Networks often allow only SSH between subnets (build server -> board host:
 port 22 open, 8765 filtered). SshTransport runs `curl` against the host's
@@ -126,6 +126,17 @@ def _sha256(path: str) -> str:
     return h.hexdigest()
 
 
+_REMOTE_SAFE = re.compile(r"/[A-Za-z0-9._/-]+")
+
+
+def _sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 class SshTransport:
     kind = "ssh"
 
@@ -175,8 +186,8 @@ class SshTransport:
                name: str | None = None) -> Any:
         """Copy a file to the host over scp, never through an HTTP body.
 
-        bspd gives a ticket path under its artifact cache; scp writes the bytes there; bspd then checks
-        the sha256 and moves the file into the cache. Old bspd without tickets still gets the streamed
+        boardctrld gives a ticket path under its artifact cache; scp writes the bytes there; boardctrld then checks
+        the sha256 and moves the file into the cache. Old boardctrld without tickets still gets the streamed
         PUT, so a mixed-version lab keeps working.
         """
         if not os.path.isfile(file):
@@ -190,7 +201,7 @@ class SshTransport:
             return self._upload_http(path, file, timeout)
         target = (ticket.get("result") or {}).get("path")
         if not isinstance(target, str) or not target.startswith("/") or not _REMOTE_SAFE.fullmatch(target):
-            raise Unreachable(self.label, f"bspd gave an unusable upload path: {target!r}")
+            raise Unreachable(self.label, f"boardctrld gave an unusable upload path: {target!r}")
         t0 = os.times().elapsed
         try:
             r = subprocess.run(["scp", "-q", *_ssh_options(), file, f"{self.target}:{target}"],
@@ -204,13 +215,13 @@ class SshTransport:
         adopted = self.request("POST", f"/api/v1/artifacts/adopt?ticket={quote((ticket['result'])['id'])}&{query}",
                                timeout=60)
         if not adopted.get("ok"):
-            raise Unreachable(self.label, f"bspd did not adopt the file: {adopted}")
+            raise Unreachable(self.label, f"boardctrld did not adopt the file: {adopted}")
         if os.environ.get("BSP_DEBUG"):
             print(f"scp {label} ({size:,} B) to {self.target} in {os.times().elapsed - t0:.1f}s", flush=True)
         return adopted
 
     def _upload_http(self, path: str, file: str, timeout: float) -> Any:
-        """PUT a file over the ssh tunnel for a bspd that predates scp tickets."""
+        """PUT a file over the ssh tunnel for a boardctrld that predates scp tickets."""
         cmd = ["curl", "-sS", "--noproxy", "*", "-m", str(int(timeout)), "-T", "-",
                "-H", "Content-Type: application/octet-stream", "-H", "Accept: application/json"]
         if self.token:

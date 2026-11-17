@@ -8,11 +8,11 @@ it is site configuration under `SITE/sdk/`.
 sdk/servers/<id>.yaml       build servers: ssh login and job environment
 sdk/families/<id>.yaml      build styles: how to build a component, where artifacts land
 sdk/workspaces/<id>.yaml    source trees shared by several targets (optional)
-sdk/instances/<id>.yaml     SDK targets: what you name in `bsp sdk …` and `bsp dut boot --sdk`
+sdk/instances/<id>.yaml     SDK targets: what you name in `boardctrl sdk …` and `boardctrl dut boot --sdk`
 ```
 
-Validate a change without hardware with `bsp sdk list`, `bsp sdk show SDK` and
-`bsp sdk plan SDK [--boot load|download]`.
+Validate a change without hardware with `boardctrl sdk list`, `boardctrl sdk show SDK` and
+`boardctrl sdk plan SDK [--boot load|download]`.
 
 ## Build servers
 
@@ -21,13 +21,13 @@ id: build-a
 host: 192.0.2.10
 user: dev
 description: shared build machine
-home_aliases: [/home/dev, /data/home/dev]   # the same home under two paths (used by `bsp install`)
+home_aliases: [/home/dev, /data/home/dev]   # the same home under two paths (used by `boardctrl install`)
 env:                                        # what an interactive login would set up, for build jobs
   path_prepend: ["~/toolchains/riscv/bin"]
   vars: {LD_LIBRARY_PATH: "~/.local/lib"}
 ```
 
-bsp runs a small stdlib-only helper over ssh (Python ≥ 3.6); nothing is installed on the server.
+boardctrl runs a small stdlib-only helper over ssh (Python ≥ 3.6); nothing is installed on the server.
 
 ## Families (build styles)
 
@@ -67,13 +67,13 @@ path: /home/dev/work/kernel-tree
 dev_projects: ["."]
 ```
 
-What `bsp sdk acquire SDK --task NAME` does in each dev repository:
+What `boardctrl sdk acquire SDK --task NAME` does in each dev repository:
 
 1. records the current branch and commit;
 2. stashes uncommitted changes to tracked files (`git stash push`; untracked files stay);
 3. checks out `bsp/NAME`, creating it from the current commit, or resumes it if it exists.
 
-`bsp sdk release SDK` stashes whatever is still uncommitted on the task branch, checks out the
+`boardctrl sdk release SDK` stashes whatever is still uncommitted on the task branch, checks out the
 recorded branch and pops the stash from step 2. The task branch and its commits are kept.
 Commit your work before releasing.
 
@@ -85,9 +85,9 @@ Lease state lives in the tree, in `TREE/.bsp/`:
 | `.bsp/jobs/<id>/` | Build job script, log, exit code, metadata |
 | `.bsp/build.lock` | One build per workspace at a time |
 
-bsp adds `/.bsp/` to `.git/info/exclude` when the tree root is a repository. If a lease was lost
+boardctrl adds `/.bsp/` to `.git/info/exclude` when the tree root is a repository. If a lease was lost
 (for example the token is gone), the holder information in `lease.json` tells you who had it;
-`bsp sdk release SDK --force` releases it and restores the recorded state (`--keep` releases without switching branches).
+`boardctrl sdk release SDK --force` releases it and restores the recorded state (`--keep` releases without switching branches).
 
 ## SDK targets
 
@@ -122,7 +122,7 @@ boot:
 | any other field | Available as `{field}` in `script` runner targets (e.g. `board:` for `./build.sh -b {board}`) |
 
 Both `load` and `download` must be present; an unfinished one is `status: todo` with `notes`,
-which `bsp dut boot` shows instead of running anything.
+which `boardctrl dut boot` shows instead of running anything.
 
 ## Boot recipe steps
 
@@ -150,7 +150,7 @@ Common to every step:
   flashing). On boards whose FDL is strapped a `reset` step goes through the SoC's `media_boot`
   ([porting.md](porting.md)); without one these steps are skipped and the log says why;
 - `stop_if: VARIANT` — end the recipe here when that variant was requested
-  (`bsp dut boot … --variant VARIANT`);
+  (`boardctrl dut boot … --variant VARIANT`);
 - `only_if: VARIANT` / `unless: VARIANT` — run the step only in that variant, or only outside it, so a
   variant can swap part of the recipe (another flasher, say) while the default stays as it is.
 
@@ -168,21 +168,21 @@ With a host registry (see [configuration.md](configuration.md#host-registry)), t
 the SDK catalog — SDK instances with their `load` and `download` recipes, families, build servers
 and workspaces — and hands it to every host and client. The site's `sdk/` directory stays as the
 seed underneath: a document the registry does not have comes from the site, and deleting one in
-the registry hides the site's copy as well. `bsp catalog import` takes the site's documents into
-the registry once; `bsp catalog export --dir DIR` writes the registry's documents back as files
+the registry hides the site's copy as well. `boardctrl catalog import` takes the site's documents into
+the registry once; `boardctrl catalog export --dir DIR` writes the registry's documents back as files
 (a backup you can keep in git).
 
 | Command | Purpose |
 |---|---|
-| `bsp catalog list [--kind sdk\|family\|server\|workspace]` | Documents, where each comes from, its revision and last change |
-| `bsp catalog get REF [-o FILE]` | A document as YAML; `-o` writes it with a first line naming its revision |
-| `bsp catalog put REF -f FILE [--base REV] [--force] [--check] [-m MSG]` | Write a document |
-| `bsp catalog recipe SDK load\|download -f FILE [...]` | Replace one recipe: a list of steps, or `{status, steps, notes, variants}` |
-| `bsp catalog rm REF --base REV [-m MSG]` | Delete a document |
-| `bsp catalog history REF`, `bsp catalog rollback REF REV` | Every revision, and writing an earlier one again |
-| `bsp catalog status` | The catalog revision, which revision each host has, and site edits it overrides |
-| `bsp catalog refresh` | Clear this machine's cached catalog and have every host fetch it again now |
-| `bsp catalog sync` | Fetch the registry's catalog, SoC profiles and hooks to this machine now |
+| `boardctrl catalog list [--kind sdk\|family\|server\|workspace]` | Documents, where each comes from, its revision and last change |
+| `boardctrl catalog get REF [-o FILE]` | A document as YAML; `-o` writes it with a first line naming its revision |
+| `boardctrl catalog put REF -f FILE [--base REV] [--force] [--check] [-m MSG]` | Write a document |
+| `boardctrl catalog recipe SDK load\|download -f FILE [...]` | Replace one recipe: a list of steps, or `{status, steps, notes, variants}` |
+| `boardctrl catalog rm REF --base REV [-m MSG]` | Delete a document |
+| `boardctrl catalog history REF`, `boardctrl catalog rollback REF REV` | Every revision, and writing an earlier one again |
+| `boardctrl catalog status` | The catalog revision, which revision each host has, and site edits it overrides |
+| `boardctrl catalog refresh` | Clear this machine's cached catalog and have every host fetch it again now |
+| `boardctrl catalog sync` | Fetch the registry's catalog, SoC profiles and hooks to this machine now |
 
 `REF` is an SDK id, or `family/ID`, `server/ID`, `workspace/ID`.
 
@@ -201,16 +201,16 @@ Hosts learn the catalog revision from the registry's answer to their announcemen
 registry nudges them right after a change. A host fetches the new catalog into `<state>/catalog`,
 reloads it without restarting, and keeps it across restarts and outages. Boots already running
 keep the recipe they started with; each boot job's log names the catalog revision its recipe came
-from. Clients (`bsp sdk`, `bsp catalog`) read the registry's catalog too, keeping the last copy in
+from. Clients (`boardctrl sdk`, `boardctrl catalog`) read the registry's catalog too, keeping the last copy in
 `~/.cache/bsp/` for when the registry cannot be reached. The registry stores the catalog in
 `<state>/registry/catalog.sqlite`.
 
 **Edit the registry, not a host's files.** Once the registry has a document, it overrides the
 file of the same id in any site directory, so an edit made in a host's copy of the site
 (`/opt/bsp-dev-loop/site/sdk/...`) has no effect. Hosts compare their site files with the
-registry's documents and report every such edit as not in effect: in `bsp catalog status`, in
-the host's `bsp status`, in its log, and in the log of any boot that uses the document. Publish
-the edit with `bsp catalog put REF -f FILE` (after a `get` if someone changed it since).
+registry's documents and report every such edit as not in effect: in `boardctrl catalog status`, in
+the host's `boardctrl status`, in its log, and in the log of any boot that uses the document. Publish
+the edit with `boardctrl catalog put REF -f FILE` (after a `get` if someone changed it since).
 
 ### Keeping the catalog in git (git-registry)
 
@@ -228,27 +228,27 @@ modules:
   message of the change and a `Catalog-Revision:` trailer, and pushed, in order, by a background
   worker. If the remote moved, it takes those commits in first and pushes again.
 - Commits pushed to the repository by anyone else are pulled every `pull_s` seconds, or at once
-  with `bsp catalog git_pull` (host command on the registry). Each SDK document they change is
+  with `boardctrl catalog git_pull` (host command on the registry). Each SDK document they change is
   validated against the whole catalog and applied as `git:<commit author>`; hosts get it like
   any other change. A document that does not validate is not applied: the registry keeps the
   version before it and commits that back, which reverts the change in the repository with the
-  reason, and `bsp catalog status` lists it.
-- The registry needs push access (its ssh key on the repository). `bsp catalog status` shows the
+  reason, and `boardctrl catalog status` lists it.
+- The registry needs push access (its ssh key on the repository). `boardctrl catalog status` shows the
   repository, the head, what was last pushed, writes still pending and the last error.
 
 ### SoC profiles and hooks
 
 Besides SDK documents, the registry shares its site's `socs/` (SoC profiles, with their
 `media_boot` steps and images) and `hooks/` (hook scripts). Every host that announces itself
-there, and every client after `bsp catalog sync`, gets them as a layer above its own site. Each
+there, and every client after `boardctrl catalog sync`, gets them as a layer above its own site. Each
 board and each compile machine then works from the same profiles and scripts.
 
 - Change them in the registry's site, which is usually the git-registry clone. A push is taken in
   at the next pull. Hosts fetch them when the files' digest changes, and the registry's answer to
   every announcement carries that digest.
 - Images a profile stages by `sha256` go along: the registry serves them from its `.blobs/`, so
-  run `bsp images sync` there. Hosts keep a file only if it hashes right.
+  run `boardctrl images sync` there. Hosts keep a file only if it hashes right.
 - Hooks are code that hosts run, so these files are served only to holders of the registry's
   token (`BSP_REGISTRY_TOKEN` on hosts) when it has one. They come only from the registry's site,
   never from the open catalog API.
-- `bsp catalog status` shows which hosts have the current files.
+- `boardctrl catalog status` shows which hosts have the current files.

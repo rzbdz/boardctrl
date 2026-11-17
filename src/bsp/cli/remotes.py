@@ -15,6 +15,8 @@ Names match case-insensitively and by unique prefix (``-r lab`` -> ``lab-1``).
 
 from __future__ import annotations
 
+from ..core import naming
+
 import difflib
 import json
 import os
@@ -31,7 +33,7 @@ def _site_remotes() -> Path:
 
 
 # a hostd on this machine is always a candidate (host mode)
-LOCAL = {"remotes": {"local": {"url": "http://127.0.0.1:8765", "description": "bsp-hostd on this machine"}}}
+LOCAL = {"remotes": {"local": {"url": "http://127.0.0.1:8765", "description": "boardctrld on this machine"}}}
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
 
 
@@ -72,8 +74,8 @@ class Remote:
 
 
 def user_config_path() -> Path:
-    if os.environ.get("BSP_CONFIG"):
-        return Path(os.environ["BSP_CONFIG"])
+    if naming.get("BOARDCTRL_CONFIG"):
+        return Path(naming.get("BOARDCTRL_CONFIG") or "")
     base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
     return base / "bsp" / "remotes.json"
 
@@ -95,7 +97,7 @@ class RemoteStore:
         self._builtin = {**site, "remotes": {**LOCAL["remotes"], **(site.get("remotes") or {})}}
         self._user = {} if stateless else _read(self.user_path)
         # a host registry (see the registry module): board hosts announce themselves there
-        self.registry_url = (os.environ.get("BSP_REGISTRY") or self._user.get("registry")
+        self.registry_url = (naming.get("BOARDCTRL_REGISTRY") or self._user.get("registry")
                              or self._builtin.get("registry") or None)
         self.registry_error: str | None = None
         self._registered: dict[str, dict[str, Any]] | None = None
@@ -164,7 +166,7 @@ class RemoteStore:
     def select(self, url: str | None = None, remote: str | None = None, token: str | None = None) -> list[Remote]:
         """Return the instance(s) a command should go to."""
         if url:
-            # ssh://user@host[:port]: bspd on that machine's loopback port, through ssh (a host boardlab set up).
+            # ssh://user@host[:port]: boardctrld on that machine's loopback port, through ssh (a host boardlab set up).
             if url.startswith("ssh://"):
                 from urllib.parse import urlsplit
 
@@ -172,15 +174,15 @@ class RemoteStore:
                 target = f"{sp.username}@{sp.hostname}" if sp.username else str(sp.hostname)
                 return [Remote("url", "", token, source="flag", ssh=target, port=sp.port or 8765)]
             return [Remote("url", url.rstrip("/"), token, source="flag")]
-        spec = remote or (None if os.environ.get("BSP_URL") else os.environ.get("BSP_REMOTE"))
+        spec = remote or (None if naming.get("BOARDCTRL_URL") else naming.get("BOARDCTRL_REMOTE"))
         if spec:
             if spec.strip().lower() == "all":
                 targets = list(self.remotes().values())
                 targets = [r for r in targets if r.name != "local"] or targets
             else:
                 targets = [self.lookup(s) for s in spec.split(",") if s.strip()]
-        elif os.environ.get("BSP_URL"):
-            targets = [Remote("env", os.environ["BSP_URL"].rstrip("/"), source="env")]
+        elif naming.get("BOARDCTRL_URL"):
+            targets = [Remote("env", naming.get("BOARDCTRL_URL") or "".rstrip("/"), source="env")]
         elif self.default_name:
             targets = [self.lookup(self.default_name)]
         elif self.stateless:

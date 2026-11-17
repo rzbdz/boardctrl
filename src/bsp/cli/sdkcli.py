@@ -6,6 +6,8 @@ or executed locally when the CLI already runs on that server.
 
 from __future__ import annotations
 
+from ..core import naming
+
 import argparse
 import json
 import os
@@ -317,7 +319,7 @@ def add_parser(sub) -> None:
     a = s.add_parser("acquire", help="lease the SDK: stash local changes, check out task branch bsp/<task>")
     a.add_argument("sdk")
     a.add_argument("--task", required=True, help="task name -> branch bsp/<task>")
-    a.add_argument("--holder", default=os.environ.get("BSP_HOLDER") or os.environ.get("USER") or "anonymous")
+    a.add_argument("--holder", default=naming.get("BOARDCTRL_HOLDER") or os.environ.get("USER") or "anonymous")
     a.add_argument("--ttl", type=int, default=8 * 3600)
     a.add_argument("--branch", help="explicit branch name (default bsp/<task>)")
     a.add_argument("--projects", help="comma list of repos (default: family dev_projects)")

@@ -28,7 +28,7 @@ class ModuleContext:
     bind: str = "127.0.0.1"          # server.bind, for deriving this host's own addresses
     announce: dict[str, Any] | None = None   # server.announce, ditto
     # in-process service registry: modules publish objects others may use
-    # (e.g. gpio_relay publishes its service; the dut module drives it)
+    # (e.g. the gpio module publishes its service; the dut module drives it)
     services: dict[str, Any] = field(default_factory=dict)
 
     def service(self, name: str) -> Any:

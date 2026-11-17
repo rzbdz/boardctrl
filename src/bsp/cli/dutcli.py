@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..core import naming
+
 import json
 import os
 import re
@@ -29,7 +31,7 @@ def _ok(h: HostHandle, r: dict[str, Any]) -> Any:
 
 
 def _lease(args, book: LeaseBook, dut: str) -> str | None:
-    return args.lease or os.environ.get("BSP_LEASE") or book.get(f"dut:{dut}")
+    return args.lease or naming.get("BOARDCTRL_LEASE") or book.get(f"dut:{dut}")
 
 
 # -------------------------------------------------------------- hosts --
@@ -110,7 +112,13 @@ def _resolve(fleet: Fleet, ref: str, c: str) -> tuple[HostHandle, str, dict[str,
 
 def dut_cmd(fleet: Fleet, args, book: LeaseBook) -> tuple[Any, str]:
     c = args.dut_cmd
-    h, dut, slot = _resolve(fleet, args.dut, c)
+    h, dut, slot = _resolve(fleet, args.dut, c) if c != "ports" else (None, None, None)
+    if c == "ports":
+        rows = [r.get("result") or [] for _, r in fleet.fan("dut_ports", {}) if r.get("ok")]
+        if len(rows) != len(fleet.require()):
+            raise Unreachable("dut ports", "a host did not return its port snapshot")
+        ports = [p for row in rows for p in row]
+        return ports, "\n".join(p["usb"] for p in ports) or "(none)"
     if slot and not slot.get("dut"):        # an empty slot: only its console
         return slot_cmd_on(h, slot, "pipe" if c == "pipe" else "console" if c == "console" else "status", args)
     if c == "status":
@@ -193,7 +201,7 @@ def dut_cmd(fleet: Fleet, args, book: LeaseBook) -> tuple[Any, str]:
                 else:
                     refs.append(upload(h, f, out)["sha256"])
             r = _ok(h, h.call("dut_boot_files", {
-                "dut": dut, "files": ",".join(refs), "lease": _lease(args, book, dut),
+                "dut": dut, "files": refs, "lease": _lease(args, book, dut),
                 "reset": not args.no_reset, "first_wait": args.first_wait, "later_wait": args.later_wait,
                 "port_timeout": args.port_timeout}))
             print(f"{dut} @ {h.id}: boot {len(refs)} file(s) job {r['job']}", file=out, flush=True)
@@ -230,8 +238,8 @@ def dut_cmd(fleet: Fleet, args, book: LeaseBook) -> tuple[Any, str]:
         return r, f"renamed {dut} -> {args.new} on {h.id}" + (f" ({r['note']})" if r.get("note") else "") \
             + "\n" + _status_text(r)
     if c == "set":
-        fields = {k: getattr(args, k) for k in ("board", "soc", "description", "sdks", "usb", "reset_pin",
-                                                 "pulse_ms", "fdl", "fdl_pin")}
+        fields = {k: getattr(args, k) for k in ("board", "soc", "description", "sdks", "usb", "reset_pin", "reset_actor",
+                                                 "pulse_ms", "fdl", "fdl_pin", "fdl_actor")}
         r = _ok(h, h.call("dut_set", {"dut": dut, "lease": _lease(args, book, dut), **fields}, timeout=60))
         return r, f"updated {dut}: {', '.join(r['changed'])}\n" + _status_text(r)
     raise InvalidRequest(f"unknown dut action {c}")
@@ -497,6 +505,20 @@ def dut_ports(fleet: Fleet, args) -> tuple[Any, str]:
     return r, "\n".join(lines) or "no download ports on the bus"
 
 
+def dut_ports(fleet: Fleet, args) -> tuple[Any, str]:
+    """USB devices that may be a board's download port, for choosing a DUT's fastboot selector."""
+    hs = fleet.require()
+    if getattr(args, "host", None):
+        hs = [h for h in hs if h.id == args.host]
+        if not hs:
+            raise RemoteError(f"host {args.host!r} not reachable", hint=f"reachable: {', '.join(h.id for h in fleet.hosts())}")
+    elif len(hs) > 1:
+        raise InvalidRequest("several board hosts are reachable", hint=f"pass --host ({', '.join(h.id for h in hs)})")
+    r = _ok(hs[0], hs[0].call("dut_ports"))
+    lines = [f"{d['usb']}  {d.get('vid', '')}:{d.get('pid', '')}  {d.get('product', '')}".rstrip() for d in r]
+    return r, "\n".join(lines) or "no download ports on the bus"
+
+
 def dut_add(fleet: Fleet, args) -> tuple[Any, str]:
     spec = args.spec
     if spec.startswith("@"):
@@ -537,7 +559,7 @@ def probe(fleet: Fleet, args) -> tuple[Any, str]:
         jobs.append((h, r["result"]["job"]))
     if not jobs:
         raise RemoteError("probe did not start on any host" + (f": {'; '.join(failed)}" if failed else ""),
-                          hint="check the host's bspd version and token (`bsp hosts`)")
+                          hint="check the host's boardctrld version and token (`bsp hosts`)")
     if args.dry_run:
         return {h.id: res for h, res in jobs}, json.dumps({h.id: res for h, res in jobs}, indent=2, ensure_ascii=False)
     results: dict[str, Any] = {}
@@ -700,6 +722,7 @@ def add_parsers(sub) -> None:
     dl.add_argument("--soc", help="only this SoC (as named in the SoC profiles)")
     dl.add_argument("--sdk", help="only DUTs that can run this SDK")
     dl.add_argument("--free", action="store_true", help="only DUTs nobody leases")
+    ds.add_parser("ports", help="download-port candidates from the host's port watcher (no discovery or reset)")
     ex = ds.add_parser("export", help="registered DUT specs as YAML; --dir writes one <site>/duts/<id>.yaml per board")
     ex.add_argument("--dir", help="write each board to DIR/<id>.yaml (e.g. $BSP_SITE/duts) instead of printing")
     ex.add_argument("--host", help="only boards of this host")
@@ -757,7 +780,7 @@ def add_parsers(sub) -> None:
     rn_.add_argument("--lease")
     a = ds.add_parser("acquire", help="lease a DUT (token remembered for later commands)")
     a.add_argument("dut")
-    a.add_argument("--holder", default=os.environ.get("BSP_HOLDER") or os.environ.get("USER") or "anonymous")
+    a.add_argument("--holder", default=naming.get("BOARDCTRL_HOLDER") or os.environ.get("USER") or "anonymous")
     a.add_argument("--ttl", type=int, default=3600)
     a.add_argument("--purpose")
     a.add_argument("--lease")
@@ -793,13 +816,16 @@ def add_parsers(sub) -> None:
     bd.add_argument("--host", help="board host the console and USB are attached to (needed with several hosts)")
     dp = ds.add_parser("ports", help="USB devices that may be a board's download port on a host")
     dp.add_argument("--host", help="board host to ask (needed with several hosts)")
+    dp = ds.add_parser("ports", help="USB devices that may be a board's download port on a host")
+    dp.add_argument("--host", help="board host to ask (needed with several hosts)")
     bd.add_argument("--replace", action="store_true", help="overwrite an existing DUT with this name")
     b = ds.add_parser("boot", help="boot an SDK (--method load: RAM boot | download: flash), "
                                    "or local files in order (--files, RAM boot)")
     b.add_argument("dut")
     b.add_argument("--sdk")
     b.add_argument("--files", nargs="+", metavar="FILE",
-                   help="boot these local files in order, e.g. FSBL.bin u-boot-opensbi.itb Image.itb")
+                   help="boot these files in order; each is a local file (upload fallback), an http(s) URL, or "
+                        "host:/absolute/path on the board host (the host fetches/reads it)")
     b.add_argument("--no-reset", action="store_true", help="--files: the board is already in download mode")
     b.add_argument("--first-wait", type=float, default=8, help="--files: seconds after the first file (default 8)")
     b.add_argument("--later-wait", type=float, default=3, help="--files: seconds after later files (default 3)")
@@ -850,6 +876,8 @@ def add_parsers(sub) -> None:
     st.add_argument("--sdks", help="comma list; '' = all SDKs of the board's SoC")
     st.add_argument("--usb", help="fastboot selector, e.g. usb:2-1.4")
     st.add_argument("--reset-pin", dest="reset_pin")
+    st.add_argument("--reset-actor", choices=["human"], help="clear reset.pin: a person resets (possibly with an FDL relay)")
+    st.add_argument("--fdl-actor", choices=["human"], help="a person coordinates FDL and reset; use with --reset-pin for a reset relay")
     st.add_argument("--pulse-ms", dest="pulse_ms", type=int)
     st.add_argument("--fdl", choices=["strapped", "button", "unset"])
     st.add_argument("--fdl-pin", dest="fdl_pin")

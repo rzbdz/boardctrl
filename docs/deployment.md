@@ -9,7 +9,7 @@ deploy/deploy.sh HOST [deploy|status|logs|restart|ssh] [--allow-dirty]
 | Action | Effect |
 |---|---|
 | `deploy` (default) | Ship code and site, install, (re)start the service, health check |
-| `status` | `systemctl status bsp-hostd` and the service's status endpoint |
+| `status` | `systemctl status boardctrld` and the service's status endpoint |
 | `logs` | The service's journal; `LINES=200 deploy/deploy.sh HOST logs` for more than the default 100 lines |
 | `restart` | Restart the service |
 | `ssh` | Open a shell on the host |
@@ -45,7 +45,7 @@ install `sshpass`; the password is never written to disk by bsp.
 | `INSTALL_DIR/site` | The shipped site (`site.old` keeps the previous one) |
 | `INSTALL_DIR/venv` | Python environment with bsp and serial-mux |
 | `/usr/local/bin/bsp` | The CLI, in local mode on the host |
-| `bsp-hostd.service` | The service: `bsp-hostd --config INSTALL_DIR/site/hosts/HOST.yaml` with `BSP_SITE` set |
+| `boardctrld.service` | The service: `boardctrld --config INSTALL_DIR/site/hosts/HOST.yaml` with `BOARDCTRL_SITE` set |
 | `bsp-console-<alias>` | One transient unit per serial console, started on demand |
 | `/var/lib/bsp` (`server.state_dir`) | Leases, probed boards, runtime GPIO settings, artifact cache |
 
@@ -73,13 +73,13 @@ artifacts. It reads `SITE/deploy/HOST.env` and honours `SSH_PORT` and `SSH_JUMP`
 `deploy.sh`. This machine needs ssh access to the host and to every build server.
 Use a dedicated build-server account if you do not want the host to have your own.
 
-### Running `bsp-hostd` by hand
+### Running `boardctrld` by hand
 
 ```bash
-bsp-hostd -c SITE/hosts/HOST.yaml [--bind ADDR] [--port PORT] [--log-level debug]
+boardctrld -c SITE/hosts/HOST.yaml [--bind ADDR] [--port PORT] [--log-level debug]
 ```
 
-`BSP_SITE` must point at the site. This is what the systemd unit runs; it is also how to try a
+`BOARDCTRL_SITE` must point at the site. This is what the systemd unit runs; it is also how to try a
 configuration locally (see the mock host in the README).
 
 ## Clients: `deploy/install-client.sh`

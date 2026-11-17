@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..core.errors import Conflict, HardwareError, HardwareTimeout, InvalidRequest
+from .console import ConsoleProvider
 
 Log = Callable[[str], None]
 
@@ -78,9 +79,11 @@ _STAMP = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]")
 
 
 # --------------------------------------------------------------- serial --
-class SerialConsole:
+class SerialConsole(ConsoleProvider):
     """serial-mux alias: commands via `smtty --send/--wait`, passive reads from its
     per-day log (cumulative, append-only) without injecting keystrokes."""
+
+    provider_name = "serial-mux"
 
     def __init__(self, alias: str, smtty: str = "smtty", log_dir: str = "~/.serial-mux/logs"):
         self.alias = alias
@@ -226,6 +229,12 @@ class SerialConsole:
                              after=lambda raw: _after_echo(raw, text))
         return {"sent": text, "output": _after_echo(matched, text)}
 
+    def up(self) -> bool:
+        return self.log_dir.is_dir()
+
+    def attach(self) -> str:
+        return f"{self.smtty} {self.alias}"
+
     def run(self, command: str, expect: str, timeout: float) -> dict[str, Any]:
         """Send one line, wait for `expect`, return the console text it produced."""
         if not command.strip():
@@ -270,7 +279,9 @@ def _strip_console(out: str, command: str) -> str:
 # ------------------------------------------------------------ artifacts --
 class ArtifactStore:
     """Content-addressed cache of build outputs pulled from build servers over SSH.
-    Boot always reads local files (never CIFS)."""
+
+    The cache is local: bsp does not mount CIFS or translate Windows/UNC paths. Explicit board-host paths and
+    host-fetched URLs are additional boot inputs; local-file upload is only the fallback."""
 
     SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"]
 
@@ -354,7 +365,23 @@ class ArtifactStore:
         return Upload(self, sha256, _clean_name(name))
 
     def adopt_path(self, path: str) -> dict[str, Any]:
-        """Copy a file already on this host into the cache (a Samba mount, a path bspd can read)."""
+        """Copy a file already on this host into the cache (a Samba mount, a path boardctrld can read)."""
+        p = Path(path).expanduser()
+        if not p.is_absolute():
+            raise InvalidRequest(f"host file path must be absolute: {path}")
+        if not p.is_file():
+            raise InvalidRequest(f"no such file on this host: {path}")
+        if not p.stat().st_size:
+            raise InvalidRequest(f"refusing an empty file: {path}")
+        sha = _sha256(p)
+        if self.find(sha) is None:
+            with open(p, "rb") as f:
+                self.put(sha, p.name, iter(lambda: f.read(1 << 20), b""))
+        final = self.get(sha)
+        return {"sha256": sha, "path": str(final), "size": final.stat().st_size, "name": final.name}
+
+    def adopt_path(self, path: str) -> dict[str, Any]:
+        """Copy a file already on this host into the cache (a Samba mount, a path boardctrld can read)."""
         p = Path(path).expanduser()
         if not p.is_absolute():
             raise InvalidRequest(f"host file path must be absolute: {path}")
@@ -395,7 +422,7 @@ class ArtifactStore:
     def ticket(self, sha256: str, name: str) -> dict[str, str]:
         """A place on this host for a file arriving over scp, and the id that adopts it.
 
-        The caller copies the file there with scp (never through bspd's HTTP body), then `adopt_ticket`
+        The caller copies the file there with scp (never through boardctrld's HTTP body), then `adopt_ticket`
         checks the content and moves it into the cache. The directory is under the cache, so the move is
         atomic and no large file is ever read into memory.
         """

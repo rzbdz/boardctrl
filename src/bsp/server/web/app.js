@@ -7,7 +7,7 @@
   const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
 
-  // Where this page is served from: bspd's own address, or a prefix on a proxy in front of it. Every URL the page
+  // Where this page is served from: boardctrld's own address, or a prefix on a proxy in front of it. Every URL the page
   // uses is relative to it, so it works the same both ways.
   const BASE = new URL('.', location.href).href.replace(/\/$/, '');
   // A proxy that adds the token itself serves the page already authorized: no token to ask for.
@@ -48,7 +48,7 @@
     $('#m-host').textContent = `${st.host} @ ${st.hostname}`;
     $('#m-ver').textContent = 'v' + st.version;
     $('#token-btn').hidden = !st.auth || AUTHED;
-    const g = st.modules?.gpio_relay;
+    const g = st.modules?.gpio;
     if (!g) return;
     const be = g.backend || {};
     const mb = $('#m-backend');
@@ -564,7 +564,7 @@
       await refreshPins();
       setInterval(() => { if (!document.hidden) refreshPins(); }, 1000);
     } else {
-      $('#headers').innerHTML = `<div class="empty">gpio_relay module not loaded: ${esc(errText(board.error))}</div>`;
+      $('#headers').innerHTML = `<div class="empty">gpio module not loaded: ${esc(errText(board.error))}</div>`;
     }
     setInterval(() => { if (!document.hidden) refreshStatus(); }, 5000);
     connectEvents();

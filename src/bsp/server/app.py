@@ -37,9 +37,9 @@ from ..core.jobs import JobManager
 from ..core.module import MODULES, Module, ModuleContext
 from .config import HostConfig
 
-BUILTIN_MODULES = ["bsp.gpio_relay.module", "bsp.sdk.module", "bsp.dut.module", "bsp.registry.module"]
+BUILTIN_MODULES = ["bsp.gpio.module", "bsp.sdk.module", "bsp.dut.module", "bsp.registry.module"]
 WEB_DIR = Path(__file__).parent / "web"
-_PYTYPES = {"string": str, "integer": int, "number": float, "boolean": bool}
+_PYTYPES = {"string": str, "integer": int, "number": float, "boolean": bool, "array": list[str] | str}
 
 
 class CliLine(BaseModel):
@@ -61,9 +61,31 @@ class Hub:
                             port=config.port, auth_token=config.auth_token, env=dict(config.env),
                             bind=config.bind, announce=config.announce)
         self.ctx = ctx
-        self.modules: dict[str, Module] = {
-            name: MODULES.get(name)(ctx, mcfg) for name, mcfg in config.modules.items() if mcfg.get("enabled", True)
-        }
+        # Sessions (console, trace, debug servers) are transient units: the DUT manager starts them under a lease.
+        from ..core.sessions import Sessions, Systemd
+
+        self.sessions = Sessions(config.state_dir / "sessions", Systemd())
+        ctx.services["sessions"] = self.sessions
+        # Site plugins: code a site carries (modules/<name>/module.py). A name in `modules:` that no built-in
+        # module registers is a plugin (its config goes to it), so a host enables one the way it enables a module.
+        from ..core.plugins import Plugins
+        from ..core.site import layers
+
+        self.plugins = Plugins([layer / "modules" for layer in layers((config.config_dir / "..").resolve())])
+        available = self.plugins.available()
+        wanted = list(config.plugins) or [name for name in config.modules if name in available and name not in MODULES]
+        wanted += [name for name in config.modules
+                   if name not in MODULES and name not in wanted and config.modules[name].get("enabled", True)]
+        plugin_config = {name: config.modules.get(name) or {} for name in wanted}
+        self.modules: dict[str, Module] = {}
+        for name, mcfg in config.modules.items():
+            if name in wanted or not mcfg.get("enabled", True):
+                continue
+            self.modules[name] = MODULES.get(name)(ctx, mcfg)
+        self.plugin_commands = self.plugins.load(wanted, ctx, plugin_config)
+        for name in wanted:
+            if name not in available and name not in self.plugins.errors:
+                self.plugins.errors[name] = "no modules/%s/module.py in the site or its packs" % name
         # A host announcing itself to a registry follows the registry's SDK catalog.
         self.follower = None
         if config.announce:
@@ -83,6 +105,7 @@ class Hub:
         self.registry.extend(self._core_commands())
         for m in self.modules.values():
             self.registry.extend(m.commands())
+        self.registry.extend(self.plugin_commands)
 
     announcer: Any = None
 
@@ -106,6 +129,8 @@ class Hub:
             "uptime_s": round(time.time() - self.started, 1),
             "auth": bool(self.config.auth_token),
             "modules": {n: {"title": m.title, **m.status()} for n, m in self.modules.items()},
+            "plugins": self.plugins.summary(),
+            "sessions": [s.to_dict() for s in self.sessions.list()],
             **({"announce": {"url": self.announcer.url, **self.announcer.last}} if self.announcer else {}),
             **({"catalog": {"rev": self.follower.rev, **self.follower.last, "shadowed": self.follower.shadowed}}
                if self.follower else {}),
@@ -208,7 +233,7 @@ def create_app(config: HostConfig) -> FastAPI:
         version=__version__,
         description="bsp dev-loop host controller. AI agents: start at GET /llms.txt or GET /api/v1/tools.",
         lifespan=lifespan,
-        root_path_in_servers=False,  # a proxy's prefix stays out of the schema bspd serves to everyone
+        root_path_in_servers=False,  # a proxy's prefix stays out of the schema boardctrld serves to everyone
     )
     app.state.hub = hub
     app.add_middleware(_ForwardedPrefix)
@@ -273,6 +298,8 @@ def create_app(config: HostConfig) -> FastAPI:
         r = m.router()
         if r is not None:
             app.include_router(r)
+    for r in hub.plugins.routers():
+        app.include_router(r)
 
     # Served by a route of its own: a mounted StaticFiles takes the proxy's `root_path` off the path again and would
     # look the file up in the wrong place under a prefix.
@@ -347,7 +374,7 @@ def _token(request: Request) -> str:
 
 
 class _ForwardedPrefix:
-    """Served under a path prefix by a reverse proxy (`X-Forwarded-Prefix: /some/prefix`): the links bspd writes out
+    """Served under a path prefix by a reverse proxy (`X-Forwarded-Prefix: /some/prefix`): the links boardctrld writes out
     (/docs, llms.txt) carry the prefix. The page itself uses relative URLs and needs nothing."""
 
     def __init__(self, app):
@@ -357,7 +384,7 @@ class _ForwardedPrefix:
         if scope["type"] == "http":
             prefix = dict(scope["headers"]).get(b"x-forwarded-prefix", b"").decode("latin-1").rstrip("/")
             if re.fullmatch(r"(/[A-Za-z0-9._~%:@+-]+)+", prefix):
-                # Routes match on the path without the prefix; `root_path` makes the links bspd writes (/docs,
+                # Routes match on the path without the prefix; `root_path` makes the links boardctrld writes (/docs,
                 # llms.txt) carry it.
                 path = scope.get("path", "")
                 if path == prefix or path.startswith(prefix + "/"):

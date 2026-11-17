@@ -1,0 +1,189 @@
+"""The kernel's extension points: usage claims on the GPIO service, sessions, site plugins and role providers."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from bsp.core.errors import Conflict, Forbidden, InvalidRequest, NotFound
+from bsp.core.plugins import Plugins
+from bsp.core.providers import PROVIDERS, describe
+from bsp.core.sessions import Session, Sessions
+from bsp.dut import services as bindings
+from bsp.dut.catalog import spec_from_dict
+
+
+# ----------------------------------------------------------------- gpio claims
+def test_a_usage_claims_pins_and_others_cannot_touch_them(make_service):
+    svc = make_service(claims_path=None)
+    claim = svc.claim("swd", {"swclk": "P11", "swdio": "P13"})
+    assert set(claim.pins) == {"swclk", "swdio"}
+    assert svc.get("P11")["usage"] == "swd"
+    with pytest.raises(Conflict):
+        svc.configure("P11", {"mode": "relay"})
+    with pytest.raises(Conflict):
+        svc.alias_add("DUT1/reset", "P11")
+    with pytest.raises(Conflict):
+        svc.switch("P13", "on")
+    with pytest.raises(Conflict):          # another usage cannot take a claimed pin
+        svc.claim("jtag", {"tck": "P11"})
+    assert [c["usage"] for c in svc.claims()] == ["swd"]
+    assert claim.release() == ["J40:11", "J40:13"]
+    svc.configure("P11", {"mode": "relay"})   # free again
+
+
+def test_claim_refuses_protected_pins_and_two_roles_on_one_pin(make_service):
+    svc = make_service(protected=["P11"])
+    with pytest.raises(Forbidden):
+        svc.claim("swd", {"swclk": "P11"})
+    with pytest.raises(InvalidRequest):
+        svc.claim("swd", {"swclk": "P13", "swdio": "P13"})
+
+
+def test_claims_survive_a_restart(make_service, tmp_path):
+    path = tmp_path / "claims.json"
+    make_service(claims_path=path).claim("swd", {"swclk": "P11"})
+    again = make_service(claims_path=path)
+    assert again.get("P11")["usage"] == "swd"
+    assert again.claim_view("swd", "swclk=P11")["pins"] == {"swclk": "J40:11"}   # its own claim re-taken
+
+
+def test_claim_pin_parsing(make_service):
+    svc = make_service()
+    with pytest.raises(InvalidRequest):
+        svc.claim_view("swd", "swclk")
+    with pytest.raises(InvalidRequest):
+        svc.claim_view("swd", "")
+
+
+# -------------------------------------------------------------------- sessions
+class FakeSystemd:
+    """The process table a session acts on, without systemd."""
+
+    def __init__(self):
+        self.units: dict[str, dict] = {}
+
+    def start(self, unit, command, env=None):
+        self.units[unit] = {"command": command, "env": env or {}, "active": True, "pid": 4242}
+
+    def stop(self, unit):
+        if unit in self.units:
+            self.units[unit]["active"] = False
+
+    def reset(self, unit):
+        self.units.pop(unit, None)
+
+    def active(self, unit):
+        return bool(self.units.get(unit, {}).get("active"))
+
+    def pid(self, unit):
+        return self.units.get(unit, {}).get("pid")
+
+
+def test_a_session_starts_waits_for_ready_and_is_stopped_by_reaping(tmp_path):
+    systemd = FakeSystemd()
+    sessions = Sessions(tmp_path / "sessions", systemd)
+    s = sessions.start("k1-a", "debug", "fake", ["fake-server"], endpoint="127.0.0.1:3334", lease="tok")
+    assert s.endpoint == "127.0.0.1:3334" and s.lease == "tok"
+    assert systemd.units[s.unit]["command"] == ["fake-server"]
+    assert sessions.get("k1-a", "debug").role == "debug"
+    # starting twice keeps the same unit (a reader does not restart the server under another reader's feet)
+    assert sessions.start("k1-a", "debug", "fake", ["fake-server"], endpoint="x").unit == s.unit
+    assert sessions.reap("k1-a") == ["debug"]
+    assert sessions.get("k1-a", "debug") is None
+
+
+def test_a_session_whose_server_dies_at_once_is_an_error(tmp_path):
+    class Dead(FakeSystemd):
+        def start(self, unit, command, env=None):
+            self.units[unit] = {"command": command, "active": False, "pid": None}
+
+    with pytest.raises(Exception) as e:
+        Sessions(tmp_path, Dead()).start("k1-a", "console", "fake", ["x"], timeout=5)
+    assert "exited at once" in str(e.value)
+
+
+def test_stop_needs_the_lease_that_started_it(tmp_path):
+    sessions = Sessions(tmp_path, FakeSystemd())
+    sessions.start("k1-a", "debug", "fake", ["s"], endpoint="e", lease="mine")
+    with pytest.raises(Conflict):
+        sessions.stop("k1-a", "debug", lease="other")
+    assert sessions.stop("k1-a", "debug", lease="mine")["stopped"] is True
+
+
+# --------------------------------------------------------------------- plugins
+PLUGIN = '''
+def setup(ctx, api, config):
+    api.service("plugin_seen", config)
+
+    def factory(ctx2, spec, services):
+        return {"dut": spec.id, "config": config}
+
+    api.provider("debug", "fake-swd", factory, title="fake SWD")
+'''
+
+BROKEN = '''
+def setup(ctx, api):
+    raise RuntimeError("no hardware here")
+'''
+
+
+def test_a_site_plugin_registers_a_provider_and_takes_its_config(tmp_path):
+    site = tmp_path / "site"
+    (site / "modules" / "fake").mkdir(parents=True)
+    (site / "modules" / "fake" / "module.py").write_text(PLUGIN)
+    (site / "modules" / "broken").mkdir(parents=True)
+    (site / "modules" / "broken" / "module.py").write_text(BROKEN)
+
+    class Ctx:
+        services: dict = {}
+
+    plugins = Plugins([site / "modules"])
+    assert plugins.available() == {"fake": site / "modules" / "fake", "broken": site / "modules" / "broken"}
+    plugins.load(["fake", "broken", "missing"], Ctx(), {"fake": {"pins": "J40:11"}})
+    assert "debug/fake-swd" in PROVIDERS["debug"].names()
+    assert Ctx.services["plugin_seen"] == {"pins": "J40:11"}
+    assert "no hardware here" in plugins.errors["broken"]
+    assert "missing" in plugins.errors and plugins.errors["missing"].startswith("no plugin directory")
+    summary = plugins.summary()
+    assert summary["loaded"]["fake"]["providers"] == ["debug/fake-swd"]
+
+
+def test_providers_report_their_roles():
+    described = describe()
+    assert set(described) == {"relay", "console", "download", "flash", "debug"}
+    assert "serial-mux" in described["console"]["names"]
+    assert "none" in described["debug"]["names"]
+
+
+# -------------------------------------------------------------- role bindings
+SPEC = {"id": "k1-a", "host": "h", "board": "b", "console": {"alias": "tty-a"},
+        "fastboot": {"usb": "usb:2-1.4"}, "control": {"backend": "human", "reset": {"pin": "P11"}}}
+
+
+def test_old_records_bind_the_default_providers():
+    spec = spec_from_dict(dict(SPEC))
+    b = bindings.bindings(spec)
+    assert b["console"]["provider"] == "serial-mux" and b["console"]["alias"] == "tty-a"
+    assert b["download"]["provider"] == "fastboot" and b["download"]["usb"] == "usb:2-1.4"
+    assert b["relay"]["provider"] == "human" and b["relay"]["reset"] == {"pin": "P11"}
+    assert b["debug"]["provider"] == "none"
+
+
+def test_a_record_can_name_every_provider():
+    spec = spec_from_dict({**SPEC, "services": {
+        "console": {"provider": "rtt", "port": 19022}, "flash": {"provider": "ec-aprom"},
+        "debug": {"provider": "ec-swd", "target": "pico2"}, "download": {"provider": "none"}}})
+    b = bindings.bindings(spec)
+    assert b["console"] == {"provider": "rtt", "port": 19022}
+    assert b["debug"]["target"] == "pico2"
+    assert bindings.describe(spec)["flash"] == {"provider": "ec-aprom"}
+
+
+def test_dut_set_fields_become_the_services_block():
+    spec = spec_from_dict(dict(SPEC))
+    block = bindings.services_from_fields(spec, debug_provider="ec-swd", console_provider="rtt")
+    assert block["debug"] == {"provider": "ec-swd"} and block["console"] == {"provider": "rtt"}
+    assert bindings.services_from_fields(spec, board="x") is None

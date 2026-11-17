@@ -1,6 +1,6 @@
 """dut command set: the single definition behind REST, CLI, console and AI tools for the DUTs of a
 host. Each command is one atomic step of the DUT manager (`DutModule`), which composes the host's
-relay controller (control backends over gpio_relay, or a person), its download path (fastboot and
+relay controller (control backends over the gpio service, or a person), its download path (fastboot and
 the artifact cache) and its serial consoles (serial-mux) per board."""
 
 from __future__ import annotations
@@ -30,6 +30,8 @@ def build_commands(mod: "DutModule") -> list[Command]:
             render=_render_list, mutating=False),
         cmd("dut.status", "One DUT: lease, stage (fdl/fastboot/os), fastboot, control lines, console tail",
             mod.status, [DUT], render=_render_status, mutating=False),
+        cmd("dut.ports", "USB download-port candidates from the host's port watcher (no discovery or reset)",
+            mod.download_ports, [], render=lambda ds: "\n".join(d["usb"] for d in ds) or "(none)", mutating=False),
         cmd("dut.acquire", "Lease a DUT (needed for reset/boot/console); returns a token",
             mod.acquire,
             [DUT, Param("holder", help="who holds it (user or agent id)", required=False, positional=False,
@@ -91,9 +93,10 @@ def build_commands(mod: "DutModule") -> list[Command]:
              Param("timeout", "number", "seconds for the stage", required=False, default=300)],
             render=lambda r: f"{r['dut']}: staged {r['file']} ({r['size']:,} B)"
                              + (" and continued" if r["continued"] else "")),
-        cmd("dut.boot_files", "Boot from RAM with uploaded files in order (FSBL, U-Boot/OpenSBI, kernel)",
+        cmd("dut.boot_files", "Boot from RAM with files in order (FSBL, U-Boot/OpenSBI, kernel)",
             mod.boot_files,
-            [DUT, Param("files", help="comma list of sha256 of uploaded files, in boot order", positional=False),
+            [DUT, Param("files", type="array", help="list of uploaded sha256, http(s) URL or host:/absolute/path "
+                                                   "on this host, in boot order", positional=False),
              LEASE,
              Param("reset", "boolean", "enter download mode first", required=False, default=True),
              Param("first_wait", "number", "seconds before polling for the port after the first file",
@@ -148,7 +151,7 @@ def build_commands(mod: "DutModule") -> list[Command]:
             [DUT, Param("new", help="new DUT name"), LEASE,
              Param("console", "boolean", "also rename the serial-mux console alias", required=False, default=False)],
             render=_render_status),
-        cmd("dut.set", "Edit a DUT: board, soc, description, sdks, usb, reset pin, FDL strategy",
+        cmd("dut.set", "Edit a DUT: board, soc, description, sdks, usb, reset pin, FDL strategy, providers",
             lambda dut, lease, **f: mod.set_fields(dut, lease, **f),
             [DUT, LEASE,
              Param("board", help="board name", required=False, positional=False),
@@ -157,9 +160,19 @@ def build_commands(mod: "DutModule") -> list[Command]:
              Param("sdks", help="comma list; empty string = all SDKs of its SoC", required=False, positional=False),
              Param("usb", help="fastboot selector, e.g. usb:2-1.4", required=False, positional=False),
              Param("reset_pin", help="header pin of the reset line, e.g. P26", required=False, positional=False),
+             Param("reset_actor", help="human (clear reset.pin); a GPIO pin switches to a relay", required=False, positional=False, choices=["human"]),
+             Param("fdl_actor", help="human (coordinate FDL and any reset relay)", required=False, positional=False, choices=["human"]),
              Param("pulse_ms", "integer", "reset pulse width", required=False, positional=False),
              Param("fdl", help="strapped | button | unset", required=False, positional=False, choices=["strapped", "button", "unset"]),
-             Param("fdl_pin", help="header pin of the FDL line (fdl=button)", required=False, positional=False)],
+             Param("fdl_pin", help="header pin of the FDL line (fdl=button)", required=False, positional=False),
+             Param("console_provider", help="who serves its console (see `bsp status` → providers)",
+                   required=False, positional=False),
+             Param("download_provider", help="who serves its download port", required=False, positional=False),
+             Param("flash_provider", help="who writes images to it", required=False, positional=False),
+             Param("debug_provider", help="who debugs it", required=False, positional=False),
+             Param("relay_provider", help="who resets it", required=False, positional=False),
+             Param("services", help="JSON object replacing the providers' own values for a role, e.g. '{\"debug\": {\"provider\": \"ec-swd\", \"target\": \"pico2\"}}'",
+                   required=False, positional=False)],
             render=_render_status),
         cmd("dut.logins", "ssh console logins on this host: `ssh <login>@<host>` opens that DUT's console",
             mod.login_list, mutating=False,
@@ -169,6 +182,10 @@ def build_commands(mod: "DutModule") -> list[Command]:
         cmd("dut.export", "All DUT specs on this host (save into <site>/duts/ to make them static)",
             mod.export, mutating=False,
             render=lambda r: __import__("yaml").safe_dump(r, sort_keys=False, allow_unicode=True)),
+        cmd("dut.ports", "USB devices that may be a board's download port, with their fastboot selector",
+            mod.usb_ports, mutating=False,
+            render=lambda r: "\n".join(f"{d['usb']}  {d.get('vid', '')}:{d.get('pid', '')}  {d.get('product', '')}"
+                                       for d in r) or "no download ports on the bus"),
         cmd("dut.ports", "USB devices that may be a board's download port, with their fastboot selector",
             mod.usb_ports, mutating=False,
             render=lambda r: "\n".join(f"{d['usb']}  {d.get('vid', '')}:{d.get('pid', '')}  {d.get('product', '')}"
@@ -201,6 +218,24 @@ def build_commands(mod: "DutModule") -> list[Command]:
              Param("board", help="board name to record when identify cannot read it", required=False),
              Param("soc", help="SoC to record when the boot ROM does not tell", required=False)],
             render=lambda r: f"refresh job {r['job']} on {r['host']}" if "job" in r else str(r)),
+        # ---- debug: a board's debug path is a service of its own (see dut/debug.py)
+        cmd("debug.list", "Boards' debug providers on this host: provider, what it offers, and its live state",
+            mod.debug_shelf, mutating=False,
+            render=lambda items: "\n".join(f"{d['dut']:<12} {d['provider']:<10} {' '.join(d['kinds']) or '-':<24} "
+                                           f"{_state_line(d.get('state'))}" for d in items) or "(no DUTs)"),
+        cmd("debug.status", "One board's debug path: provider, what it offers, how it stands",
+            mod.debug_status, [DUT], mutating=False,
+            render=lambda d: f"{d['dut']}: {d['provider']} ({', '.join(d['kinds']) or 'nothing'})"
+                             + (f"\n{_state_line(d.get('state'))}" if d.get("state") else "")),
+        cmd("debug.start", "Bring a board's debug path up (its server runs as a session under the board's lease)",
+            mod.debug_start, [DUT, LEASE],
+            render=lambda r: f"{r.get('dut')}: debug session {r.get('endpoint') or 'up'} ({r.get('provider')})"),
+        cmd("debug.stop", "Stop a board's debug path", mod.debug_stop, [DUT, LEASE],
+            render=lambda r: f"{r.get('dut')}: debug session stopped"),
+        cmd("debug.action", "Run one action of a board's debug provider (halt, run, reset, step, regs, …)",
+            mod.debug_action, [DUT, Param("action", help="an action the provider offers (`bsp debug status`)"), LEASE],
+            render=lambda r: "\n".join(f"{k}: {v}" for k, v in r.items() if k not in ("dut", "action"))
+                             or f"{r['dut']}: {r['action']} done"),
         # ---- slots: every console on the host is a slot; reset, download port and DUT are attached to it
         cmd("slot.list", "Slots on this host: each console, whether its adapter is plugged in, and what is attached",
             mod.slot_list, render=_render_slots, mutating=False),
@@ -267,6 +302,15 @@ def _render_status(d: dict[str, Any]) -> str:
         f"  sdks     : {', '.join(d['sdks'])}",
         "  console  :", *[f"    {l}" for l in d["console_tail"]],
     ])
+
+
+def _state_line(state: Any) -> str:
+    if not isinstance(state, dict):
+        return "" if state is None else str(state)
+    if state.get("error"):
+        return f"error: {state['error']}"
+    bits = [f"{k}={v}" for k, v in state.items() if v not in (None, "", [], {})]
+    return " ".join(bits) or "-"
 
 
 def _render_probe(r: dict[str, Any]) -> str:

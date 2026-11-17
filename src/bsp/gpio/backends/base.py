@@ -24,11 +24,46 @@ class LineStatus:
         }
 
 
+class FastLine:
+    """One line driven directly, for services whose timing matters (a bit-banged bus).
+
+    These calls are not wrapped by the timeout guard: they are the ones a caller needs to issue back to back
+    (a clock edge), so a thread hop would change what is on the wire. A fast usage claims its lines, keeps them
+    for its lifetime, and gives them back as inputs (`release`).
+    """
+
+    def write(self, value: int) -> None: raise NotImplementedError
+    def read(self) -> int: raise NotImplementedError
+    def release(self) -> None: raise NotImplementedError
+
+
+class _PlainFastLine(FastLine):
+    """The fallback: a backend with no direct handle drives and reads through its own methods."""
+
+    def __init__(self, backend: "GpioBackend", gpio: int):
+        self.backend = backend
+        self.gpio = gpio
+
+    def write(self, value: int) -> None:
+        self.backend.set_output(self.gpio, 1 if value else 0)
+
+    def read(self) -> int:
+        line = self.backend.status(self.gpio)
+        return int(line.value or 0)
+
+    def release(self) -> None:
+        self.backend.set_input(self.gpio)
+
+
 class GpioBackend(ABC):
     """Physical-level line access. Polarity, drive emulation and semantics
     (relay/button) live in channels, not here."""
 
     name: str = "abstract"
+
+    def fast_line(self, gpio: int) -> FastLine:
+        """A direct handle on one line; backends that can offer better override this."""
+        return _PlainFastLine(self, gpio)
 
     @abstractmethod
     def set_output(self, gpio: int, value: int) -> None:

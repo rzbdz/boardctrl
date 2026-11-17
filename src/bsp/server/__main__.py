@@ -1,4 +1,4 @@
-"""`bsp-hostd --config <site>/hosts/<host>.yaml`"""
+"""`boardctrld --config <site>/hosts/<host>.yaml` (`bsp-hostd` is the old name of the same daemon)"""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ def main(argv: list[str] | None = None) -> None:
     from .app import create_app
     from .config import HostConfig
 
-    ap = argparse.ArgumentParser(prog="bsp-hostd", description="bsp host controller daemon")
+    ap = argparse.ArgumentParser(prog="boardctrld", description="board controller daemon (the old name, bsp-hostd, still works)")
     ap.add_argument("--config", "-c", required=True, help="host config YAML")
     ap.add_argument("--bind", help="override server.bind")
     ap.add_argument("--port", type=int, help="override server.port")

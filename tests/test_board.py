@@ -1,7 +1,7 @@
 import pytest
 
 from bsp.core.errors import InvalidRequest, NotFound
-from bsp.gpio_relay.board import BoardProfile, PinKind
+from bsp.gpio.board import BoardProfile, PinKind
 
 
 def test_example_40pin_profile(board):
@@ -34,7 +34,7 @@ def test_profile_shorthand_layout_and_duplicates():
 def test_example_26pin_profile():
     from pathlib import Path
 
-    from bsp.gpio_relay.board import BoardCatalog
+    from bsp.gpio.board import BoardCatalog
 
     b = BoardCatalog(Path(__file__).resolve().parents[1] / "examples" / "site" / "boards").get("example-26pin")
     assert (b.default_header.id, b.default_header.rows, len(b.default_header.pins)) == ("J26", 13, 26)

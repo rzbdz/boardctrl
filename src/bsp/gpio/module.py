@@ -1,4 +1,4 @@
-"""gpio_relay module: header GPIOs as raw GPIO / relay / button channels."""
+"""gpio module: header GPIOs as raw GPIO / relay / button channels."""
 
 from __future__ import annotations
 
@@ -9,13 +9,14 @@ from .backends import create_backend
 from .board import BoardCatalog
 from .commands import build_commands
 from .pinmux import PinmuxInspector
-from .service import ConfigStore, GpioRelayService
+from .service import ConfigStore, GpioService
 
 
-@MODULES.register("gpio_relay")
-class GpioRelayModule(Module):
-    name = "gpio_relay"
-    title = "GPIO / Relay"
+@MODULES.register("gpio")
+@MODULES.register("gpio_relay")     # the module's name before GPIO became a service with usages
+class GpioModule(Module):
+    name = "gpio"
+    title = "GPIO"
 
     def __init__(self, ctx: ModuleContext, config: dict[str, Any]):
         super().__init__(ctx, config)
@@ -26,7 +27,7 @@ class GpioRelayModule(Module):
             config.get("backend", "sysfs"), config.get("backend_options"), timeout=float(config.get("hw_timeout_s", 3.0))
         )
         debugfs = board.pinctrl.get("debugfs") if config.get("pinmux", True) else None
-        self.service = GpioRelayService(
+        self.service = GpioService(
             board,
             backend,
             ctx.bus,
@@ -37,8 +38,9 @@ class GpioRelayModule(Module):
             protected=config.get("protected") or [],
             pinmux=PinmuxInspector(debugfs),
             max_pulse_ms=int(config.get("max_pulse_ms", 60_000)),
+            claims_path=ctx.module_state_dir(self.name) / "claims.json",
         )
-        ctx.services["gpio_relay"] = self.service
+        ctx.services["gpio"] = self.service
 
     def commands(self):
         return build_commands(self.service)

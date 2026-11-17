@@ -1,6 +1,6 @@
 ---
 name: bsp-gpio-relay
-description: Control DUT reset / FDL (download-mode) lines and relays through the bsp host controller's GPIO header. Use when you need to reset a board, hold it in FDL/fastboot boot mode, toggle a relay, or inspect header pin state on a bsp board host (see `bsp hosts`).
+description: Control DUT reset / FDL (download-mode) lines and relays through the bsp host controller's GPIO header. Use when you need to reset a board, hold it in FDL/fastboot boot mode, toggle a relay, or inspect header pin state on a bsp board host (see `boardctrl hosts`).
 ---
 
 # bsp gpio-relay
@@ -31,15 +31,15 @@ Or with the CLI (stdlib only, from the repo): `BSP_URL=http://<host>:8765 bin/bs
 
 | Goal | CLI | HTTP |
 |---|---|---|
-| Register meaning | `bsp gpio alias add DUT3/reset P11 --owner <you>` | `POST /api/v1/gpio/alias/add {"name":"DUT3/reset","target":"P11","owner":"<you>"}` |
-| Reset DUT | `bsp button click DUT3/reset --ms 300` | `POST /api/v1/button/DUT3/reset/click {"ms":300}` |
-| Boot into FDL | `bsp button press DUT3/fdl` → `bsp button click DUT3/reset` → wait for USB download device → `bsp button release DUT3/fdl` | same verbs under `/api/v1/button/...` |
-| Relay on/off | `bsp relay on DUT3/power` / `off` | `POST /api/v1/relay/DUT3/power/on` |
-| Raw level | `bsp gpio set P7 low` | `POST /api/v1/gpio/P7/set?level=low` |
-| Re-mode a pin | `bsp gpio config P11 --mode button` | `POST /api/v1/gpio/P11/config {"mode":"button"}` |
-| Inspect a DUT's lines | `bsp gpio alias list DUT3` | `GET /api/v1/gpio/alias/list?prefix=DUT3` |
-| Unregister a DUT | `bsp gpio alias delete DUT3 --prefix` | `POST /api/v1/gpio/alias/delete {"name":"DUT3","prefix":true}` |
-| Watch events | `bsp watch` | `GET /api/v1/events` (SSE) |
+| Register meaning | `boardctrl gpio alias add DUT3/reset P11 --owner <you>` | `POST /api/v1/gpio/alias/add {"name":"DUT3/reset","target":"P11","owner":"<you>"}` |
+| Reset DUT | `boardctrl button click DUT3/reset --ms 300` | `POST /api/v1/button/DUT3/reset/click {"ms":300}` |
+| Boot into FDL | `boardctrl button press DUT3/fdl` → `boardctrl button click DUT3/reset` → wait for USB download device → `boardctrl button release DUT3/fdl` | same verbs under `/api/v1/button/...` |
+| Relay on/off | `boardctrl relay on DUT3/power` / `off` | `POST /api/v1/relay/DUT3/power/on` |
+| Raw level | `boardctrl gpio set P7 low` | `POST /api/v1/gpio/P7/set?level=low` |
+| Re-mode a pin | `boardctrl gpio config P11 --mode button` | `POST /api/v1/gpio/P11/config {"mode":"button"}` |
+| Inspect a DUT's lines | `boardctrl gpio alias list DUT3` | `GET /api/v1/gpio/alias/list?prefix=DUT3` |
+| Unregister a DUT | `boardctrl gpio alias delete DUT3 --prefix` | `POST /api/v1/gpio/alias/delete {"name":"DUT3","prefix":true}` |
+| Watch events | `boardctrl watch` | `GET /api/v1/events` (SSE) |
 
 Generic call for any tool: `POST /api/v1/tools/<tool_name>` with the JSON args.
 

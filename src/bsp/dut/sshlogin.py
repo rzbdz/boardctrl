@@ -127,7 +127,7 @@ class ConsoleLogins:
         return False
 
     def _sshd_conf(self) -> str:
-        return (f"# Managed by bsp-hostd (modules.dut.ssh_console). Removed when the feature is off.\n"
+        return (f"# Managed by boardctrld (modules.dut.ssh_console). Removed when the feature is off.\n"
                 f"Match User {self.prefix}*\n"
                 f"    PasswordAuthentication yes\n"
                 f"    PermitEmptyPasswords yes\n"

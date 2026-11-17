@@ -4,7 +4,7 @@ Every console on the host is a slot (see slots.py); probing finds the board on e
 
   candidates   consoles: the online slots without a DUT (or those named with --slots); a slot whose adapter
                          is gone is skipped. Without slots: hooks/probe/consoles (serial-mux aliases + raw ttys)
-               pins   : free header GPIOs from the gpio_relay service, those named with --prefer first, then by
+               pins   : free header GPIOs from the gpio service, those named with --prefer first, then by
                          `probe.pin_order`:
                          `history` (lines a slot had before: re-cabled or re-registered boards come back first),
                          `relay` (lines already set up as relays or buttons), then `number`
@@ -136,7 +136,7 @@ class Prober:
 
     # ------------------------------------------------------- candidates --
     def _gpio(self):
-        return self.mod.ctx.service("gpio_relay")
+        return self.mod.ctx.service("gpio")
 
     def _used(self) -> dict[str, set]:
         used: dict[str, set] = {"pins": set(), "consoles": set(), "usb": set()}

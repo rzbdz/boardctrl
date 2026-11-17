@@ -17,6 +17,8 @@ examples/site/ in the repo is a complete, made-up site showing every format.
 
 from __future__ import annotations
 
+from ..core import naming
+
 import os
 from pathlib import Path
 
@@ -25,7 +27,7 @@ PACKS = REPO / "packs"
 
 
 def site_dir() -> Path | None:
-    cands = [os.environ.get("BSP_SITE"), str(Path.home() / ".config" / "bsp" / "site"), "/etc/bsp/site"]
+    cands = [naming.get("BOARDCTRL_SITE"), str(Path.home() / ".config" / "bsp" / "site"), "/etc/bsp/site"]
     for c in cands:
         if c and Path(c).expanduser().is_dir():
             return Path(c).expanduser().resolve()
@@ -33,7 +35,9 @@ def site_dir() -> Path | None:
 
 
 def site_settings(site: Path | None) -> dict:
-    p = site / "bsp.yaml" if site else None
+    p = None
+    if site:
+        p = site / "boardctrl.yaml" if (site / "boardctrl.yaml").exists() else site / "bsp.yaml"
     if p and p.exists():
         import yaml
 

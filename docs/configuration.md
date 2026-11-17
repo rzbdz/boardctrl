@@ -1,6 +1,6 @@
 # Configuration
 
-bsp separates **mechanism** (this repository) from **knowledge about your installation**
+boardctrl separates **mechanism** (this repository) from **knowledge about your installation**
 (configuration). This page describes where configuration is read from and every file format.
 
 ## Layers
@@ -11,7 +11,7 @@ Configuration is merged from three layers, lowest priority first:
 |---|---|---|
 | Core | Generic hooks (`hooks/`), example site | this repository |
 | Packs | Public hardware knowledge: SoC profiles, header pin maps, hooks for public tool formats | `packs/<name>/` in this repository |
-| Site | Your hosts, build servers, SDK trees, boot and flash recipes, probe images, boards, hints | first existing of `$BSP_SITE`, `~/.config/bsp/site`, `/etc/bsp/site` |
+| Site | Your hosts, build servers, SDK trees, boot and flash recipes, probe images, boards, hints | first existing of `$BOARDCTRL_SITE`, `~/.config/boardctrl/site`, `/etc/boardctrl/site` |
 
 Each pack and the site can contribute the same kinds of directories: `boards/`, `socs/`,
 `hooks/`, `sdk/{families,servers,workspaces,instances}/`, `duts/` and `hints/`. A file in a later
@@ -29,7 +29,7 @@ site/
 ├── bsp.yaml                 # optional: which packs to use
 ├── .bspignore               # optional: files deploy/install scripts do not ship
 ├── remotes.json             # board hosts the CLI talks to
-├── hosts/<host>.yaml        # configuration of each bsp-hostd
+├── hosts/<host>.yaml        # configuration of each boardctrld
 ├── deploy/<host>.env        # how deploy.sh reaches and installs each host
 ├── boards/<board>.yaml      # GPIO header pin maps (if no pack has yours)
 ├── socs/<soc>/              # SoC profile overrides and probe images
@@ -57,7 +57,7 @@ packs: [spacemit]     # omit to use every pack in the repository; [] for none
 
 ### hints/*.md
 
-Free-form Markdown shown by `bsp hints` and included in every `SKILL.md` that `bsp install`
+Free-form Markdown shown by `boardctrl hints` and included in every `SKILL.md` that `boardctrl install`
 writes. Use them for conventions agents should follow at your site. Hints are copied to hosts and
 clients, so do not put secrets in them.
 
@@ -71,8 +71,8 @@ server:
   bind: 0.0.0.0                  # default 127.0.0.1 (local only)
   port: 8765
   state_dir: /var/lib/bsp        # leases, probed boards, runtime GPIO settings, artifact cache
-  auth_token: null               # set it whenever bind is not 127.0.0.1, here or as BSP_TOKEN in
-                                 # /etc/bsp/hostd.env on the host (see SECURITY.md)
+  auth_token: null               # set it whenever bind is not 127.0.0.1, here or as BOARDCTRL_TOKEN in
+                                 # /etc/boardctrl/boardctrld.env on the host (see SECURITY.md)
 env:                             # values hooks receive: see "Host environment" below
   BSP_TFTP_SERVER: 192.0.2.20
   BSP_SDK_OUTPUT: /srv/sdk-output
@@ -121,7 +121,7 @@ modules:
 ```
 
 Relative paths are resolved against the directory of the host file. Environment variables
-`BSP_BIND`, `BSP_PORT`, `BSP_STATE_DIR` and `BSP_TOKEN` override the `server` keys.
+`BOARDCTRL_BIND`, `BOARDCTRL_PORT`, `BOARDCTRL_STATE_DIR` and `BOARDCTRL_TOKEN` override the `server` keys.
 
 ### Host environment
 
@@ -135,14 +135,14 @@ env:
   BSP_SDK_OUTPUT: /srv/sdk-output
   BSP_SERIAL_LOG_DIR: /root/.serial-mux/logs
   BSP_SMTTY: smtty
-  BSP_HOME: env:HOME                # `env:NAME`: take bsp-hostd's process environment
+  BSP_HOME: env:HOME                # `env:NAME`: take boardctrld's process environment
 ```
 
-A string written exactly as `env:NAME` is a reference to the environment bsp-hostd runs with;
+A string written exactly as `env:NAME` is a reference to the environment boardctrld runs with;
 this works anywhere in the host file (top level, `server`, `modules`, nested lists and maps), so
 paths and tokens need not be repeated. `env:NAME` is resolved once at startup; when `NAME` is
-unset, bsp-hostd refuses to start and names it. For the service, put such variables in
-`/etc/bsp/hostd.env`.
+unset, boardctrld refuses to start and names it. For the service, put such variables in
+`/etc/boardctrl/boardctrld.env`.
 
 Hook arguments expand from the **host env map** (not from the whole process environment), so a
 hook gets the same values whether it reads `req["env"]`, its own environment, or an `args` entry.
@@ -152,7 +152,9 @@ hook gets the same values whether it reads `req["env"]`, its own environment, or
 `modules.dut.product_dir` says where hooks on this host find a build's product. It may be a
 literal path, or a template with `{sdk}` (the SDK instance id) and `{artifacts_dir}` (the
 artifact directory on the build server); with no value the artifact directory itself is passed.
-`bsp dut flash` package hooks always get the unpacked package directory instead.
+`boardctrl dut flash` package hooks always get the unpacked package directory instead. This is an opaque path supplied to
+the hook: bsp does not mount Samba/CIFS, translate Windows/UNC paths, or redirect the SDK's SSH artifact pulls through
+it. A hook may run `scp` itself or use a share the site manages separately.
 
 `modules.dut.network` gives hooks the board network facts they would otherwise guess: the
 boards' DHCP subnet, this host's address there, and the address other machines use. Missing
@@ -174,7 +176,7 @@ images:
     # or source: {url: https://…}, or source: {file: /path/on/this/machine}
 ```
 
-`bsp images sync` fetches each listed image no layer holds into `<site>/.blobs/<sha256>/<file>`,
+`boardctrl images sync` fetches each listed image no layer holds into `<site>/.blobs/<sha256>/<file>`,
 once, and keeps it only if it hashes to its `sha256`; `deploy.sh` runs it before shipping the site,
 so hosts get the images and never fetch anything. Put `.blobs/` in the site's `.gitignore`. A newer
 image is a new `sha256` and `ref` (or a new entry) and another sync.
@@ -182,7 +184,7 @@ image is a new `sha256` and `ref` (or a new entry) and another sync.
 ### Host registry
 
 A board host that gets its address from DHCP, or sits behind NAT, can tell a registry where it
-is instead of being listed by hand in every `remotes.json`. The registry is a `bsp-hostd` with
+is instead of being listed by hand in every `remotes.json`. The registry is a `boardctrld` with
 the `registry` module, typically on a machine every host and client can reach:
 
 ```yaml
@@ -202,7 +204,7 @@ server:
   announce:
     url: http://registry.example.internal:8765
     interval_s: 60        # how often (default 60)
-    ssh_user: root        # clients then get an ssh route for tunnels and `bsp dut pipe`
+    ssh_user: root        # clients then get an ssh route for tunnels and `boardctrl dut pipe`
     addresses: []         # extra addresses to offer; default: this machine's own
     token: null           # the registry's API token, if it has one (or $BSP_REGISTRY_TOKEN)
 ```
@@ -215,7 +217,7 @@ with what was added and removed, so a newly cabled board is noticed within secon
 
 The registry records the address each announcement came from and offers it first, so a host
 behind NAT is reached at the address others see. `$BSP_REGISTRY_URL` sets `announce.url` from
-the environment. `bsp status` on the host shows the last announcement; on the registry, `bsp
+the environment. `boardctrl status` on the host shows the last announcement; on the registry, `bsp
 registry list` (and `GET /api/v1/registry/list`) shows the hosts.
 
 ### Console logins
@@ -226,7 +228,7 @@ and nothing else: there is no shell, port forwarding is disabled, and Ctrl-A Ctr
 Ctrl-C and every other key go to the board).
 The users follow the board registry automatically — they are created when a board is added,
 renamed with it, and deleted (ending open sessions) when it is removed. Disabling the option
-removes the users and every file bsp installed for them. `bsp dut logins` lists the ready-to-use
+removes the users and every file bsp installed for them. `boardctrl dut logins` lists the ready-to-use
 `ssh` commands. Only enable it on networks where everyone may use the boards' consoles.
 
 ## Boards (`duts/*.yaml`)
@@ -241,11 +243,13 @@ console: {alias: example-board}  # serial-mux alias; add `device: /dev/ttyUSB0` 
                                  # `prompt: "# $"` to override the SDK's shell prompt
 fastboot: {usb: "usb:1-1.2"}     # the selector `fastboot devices -l` shows
 control:
-  backend: gpio-relay            # gpio-relay | human (alias: manual) | home-assistant (stub)
+  backend: gpio-relay            # actor: gpio-relay | human (alias: manual); it does not decide media boot
   reset: {pin: P33, mode: button, pulse_ms: 1000}
   fdl:
-    strategy: strapped           # strapped: every reset enters download mode
-                                 # button: hold `pin`, pulse reset, release
+    strategy: strapped           # topology, independent of actor:
+                                 # strapped: every reset enters FDL; media_boot is needed to boot the media
+                                 # button: on-demand FDL; a plain reset boots media, no media_boot wrapper
+                                 # unset: topology unknown; enter-fdl refuses to guess
     # pin: P35
     # expect: {console: "...", fastboot: "..."}   # override the SoC profile's download_mode
   human:                         # human backend only (all optional)
@@ -255,7 +259,7 @@ control:
 sdks: []                         # empty = every SDK target of the board's SoC
 ```
 
-Probed and bound boards are stored on their host; `bsp dut export --dir DIR` writes them in this format, one file per board.
+Probed and bound boards are stored on their host; `boardctrl dut export --dir DIR` writes them in this format, one file per board.
 
 ## Clients
 
@@ -282,21 +286,21 @@ With `"registry": "http://registry.example.internal:8765"` at the top level (or
 `$BSP_REGISTRY`), the client also lists every host that announced itself there recently (see
 [Host registry](#host-registry)). A host listed in the file as well keeps its token, ssh route
 and description, and is tried at its announced addresses first. A registry that cannot be read
-is reported by `bsp hosts` and otherwise ignored. `<site>/remotes.json` is shared by all
-users of the site; `bsp remote add/remove/use` edits a personal overlay at
+is reported by `boardctrl hosts` and otherwise ignored. `<site>/remotes.json` is shared by all
+users of the site; `boardctrl remote add/remove/use` edits a personal overlay at
 `~/.config/bsp/remotes.json` (or `$BSP_CONFIG`, or `$XDG_CONFIG_HOME/bsp/remotes.json`).
 
 ### Which hosts a command uses
 
 1. `--url URL`, else `-r NAME[,NAME…]` (case-insensitive, unique prefixes allowed; `-r all`
-   for every host), else `$BSP_URL`, else `$BSP_REMOTE`.
-2. Without any of these: a `bsp-hostd` with the `dut` module answering on `127.0.0.1:8765`
-   (local mode, when you run bsp on a board host), else the default set with `bsp remote use`, else every remote.
+   for every host), else `$BOARDCTRL_URL`, else `$BOARDCTRL_REMOTE`.
+2. Without any of these: a `boardctrld` with the `dut` module answering on `127.0.0.1:8765`
+   (local mode, when you run bsp on a board host), else the default set with `boardctrl remote use`, else every remote.
 
-Board commands (`bsp dut …`) find the host that owns the board by asking all selected hosts.
-Host commands (`bsp gpio …`, `relay`, `button`, …) run on each selected host in turn; commands
+Board commands (`boardctrl dut …`) find the host that owns the board by asking all selected hosts.
+Host commands (`boardctrl gpio …`, `relay`, `button`, …) run on each selected host in turn; commands
 that change state refuse to run when more than one host is selected. With `--stateless`
-(`BSP_STATELESS=1`) the personal overlay, the saved default and saved lease tokens are ignored
+(`BOARDCTRL_STATELESS=1`) the personal overlay, the saved default and saved lease tokens are ignored
 and a host must be named explicitly.
 
 ### Files the client writes
@@ -310,16 +314,20 @@ and a host must be named explicitly.
 
 | Variable | Used by | Meaning |
 |---|---|---|
-| `BSP_SITE` | all | Site directory |
-| `BSP_URL`, `BSP_REMOTE` | client | Host selection (see above) |
+| `BOARDCTRL_SITE` | all | Site directory |
+| `BOARDCTRL_URL`, `BOARDCTRL_REMOTE` | client | Host selection (see above) |
 | `BSP_REGISTRY` | client | Registry to list announced hosts from (like `"registry"` in `remotes.json`) |
 | `BSP_REGISTRY_URL`, `BSP_REGISTRY_TOKEN` | host | Registry this host announces itself to, and its token |
-| `BSP_TOKEN` | client, host | API token: sent by the client (like `--token`); required by the host for changes |
-| `BSP_STATELESS` | client | `1`: ignore saved defaults and lease tokens |
-| `BSP_LEASE`, `BSP_SDK_LEASE` | client | Lease token for `dut` / `sdk` commands |
-| `BSP_HOLDER` | client | Holder name for leases (default `$USER`) |
+| `BOARDCTRL_TOKEN` | client, host | API token: sent by the client (like `--token`); required by the host for changes |
+| `BOARDCTRL_STATELESS` | client | `1`: ignore saved defaults and lease tokens |
+| `BOARDCTRL_LEASE`, `BSP_LEASE`, `BSP_SDK_LEASE` | client | Lease token for `dut` / `sdk` commands |
+| `BOARDCTRL_HOLDER`, `BSP_HOLDER` | client | Holder name for leases (default `$USER`) |
+| `BOARDCTRL_HOOKS_PATH`, `BSP_HOOKS_PATH` | host | Hook directories, searched before the site's |
+
+`BSP_*` names are still read when the `BOARDCTRL_*` one is unset; the `env:` map of a host config keeps whatever
+names a site's hooks use (the examples use `BSP_*` for that reason).
 | `BSP_CONFIG` | client | Path of the personal `remotes.json` |
 | `BSP_SDK_CATALOG` | client | An extra SDK catalog directory, highest priority |
 | `BSP_SDK_LOCAL` | client | `1`: run SDK operations locally instead of over ssh (on the build server) |
 | `BSP_HOOKS_PATH` | host | Extra hook directories (`:`-separated), searched first |
-| `BSP_BIND`, `BSP_PORT`, `BSP_STATE_DIR` | host | Override `server.*` in the host config (also settable in `/etc/bsp/hostd.env`) |
+| `BOARDCTRL_BIND`, `BOARDCTRL_PORT`, `BOARDCTRL_STATE_DIR` | host | Override `server.*` in the host config (also settable in `/etc/boardctrl/boardctrld.env`) |

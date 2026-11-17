@@ -1,4 +1,14 @@
-"""GpioRelayService: the facade every front-end talks to."""
+"""GpioService: the facade every front-end talks to.
+
+The service owns the header's lines and hands them out three ways:
+
+* **channels** — semantics on top of a line: a relay (on/off), a button (pressed), a raw level. Bounded by the
+  timeout guard, because a blocked kernel call must not take the host down.
+* **aliases** — names any of the above answers to (`DUT3/reset`), so a role, a script and a page can share lines.
+* **usage claims** — a whole feature claims the lines it needs (`swd: swclk=J40:11, swdio=J40:13`) and drives
+  them directly, for timing that a thread hop would spoil. A claim is a lease on pins: nobody else may configure,
+  alias or drive them until it is released, and a restart gives back only what it holds itself.
+"""
 
 from __future__ import annotations
 
@@ -27,6 +37,50 @@ def is_native_ref(t: str) -> bool:
     return bool(_GPIO_REF.match(t) or _PIN_REF.match(t) or _HEADER_PIN_REF.match(t))
 
 
+class Claim:
+    """The lines one usage holds, plus direct handles on them for timing-critical work.
+
+    ``lines`` gives a `FastLine` per role (write/read without the guard's thread hop); ``release`` gives the
+    lines back as inputs and frees them for other usages. A claim that is simply dropped keeps its lines: a
+    restarted feature takes the same claim back.
+    """
+
+    def __init__(self, service: "GpioService", usage: str, pins: dict[str, HeaderPin]):
+        self.service = service
+        self.usage = usage
+        self.pins = pins
+        self._lines: dict[str, Any] = {}
+
+    def line(self, role: str):
+        from .backends.base import FastLine
+
+        if role not in self.pins:
+            raise NotFound(f"claim {self.usage!r} has no role {role!r}", details={"roles": sorted(self.pins)})
+        if role not in self._lines:
+            pin = self.pins[role]
+            self._lines[role] = self.service.backend.fast_line(pin.gpio)  # type: ignore[arg-type]
+        return self._lines[role]
+
+    def key(self, role: str) -> str:
+        return self.pins[role].key
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"usage": self.usage, "pins": {r: _pin_text(p) for r, p in self.pins.items()}}
+
+    def release(self) -> list[str]:
+        for line in self._lines.values():
+            try:
+                line.release()
+            except BspError:
+                pass
+        self._lines.clear()
+        return self.service.release_claim(self.usage)
+
+
+def _pin_text(pin: HeaderPin) -> str:
+    return f"{pin.header}:{pin.number}"
+
+
 class ConfigStore:
     """Runtime channel-config overlay (JSON) layered over the host-config baseline."""
 
@@ -46,7 +100,7 @@ class ConfigStore:
         tmp.replace(self.path)
 
 
-class GpioRelayService:
+class GpioService:
     LOCK_WAIT_S = 0.5
 
     def __init__(
@@ -62,6 +116,7 @@ class GpioRelayService:
         protected: Iterable[str | int] = (),
         pinmux: PinmuxInspector | None = None,
         max_pulse_ms: int = 60_000,
+        claims_path: Path | None = None,
     ):
         self.board = board
         self.backend = backend
@@ -84,6 +139,101 @@ class GpioRelayService:
             self._runtime[pin.key] = ChannelRuntime()
             self._channels[pin.key] = create_channel(pin, backend, self._config_for(pin.key))
         self.aliases.load_baseline(aliases or {})
+        self.claims_path = Path(claims_path) if claims_path else None
+        # pin key -> usage name that holds it (persisted: a claim outlives a restart of the module)
+        self._claims: dict[str, str] = {}
+        if self.claims_path and self.claims_path.exists():
+            try:
+                self._claims = {str(k): str(v) for k, v in json.loads(self.claims_path.read_text()).items()}
+            except (OSError, ValueError):
+                self._claims = {}
+
+    # ================================================================ claims
+    def _save_claims(self) -> None:
+        if not self.claims_path:
+            return
+        tmp = self.claims_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(dict(sorted(self._claims.items())), indent=2))
+        tmp.replace(self.claims_path)
+
+    def claim(self, usage: str, pins: dict[str, str]) -> "Claim":
+        """Give a feature the lines it needs, as ``{role: pin}`` (``{"swclk": "J40:11"}``).
+
+        A claimed pin cannot be configured, aliased or driven through the service until the claim is released;
+        two usages never share one. The claim is remembered, so a restarted host still knows which lines its
+        features own, and is (re)taken by the feature that holds it.
+        """
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", usage or ""):
+            raise InvalidRequest(f"usage name {usage!r} is not usable", hint="letters, digits, _ . - (max 64)")
+        keys: dict[str, str] = {}
+        for role, ref in pins.items():
+            pin = self.resolve(ref)
+            if pin.kind is not PinKind.GPIO:
+                raise InvalidRequest(f"{usage}: {role} pin {pin.number} is {pin.label} ({pin.kind.value}), not a GPIO")
+            if pin.key in self.protected:
+                raise Forbidden(f"{usage}: pin {pin.number} ({pin.label}) is protected by the host config")
+            holder = self._claims.get(pin.key)
+            if holder and holder != usage:
+                raise Conflict(f"{usage}: pin {_pin_text(pin)} is used by {holder!r}",
+                               hint=f"release it first (`bsp gpio claim release {holder}`), or choose another pin")
+            keys[role] = pin.key
+        if len(set(keys.values())) != len(keys):
+            raise InvalidRequest(f"{usage}: one pin cannot fill two roles", details={"pins": keys})
+        for role, key in keys.items():
+            pin = self._pin_by_key(key)
+            mux = self.pinmux.get(pin.gpio)  # type: ignore[arg-type]
+            if mux and mux.get("conflict"):
+                raise Conflict(f"{usage}: {role} pin {pin.number} pad is muxed to {mux.get('mux_owner')}",
+                               hint="free the pad from that driver, or pick another pin", details=mux)
+            self._claims[key] = usage
+        self._save_claims()
+        self.bus.publish("gpio.claimed", usage=usage, pins={r: _pin_text(self._pin_by_key(k)) for r, k in keys.items()})
+        return Claim(self, usage, {role: self._pin_by_key(key) for role, key in keys.items()})
+
+    def release_claim(self, usage: str) -> list[str]:
+        """Drop a usage's claims (its holder is gone, or it was asked to). Idempotent."""
+        keys = [k for k, v in self._claims.items() if v == usage]
+        for key in keys:
+            del self._claims[key]
+        if keys:
+            self._save_claims()
+            self.bus.publish("gpio.released", usage=usage, pins=[_pin_text(self._pin_by_key(k)) for k in keys])
+        return [_pin_text(self._pin_by_key(k)) for k in keys]
+
+    def claims(self) -> list[dict[str, Any]]:
+        out: dict[str, list[dict[str, Any]]] = {}
+        for key, usage in sorted(self._claims.items()):
+            pin = self._pin_by_key(key)
+            out.setdefault(usage, []).append({"pin": _pin_text(pin), "key": key, "gpio": pin.gpio, "label": pin.label})
+        return [{"usage": usage, "pins": pins} for usage, pins in out.items()]
+
+    def claim_view(self, usage: str, pins: str) -> dict[str, Any]:
+        """`gpio claim`: parse ``role=pin`` pairs and take the claim."""
+        wanted: dict[str, str] = {}
+        for item in (pins or "").split(","):
+            item = item.strip()
+            if not item:
+                continue
+            role, sep, ref = item.partition("=")
+            if not sep or not role.strip() or not ref.strip():
+                raise InvalidRequest(f"{item!r} is not role=pin", hint="e.g. swclk=J40:11,swdio=J40:13")
+            wanted[role.strip()] = ref.strip()
+        if not wanted:
+            raise InvalidRequest("a claim needs at least one role=pin", hint="e.g. swclk=J40:11")
+        claim = self.claim(usage, wanted)
+        return {"usage": usage, "pins": {r: _pin_text(p) for r, p in claim.pins.items()}}
+
+    def claims_view(self) -> list[dict[str, Any]]:
+        return self.claims()
+
+    def release_claim_view(self, usage: str) -> dict[str, Any]:
+        return {"usage": usage, "pins": self.release_claim(usage)}
+
+    def _claim_guard(self, pin: HeaderPin, what: str) -> None:
+        holder = self._claims.get(pin.key)
+        if holder:
+            raise Conflict(f"pin {_pin_text(pin)} is claimed by {holder!r}; it cannot be {what}",
+                           hint=f"release it first: `bsp gpio claim release {holder}`")
 
     # ================================================================ lookup
     def _config_for(self, key: str) -> ChannelConfig:
@@ -165,6 +315,7 @@ class GpioRelayService:
             origin=self._origin(pin.key),
             actions=list(ch.actions),
             busy=rt.busy,
+            usage=self._claims.get(pin.key),
             protected=pin.key in self.protected,
             pinmux=self.pinmux.get(pin.gpio),  # type: ignore[arg-type]
             last_action=rt.last_action,
@@ -193,6 +344,7 @@ class GpioRelayService:
 
     # ============================================================== mutations
     def _guard(self, ch: Channel, force: bool) -> None:
+        self._claim_guard(ch.pin, "driven")
         if ch.pin.key in self.protected:
             raise Forbidden(
                 f"pin {ch.pin.number} ({ch.pin.label}) is protected by the host config",
@@ -320,6 +472,7 @@ class GpioRelayService:
         swaps the channel object; switching to button releases the line (hi-Z)."""
         ch = self.channel(target)
         key = ch.pin.key
+        self._claim_guard(ch.pin, "configured")
         if reset:
             self._overlay.pop(key, None)
             new_cfg = self._baseline.get(key) or ChannelConfig()
@@ -374,6 +527,8 @@ class GpioRelayService:
 
     def alias_add(self, name: str, target: str, tags: str | None = None, note: str = "",
                   owner: str | None = None, replace: bool = False) -> dict[str, Any]:
+        pin = self.resolve(target)
+        self._claim_guard(pin, "aliased")
         tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
         a = self.aliases.add(name, target, tags=tag_list, note=note or "", owner=owner, replace=replace)
         view = self._alias_view(a)
