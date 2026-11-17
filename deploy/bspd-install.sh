@@ -43,6 +43,12 @@ if [[ -f /etc/systemd/system/$OLD_UNIT || -d $OLD_PREFIX/current || -d /etc/bsp 
     cp -a "$OLD_SITE" "$SITE"
     echo "--> site kept and copied to $SITE"
   fi
+  # Its token is the one this install starts with (a new one given below wins); the old file goes, so that the old
+  # token cannot be read beside the new one and be mistaken for it.
+  if [[ ! -f /etc/boardctrl/boardctrld.env && -f /etc/bsp/hostd.env ]]; then
+    mkdir -p /etc/boardctrl && cp -a /etc/bsp/hostd.env /etc/boardctrl/boardctrld.env && chmod 600 /etc/boardctrl/boardctrld.env
+  fi
+  rm -f /etc/bsp/hostd.env
 fi
 
 if [[ -n $UNINSTALL ]]; then
@@ -217,8 +223,9 @@ Environment=PATH=$PREFIX/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 Environment=BOARDCTRL_SITE=$SITE
 # Read too, so a hook or a program written for the old name still sees the site.
 Environment=BSP_SITE=$SITE
-EnvironmentFile=-/etc/boardctrl/boardctrld.env
 EnvironmentFile=-/etc/bsp/hostd.env
+# Read after the old file, so this install's token is the one that counts.
+EnvironmentFile=-/etc/boardctrl/boardctrld.env
 Restart=always
 RestartSec=2
 TimeoutStopSec=10

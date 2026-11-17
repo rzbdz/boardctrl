@@ -103,3 +103,16 @@ def test_host_config_with_no_board_has_no_gpio_section(tmp_path):
     _run_config(site, conf, prefix)
     config = yaml.safe_load(conf.read_text())
     assert "gpio" not in config["modules"] and config["modules"]["sdk"] == {}
+
+
+def test_takeover_moves_the_old_token_and_reads_it_before_the_old_file():
+    """A host taken over from `bspd` keeps the token it had, in the new place, and the old file is not left where a
+    program reading both could pick the wrong one. The unit reads the old file first, so the new token counts."""
+    script = (ROOT / "deploy" / "bspd-install.sh").read_text()
+    start, end = script.index("if [[ -f /etc/systemd/system/$OLD_UNIT"), script.index('if [[ -n $UNINSTALL ]]')
+    takeover = script[start:end]
+    assert "cp -a /etc/bsp/hostd.env /etc/boardctrl/boardctrld.env" in takeover
+    assert "rm -f /etc/bsp/hostd.env" in takeover
+    old = script.index("EnvironmentFile=-/etc/bsp/hostd.env")
+    new = script.index("EnvironmentFile=-/etc/boardctrl/boardctrld.env")
+    assert old < new
