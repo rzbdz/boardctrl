@@ -212,16 +212,23 @@ class DutModule(Module):
 
     def reload_site(self) -> dict[str, Any]:
         """Read the site again after it changed on disk (a tool that manages it shipped a new copy): its SDK catalog,
-        SoC profiles and hooks; the sdk module follows (`site.updated`). A catalog that does not load is an error, and
-        the running one stays."""
+        SoC profiles, hooks and the DUT records it declares; the sdk module follows (`site.updated`). A part that does
+        not load refuses the whole site — an error like a bad catalog, the running one kept — so a host never takes
+        half a site."""
         from ..core.site import layered
 
         roots = layered("sdk", self._site)
         sdks = SdkCatalog(roots + ([self._catalog_layer] if self._catalog_layer.is_dir() else []))
+        # The site's duts/ was swapped with the rest: read it before anything is replaced, so a record that does not
+        # load leaves this host exactly as it was.
+        registry = DutRegistry(self.ctx.host_id, self._site / "duts", self.registry.state_file)
         self._load_socs()
         self._sdk_roots, self.sdks = roots, sdks
+        self.registry = registry
+        self._rebuild()
         self.ctx.bus.publish("site.updated", site=str(self._site))
-        result = {"site": str(self._site), "sdks": sorted(sdks.instances.names()), "socs": sorted(self.socs.profiles)}
+        result = {"site": str(self._site), "sdks": sorted(sdks.instances.names()), "socs": sorted(self.socs.profiles),
+                  "duts": sorted(self.boards)}
         self._event("catalog", sdks=len(result["sdks"]), socs=result["socs"])
         return result
 
