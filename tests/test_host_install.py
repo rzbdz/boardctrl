@@ -111,8 +111,49 @@ def test_takeover_moves_the_old_token_and_reads_it_before_the_old_file():
     script = (ROOT / "deploy" / "bspd-install.sh").read_text()
     start, end = script.index("if [[ -f /etc/systemd/system/$OLD_UNIT"), script.index('if [[ -n $UNINSTALL ]]')
     takeover = script[start:end]
+    # The old token moves only where the new place has none: an empty new file must not leave the host without one.
     assert "cp -a /etc/bsp/hostd.env /etc/boardctrl/boardctrld.env" in takeover
+    assert "BOARDCTRL_TOKEN|BSP_TOKEN)=" in takeover
     assert "rm -f /etc/bsp/hostd.env" in takeover
+
+
+def test_the_takeover_keeps_the_old_token_when_the_new_file_has_none(tmp_path):
+    """The installer creates an empty `/etc/boardctrl/boardctrld.env` when it is given no token. A host that still has
+    the old file's token must keep it (its old unit read that file), not be left with an empty file and no token."""
+    script = (ROOT / "deploy" / "bspd-install.sh").read_text()
+    start, end = script.index("  if [[ -f /etc/bsp/hostd.env ]]; then"), script.index("if [[ -n $UNINSTALL ]]")
+    # The takeover's own closing `fi` is not part of the fragment (only the `if` it contains is).
+    body = script[start:end]
+    inner = body.strip()
+    fragment = inner[:inner.rfind("\nfi")]
+    root = tmp_path / "etc"
+    for case, new, old, expected in [
+        # An empty new file: the old token is kept, under both names, so either reader takes it.
+        ("empty new file", "", "BSP_TOKEN=A\n", "BOARDCTRL_TOKEN=A"),
+        # A new file with its own token: the old one does not overwrite it.
+        ("new file with a token", "BOARDCTRL_TOKEN=B\n", "BSP_TOKEN=A\n", "BOARDCTRL_TOKEN=B"),
+        ("no new file", None, "BSP_TOKEN=A\n", "BSP_TOKEN=A"),
+        # A new file with only one of the two names: the other is filled in with the same token, so either reader
+        # takes it rather than reading a stale name from somewhere else.
+        ("new file, one name", "BOARDCTRL_TOKEN=B\n", "", "BSP_TOKEN=B"),
+    ]:
+        for path in (root / "boardctrl", root / "bsp"):
+            if path.exists():
+                for f in path.iterdir():
+                    f.unlink()
+        (root / "boardctrl").mkdir(parents=True, exist_ok=True)
+        (root / "bsp").mkdir(parents=True, exist_ok=True)
+        if new is not None:
+            (root / "boardctrl/boardctrld.env").write_text(new)
+        (root / "bsp/hostd.env").write_text(old)
+        body = fragment.replace("/etc/", f"{root}/")
+        subprocess.run(["bash", "-c", body], check=True, env={"PATH": "/usr/bin:/bin"})
+        read = (root / "boardctrl/boardctrld.env").read_text()
+        assert expected in read, case
+        assert not (root / "bsp/hostd.env").exists(), case
+        # Both names say the same thing, and the old file's value where it has one: the daemon and a sync agree.
+        values = {line.split("=", 1)[0]: line.split("=", 1)[1] for line in read.splitlines() if "=" in line}
+        assert values.get("BOARDCTRL_TOKEN", values.get("BSP_TOKEN")) == values.get("BSP_TOKEN", values.get("BOARDCTRL_TOKEN")), case
     old = script.index("EnvironmentFile=-/etc/bsp/hostd.env")
     new = script.index("EnvironmentFile=-/etc/boardctrl/boardctrld.env")
     assert old < new

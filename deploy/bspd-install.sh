@@ -43,12 +43,24 @@ if [[ -f /etc/systemd/system/$OLD_UNIT || -d $OLD_PREFIX/current || -d /etc/bsp 
     cp -a "$OLD_SITE" "$SITE"
     echo "--> site kept and copied to $SITE"
   fi
-  # Its token is the one this install starts with (a new one given below wins); the old file goes, so that the old
-  # token cannot be read beside the new one and be mistaken for it.
-  if [[ ! -f /etc/boardctrl/boardctrld.env && -f /etc/bsp/hostd.env ]]; then
-    mkdir -p /etc/boardctrl && cp -a /etc/bsp/hostd.env /etc/boardctrl/boardctrld.env && chmod 600 /etc/boardctrl/boardctrld.env
+  # The token it ran with is the one this install keeps. Whoever asks the host reads both files, and the two names have
+  # different precedence, so the merged file names the one token under both names: the daemon and a sync then take the
+  # same one. The new file's own token wins (an install was given one); the old file's fills in where it has none.
+  if [[ -f /etc/bsp/hostd.env ]]; then
+    mkdir -p /etc/boardctrl
+    from_old() { (set -a; . /etc/bsp/hostd.env; set +a; printf '%s' "${BOARDCTRL_TOKEN:-${BSP_TOKEN:-}}"); }
+    token=$( (set -a; . /etc/boardctrl/boardctrld.env 2>/dev/null; set +a; printf '%s' "${BOARDCTRL_TOKEN:-${BSP_TOKEN:-}}") )
+    [[ -n $token ]] || token=$(from_old)
+    if [[ -n $token ]]; then
+      grep -qE '^BOARDCTRL_TOKEN=' /etc/boardctrl/boardctrld.env 2>/dev/null || printf 'BOARDCTRL_TOKEN=%s\n' "$token" >> /etc/boardctrl/boardctrld.env
+      grep -qE '^BSP_TOKEN=' /etc/boardctrl/boardctrld.env 2>/dev/null || printf 'BSP_TOKEN=%s\n' "$token" >> /etc/boardctrl/boardctrld.env
+    elif [[ -s /etc/bsp/hostd.env ]]; then
+      cp -a /etc/bsp/hostd.env /etc/boardctrl/boardctrld.env
+    fi
+    chmod 600 /etc/boardctrl/boardctrld.env
+    # Gone only once the new place holds a token: otherwise the old file is still the only one that has it.
+    grep -qE '^(BOARDCTRL_TOKEN|BSP_TOKEN)=' /etc/boardctrl/boardctrld.env && rm -f /etc/bsp/hostd.env
   fi
-  rm -f /etc/bsp/hostd.env
 fi
 
 if [[ -n $UNINSTALL ]]; then
