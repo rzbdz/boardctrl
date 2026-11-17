@@ -709,7 +709,6 @@ def add_parsers(sub) -> None:
     dl.add_argument("--soc", help="only this SoC (as named in the SoC profiles)")
     dl.add_argument("--sdk", help="only DUTs that can run this SDK")
     dl.add_argument("--free", action="store_true", help="only DUTs nobody leases")
-    ds.add_parser("ports", help="download-port candidates from the host's port watcher (no discovery or reset)")
     ex = ds.add_parser("export", help="registered DUT specs as YAML; --dir writes one <site>/duts/<id>.yaml per board")
     ex.add_argument("--dir", help="write each board to DIR/<id>.yaml (e.g. $BSP_SITE/duts) instead of printing")
     ex.add_argument("--host", help="only boards of this host")
@@ -801,8 +800,6 @@ def add_parsers(sub) -> None:
     bd.add_argument("--fdl", choices=["strapped", "button"], default="button",
                     help="button (default): the person also holds BOOT/download; strapped: a reset enters download mode")
     bd.add_argument("--host", help="board host the console and USB are attached to (needed with several hosts)")
-    dp = ds.add_parser("ports", help="USB devices that may be a board's download port on a host")
-    dp.add_argument("--host", help="board host to ask (needed with several hosts)")
     dp = ds.add_parser("ports", help="USB devices that may be a board's download port on a host")
     dp.add_argument("--host", help="board host to ask (needed with several hosts)")
     bd.add_argument("--replace", action="store_true", help="overwrite an existing DUT with this name")

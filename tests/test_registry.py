@@ -181,6 +181,21 @@ def test_dut_ports_cli_uses_the_host_snapshot_without_a_dut_name(monkeypatch):
     assert called == [("dut_ports", {})]
 
 
+def test_the_client_parser_builds_once_per_action():
+    """Each action is registered once: argparse refuses a subcommand added twice on Python 3.11+, and the client
+    build runs on every command, so a doubled one takes the whole CLI down on the host that has the newer Python."""
+    import argparse
+
+    from bsp.cli import dutcli
+
+    root = argparse.ArgumentParser()
+    sub = root.add_subparsers()
+    dutcli.add_parsers(sub)                      # argparse raises on a duplicate subcommand here
+    dut = root.parse_args(["dut", "ports", "--host", "h"])
+    assert (dut.dut_cmd, dut.host) == ("ports", "h")
+    assert root.parse_args(["dut", "export"]).dut_cmd == "export"
+
+
 def test_download_port_choices_use_the_watchers_snapshot_not_a_discovery_plan():
     from bsp.dut.module import DutModule
 
