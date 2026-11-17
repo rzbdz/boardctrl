@@ -60,6 +60,37 @@ class DebugProvider(ABC):
         return {"provider": self.provider_name, "kinds": list(self.kinds), "available": bool(self.kinds)}
 
 
+class SessionDebug(DebugProvider):
+    """A debug provider whose path is a server process, serving a protocol on loopback.
+
+    A provider says how to start the server (`server_command`), when it is usable (`ready`: None until then, then
+    the endpoint it serves) and what it wants remembered with the session (`session_meta`). The session runs as a
+    transient unit under the board's lease, so releasing the board stops it; the provider keeps the verbs.
+    """
+
+    def server_command(self) -> list[str]:
+        raise NotImplementedError
+
+    def ready(self) -> str | None:
+        raise NotImplementedError
+
+    def session_meta(self) -> dict[str, Any]:
+        return {}
+
+    @property
+    def dut_id(self) -> str:
+        """Its board's id: the provider is built for a Board (which has a spec), or given the spec itself."""
+        return getattr(getattr(self.dut, "spec", self.dut), "id")
+
+    def start(self, lease: str | None = None) -> dict[str, Any]:
+        session = self.sessions.start(self.dut_id, "debug", self.provider_name, self.server_command(),
+                                      lease=lease, ready=self.ready, timeout=40.0, meta=self.session_meta())
+        return {"dut": self.dut_id, "provider": self.provider_name, **session.to_dict()}
+
+    def stop(self) -> dict[str, Any]:
+        return self.sessions.stop(self.dut_id, "debug")
+
+
 class NoDebug(DebugProvider):
     """A board with no debug path (most of them): says so, and offers nothing."""
 

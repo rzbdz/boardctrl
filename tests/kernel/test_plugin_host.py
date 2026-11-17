@@ -219,7 +219,9 @@ def test_debug_runs_under_the_lease_and_stops_with_it(client):
     shelf = client.post("/api/v1/tools/debug_list", json={}).json()["result"]
     assert shelf[0]["dut"] == "k1-a" and shelf[0]["provider"] == "fake-swd"
     # Releasing the board stops the session: the next holder does not inherit a debugger.
-    assert client.post("/api/v1/tools/dut_release", json={"dut": "k1-a", "lease": token}).json()["ok"]
+    released = client.post("/api/v1/tools/dut_release", json={"dut": "k1-a", "lease": token}).json()["result"]
+    assert released["sessions_stopped"] == ["debug"]
+    assert client.get("/api/v1/sessions").json()["sessions"] == []
     assert client.post("/api/v1/tools/debug_status", json={"dut": "k1-a"}).json()["result"]["provider"] == "fake-swd"
 
 

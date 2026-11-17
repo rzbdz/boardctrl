@@ -434,8 +434,11 @@ class DutModule(Module):
     def release(self, dut: str, lease: str | None, force: bool) -> dict[str, Any]:
         self.board(dut)
         out = self.leases.release(dut, lease, force)
-        self._event("released", dut=dut, forced=force)
-        return out
+        # The lease is the lifetime root of the sessions run for this board: letting go of the board lets go of
+        # them too, so nobody else inherits a debug server pointed at someone else's breakpoint.
+        stopped = self.sessions.reap(dut) if out.get("released") else []
+        self._event("released", dut=dut, forced=force, sessions=stopped or None)
+        return {**out, **({"sessions_stopped": stopped} if stopped else {})}
 
     def reset(self, dut: str, lease: str | None, fdl: bool) -> dict[str, Any]:
         b = self.board(dut)
