@@ -189,3 +189,36 @@ def test_dut_set_fields_become_the_services_block():
     block = bindings.services_from_fields(spec, debug_provider="my-swd", console_provider="trace")
     assert block["debug"] == {"provider": "my-swd"} and block["console"] == {"provider": "trace"}
     assert bindings.services_from_fields(spec, board="x") is None
+
+
+def test_a_guarded_backend_still_says_where_a_line_is():
+    """The timeout guard wraps every call a service makes; a site plugin that drives a line itself needs the chip and
+    offset behind it, and asked the guard, which used to forward only the driving methods."""
+    from bsp.core.errors import HardwareError
+    from bsp.gpio.backends.base import GpioBackend, LineStatus
+    from bsp.gpio.backends.guarded import GuardedBackend
+
+    class Located(GpioBackend):
+        name = "located"
+
+        def locate(self, gpio):
+            return ("/dev/gpiochip3", gpio - 96)
+
+        def set_output(self, gpio, value): ...
+        def set_input(self, gpio): ...
+        def free(self, gpio): ...
+        def status(self, gpio): return LineStatus(claimed=False, direction=None, value=None)
+
+    assert GuardedBackend(Located()).locate(118) == ("/dev/gpiochip3", 22)
+
+    class Drives(GpioBackend):
+        name = "drives"
+
+        def set_output(self, gpio, value): ...
+        def set_input(self, gpio): ...
+        def free(self, gpio): ...
+        def status(self, gpio): return LineStatus(claimed=False, direction=None, value=None)
+
+    # One that cannot say refuses, saying which backend and which line: a caller then configures chip and line itself.
+    with pytest.raises(HardwareError, match="drives.*GPIO118"):
+        GuardedBackend(Drives()).locate(118)

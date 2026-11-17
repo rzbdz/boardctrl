@@ -48,6 +48,11 @@ class GuardedBackend(GpioBackend):
     def status(self, gpio: int) -> LineStatus:
         return self._call("status", self.inner.status, gpio)
 
+    def locate(self, gpio: int) -> tuple[str, int]:
+        """Ask the backend behind the guard: a caller that drives the line itself (a plugin's tool) still needs to know
+        where it is. A backend that cannot say refuses, as it does unguarded."""
+        return self._call("locate", self.inner.locate, gpio)
+
     def free(self, gpio: int) -> None:
         self._call("free", self.inner.free, gpio)
 

@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
+from ...core.errors import HardwareError
+
 
 @dataclass
 class LineStatus:
@@ -64,6 +66,12 @@ class GpioBackend(ABC):
     def fast_line(self, gpio: int) -> FastLine:
         """A direct handle on one line; backends that can offer better override this."""
         return _PlainFastLine(self, gpio)
+
+    def locate(self, gpio: int) -> tuple[str, int]:
+        """The chip path and line offset a Linux GPIO number is on, for a caller that drives it without this service
+        (a site plugin's own tool, say). Only a character-device backend can say; the others refuse."""
+        raise HardwareError(f"the GPIO backend ({self.name}) cannot map GPIO{gpio} to a gpiochip line",
+                            hint="drive it through this service, or configure the chip and line directly")
 
     @abstractmethod
     def set_output(self, gpio: int, value: int) -> None:
