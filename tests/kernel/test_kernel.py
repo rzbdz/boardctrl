@@ -10,7 +10,7 @@ import pytest
 from bsp.core.errors import Conflict, Forbidden, InvalidRequest, NotFound
 from bsp.core.plugins import Plugins
 from bsp.core.providers import PROVIDERS, describe
-from bsp.core.sessions import Session, Sessions
+from bsp.core.sessions import Session, Sessions, unit_name
 from bsp.dut import services as bindings
 from bsp.dut.catalog import spec_from_dict
 
@@ -103,6 +103,33 @@ def test_a_session_whose_server_dies_at_once_is_an_error(tmp_path):
     with pytest.raises(Exception) as e:
         Sessions(tmp_path, Dead()).start("k1-a", "console", "fake", ["x"], timeout=5)
     assert "exited at once" in str(e.value)
+
+
+def test_a_server_that_comes_up_without_answering_is_stopped_not_left_running(tmp_path):
+    """
+    A tool can start and never answer (a kit supervisor whose port stays shut): its unit would keep running with no
+    record, holding the ports, the pins and its own lock, and `debug stop` could not find it.
+    """
+    class Never(FakeSystemd):
+        started: list[str] = []
+
+        def start(self, unit, command, env=None):
+            super().start(unit, command, env)
+            self.started.append(unit)
+
+    systemd = Never()
+    stopped: list[str] = []
+
+    class Watch(Never):
+        def stop(self, unit):
+            stopped.append(unit)
+            super().stop(unit)
+
+    with pytest.raises(Exception) as e:
+        Sessions(tmp_path, Watch()).start("k1-a", "debug", "fake", ["serve"], endpoint=None, timeout=0.3)
+    assert "did not come up" in str(e.value)
+    unit = unit_name("k1-a", "debug")
+    assert stopped == [unit]                                    # it was stopped, not left restarting
 
 
 def test_stop_needs_the_lease_that_started_it(tmp_path):

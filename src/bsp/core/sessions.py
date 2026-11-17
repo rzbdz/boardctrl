@@ -122,20 +122,30 @@ class Sessions:
         # What is collected this way never starts twice: a stale unit from a crashed run is cleared first.
         self.systemd.reset(unit)
         self.systemd.start(unit, command, env=env)
-        started = time.monotonic()
-        last = None
-        deadline = started + timeout
-        while time.monotonic() < deadline:
-            last = ready() if ready else endpoint
-            if last:
-                return self._save(Session(dut, role, provider, unit, self.systemd.pid(unit), last, lease,
-                                          time.time(), dict(meta or {})))
-            if not self.systemd.active(unit) and time.monotonic() - started > 2:
-                raise HardwareError(f"{dut}: {provider} server for {role} exited at once",
-                                    hint=f"journalctl -u {unit}")
-            time.sleep(0.2)
-        raise HardwareError(f"{dut}: {provider} server for {role} did not come up in {timeout:g}s",
-                            hint=f"journalctl -u {unit}")
+        try:
+            started = time.monotonic()
+            last = None
+            deadline = started + timeout
+            while time.monotonic() < deadline:
+                last = ready() if ready else endpoint
+                if last:
+                    return self._save(Session(dut, role, provider, unit, self.systemd.pid(unit), last, lease,
+                                              time.time(), dict(meta or {})))
+                if not self.systemd.active(unit) and time.monotonic() - started > 2:
+                    raise HardwareError(f"{dut}: {provider} server for {role} exited at once",
+                                        hint=f"journalctl -u {unit}")
+                time.sleep(0.2)
+            raise HardwareError(f"{dut}: {provider} server for {role} did not come up in {timeout:g}s",
+                                hint=f"journalctl -u {unit}")
+        except BaseException:
+            # A server that is up but not answering (or died) must not be left running: it holds the port, the pins
+            # and whatever lock its tool takes, and it has no record, so nothing could stop it later.
+            try:
+                self.systemd.stop(unit)
+                self.systemd.reset(unit)
+            except Exception:  # noqa: BLE001 - the start's own failure is what the caller needs to see
+                pass
+            raise
 
     # ----------------------------------------------------------------- stop
     def stop(self, dut: str, role: str, *, lease: str | None = None) -> dict[str, Any]:
