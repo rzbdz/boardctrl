@@ -179,13 +179,24 @@ def flash(req, work, pkg, binary, usb, args, media, skip, t0):
         print(json.dumps({"error": "no usable partition layout", "hint": "is U-Boot (not SPL) answering fastboot?"}))
         return 1
 
-    flashed, failed = [], []
+    flashed, failed, skipped = [], [], []
     plans = []
     for fmt, name in layouts:
         table = json.load(open(os.path.join(work, name)))
-        plans.append((name, [(fmt, os.path.join(work, name))] + [
-            (p["name"], os.path.join(work, p["image"])) for p in table["partitions"]
-            if p.get("image") and p["name"] not in skip]))
+        parts = []
+        for p in table["partitions"]:
+            # A partition's `image` is a file name, or a list of them where a builder composed a
+            # filesystem (image_build.py lists bootfs.vfat's inputs): the directory holds the result.
+            image = p.get("image")
+            names = [image] if isinstance(image, str) else [str(x) for x in image or []]
+            chosen = next((n for n in names if os.path.exists(os.path.join(work, n))), None)
+            if chosen:
+                parts.append((p["name"], os.path.join(work, chosen)))
+            elif names and p["name"] not in skip:
+                skipped.append((name, p["name"], names))
+        plans.append((name, [(fmt, os.path.join(work, name))] + [x for x in parts if x[1]]))
+    for name, part, names in skipped:
+        print(f"skip {part}: none of {', '.join(names)} is in the package ({name})")
     total = sum(os.path.getsize(i) for _, plan in plans for _, i in plan if os.path.exists(i)) or 1
     done = 0
     for name, plan in plans:
