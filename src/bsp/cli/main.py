@@ -36,7 +36,7 @@ from typing import Any
 
 from ..core.cmdspec import CommandSpec, build_parser, parse_tokens
 from ..core.errors import BspError
-from . import catalogcli, dutcli, sdkcli
+from . import catalogcli, debugcli, dutcli, sdkcli
 from .fleet import Fleet, HostHandle, LeaseBook, connect
 from .remotes import Remote, RemoteError, RemoteStore
 from .transport import Unreachable
@@ -137,6 +137,7 @@ def _client_parser() -> argparse.ArgumentParser:
                                 description=__doc__)
     sub = p.add_subparsers(dest="cmd", metavar="<command>")
     dutcli.add_parsers(sub)
+    debugcli.add_parser(sub)
     sdkcli.add_parser(sub)
     catalogcli.add_parser(sub)
     ins = sub.add_parser("install", help="write ./SKILL.md for agents: full bsp skill + what this directory is")
@@ -236,6 +237,8 @@ def main(argv: list[str] | None = None) -> int:
                 result, text = _hints(fleet, args)
             elif args.cmd == "images":
                 result, text = _images(args)
+            elif args.cmd == "debug":
+                result, text = debugcli.run(fleet, args, book)
             else:
                 result, text = dutcli.run(fleet, args, book)
         except RemoteError as e:

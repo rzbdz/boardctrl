@@ -22,22 +22,29 @@ def connect(target):
     host, _, port = target.rpartition(":")
     return socket.create_connection((host or "127.0.0.1", int(port)), timeout=5)
 
-def bridge(target, fin, fout):
-    """Copy fin -> socket and socket -> fout until either side closes."""
+def bridge(target, fin, fout, hold=False):
+    """Copy fin -> socket and socket -> fout until either side closes.
+
+    `hold` is for a stream nobody writes to (a trace channel a page only reads): the end of fin is then the end
+    of its input, not the end of the session, so the socket is read until it closes by itself.
+    """
     s = connect(target)
     try:
         while True:
-            ready, _, _ = select.select([fin, s], [], [])
+            ready, _, _ = select.select([fin, s] if fin is not None else [s], [], [])
             if s in ready:
                 data = s.recv(65536)
                 if not data:
                     return 0
                 while data:
                     data = data[os.write(fout, data):]
-            if fin in ready:
+            if fin is not None and fin in ready:
                 data = os.read(fin, 65536)
                 if not data:
-                    return 0
+                    if not hold:
+                        return 0
+                    fin = None
+                    continue
                 s.sendall(data)
     finally:
         s.close()
@@ -48,10 +55,10 @@ exec(compile(BRIDGE, "<bsp-pipe>", "exec"), _ns)      # noqa: S102 - our own con
 bridge = _ns["bridge"]
 
 
-def remote_command(sock_path: str) -> str:
+def remote_command(sock_path: str, hold: bool = False) -> str:
     """Shell command that runs the bridge on a host, connected to the ssh session's stdin/stdout."""
-    code = BRIDGE + "\nimport sys\nsys.exit(bridge(sys.argv[1], 0, 1))\n"
-    return f"python3 -c {shlex.quote(code)} {shlex.quote(sock_path)}"
+    code = BRIDGE + "\nimport sys\nsys.exit(bridge(sys.argv[1], 0, 1, len(sys.argv) > 2 and sys.argv[2] == '1'))\n"
+    return f"python3 -c {shlex.quote(code)} {shlex.quote(sock_path)}{' 1' if hold else ''}"
 
 
 def reachable(target: str) -> bool:
@@ -59,5 +66,5 @@ def reachable(target: str) -> bool:
     return not target.startswith("/") or os.path.exists(target)
 
 
-def local(target: str) -> int:
-    return bridge(target, 0, 1) if reachable(target) else 1
+def local(target: str, hold: bool = False) -> int:
+    return bridge(target, 0, 1, hold) if reachable(target) else 1

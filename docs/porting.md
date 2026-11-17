@@ -89,6 +89,12 @@ A provider whose server outlives one command uses the session service (`core/ses
 `services("sessions").start(dut, role, provider, command, endpoint=…, lease=…, ready=…)`. The session is a
 transient systemd unit under the board's lease, so releasing the board stops it.
 
+`boardctrl debug …` asks the host for all of this and knows no provider: `list` and `status` relay what a board
+reports, `start`/`stop` open and close the session, `action` runs what the provider lists in `kinds`, and `pipe`
+bridges the session's bytes on stdin/stdout for programs (boardlab's debug page reads a trace that way). A provider
+whose path carries a trace channel reports the session's endpoint as the DUT's console socket, so the same bridge
+serves a console and a trace.
+
 ## A site plugin
 
 Hardware nobody bought a driver for is a site plugin: a directory `modules/<name>/` in the site (or a pack) with a

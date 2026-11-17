@@ -379,12 +379,29 @@ def _pipe(h: HostHandle, dut: str) -> tuple[Any, str]:
     return _pipe_to(h, st, dut)
 
 
-def _pipe_to(h: HostHandle, st: dict[str, Any], what: str) -> tuple[Any, str]:
+def _bridge(h: HostHandle, sock: str, hold: bool = False) -> Quiet:
+    """Copy stdin/stdout to a host socket: locally when this machine can open it, else over ssh.
+
+    `hold` keeps reading the socket after stdin ends, for a stream nobody types into (a trace channel).
+    """
     import subprocess
 
     from . import pipe
     from .transport import HttpTransport, _ssh_base
 
+    loopback = isinstance(h.transport, HttpTransport) and \
+        re.match(r"https?://(127\.0\.0\.1|localhost|\[::1\])(:|/|$)", h.transport.url)
+    if loopback and pipe.reachable(sock):
+        return Quiet(pipe.local(sock, hold))
+    target = getattr(h.transport, "target", None) or h.remote.ssh
+    if not target:
+        raise InvalidRequest(f"no ssh route to {h.id} for a console pipe",
+                             hint=f"add one: bsp remote add {h.remote.name} {h.remote.url} --ssh root@<host>")
+    sys.stdout.flush()
+    return Quiet(subprocess.call(_ssh_base(target) + [pipe.remote_command(sock, hold)]))
+
+
+def _pipe_to(h: HostHandle, st: dict[str, Any], what: str) -> tuple[Any, str]:
     sock = st.get("console_socket")
     if not sock:
         raise InvalidRequest(f"{h.id} does not report console sockets", hint="update the board host on that machine")
@@ -392,16 +409,7 @@ def _pipe_to(h: HostHandle, st: dict[str, Any], what: str) -> tuple[Any, str]:
         raise BspError(f"the console of {what} is not running on {h.id}",
                        hint=f"see `boardctrl dut status {what} -r {h.id}`: a trace console comes up with its "
                             f"debug session; a serial one when its adapter is plugged in")
-    loopback = isinstance(h.transport, HttpTransport) and \
-        re.match(r"https?://(127\.0\.0\.1|localhost|\[::1\])(:|/|$)", h.transport.url)
-    if loopback and pipe.reachable(sock):
-        return Quiet(pipe.local(sock)), None
-    target = getattr(h.transport, "target", None) or h.remote.ssh
-    if not target:
-        raise InvalidRequest(f"no ssh route to {h.id} for a console pipe",
-                             hint=f"add one: bsp remote add {h.remote.name} {h.remote.url} --ssh root@<host>")
-    sys.stdout.flush()
-    return Quiet(subprocess.call(_ssh_base(target) + [pipe.remote_command(sock)])), None
+    return _bridge(h, sock), None
 
 
 def _attach(h: HostHandle, dut: str, args) -> tuple[Any, str]:
