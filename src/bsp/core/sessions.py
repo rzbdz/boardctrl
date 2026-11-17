@@ -57,17 +57,35 @@ class Sessions:
 
     ``systemd`` is where the units are made: a callable that starts a unit and returns after systemd accepted it
     (``systemd``, ``systemd-run``); tests pass a fake. ``alive`` says whether a record's process still runs.
+    ``held(lease)`` says whether a lease a session was started under is still the live one: a lease that ran out is
+    no longer a reason for a server to be running, so a session started under it is reaped rather than handed on.
     """
 
-    def __init__(self, directory: Path, run: "Systemd", alive: Callable[[int | None], bool] | None = None):
+    def __init__(self, directory: Path, run: "Systemd", alive: Callable[[int | None], bool] | None = None,
+                 held: Callable[[str | None], bool] | None = None):
         self.dir = Path(directory)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.systemd = run
         self._alive = alive or _pid_alive
+        self._held = held
 
     # -------------------------------------------------------------- records
     def _path(self, dut: str, role: str) -> Path:
         return self.dir / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', dut)}.{re.sub(r'[^A-Za-z0-9_.-]', '_', role)}.json"
+
+    def _live(self, s: Session) -> bool:
+        """Whether the record's server still runs, and nobody else's lease has replaced the one it was started under."""
+        if not self.systemd.active(s.unit) and not self._alive(s.pid):
+            return False
+        if s.lease and self._held and not self._held(s.lease):
+            # Its lease expired (or was taken): the board belongs to someone else now, and a server pointed at the
+            # old holder's breakpoint is not theirs to inherit.
+            try:
+                self.systemd.stop(s.unit)
+            finally:
+                self._path(s.dut, s.role).unlink(missing_ok=True)
+            return False
+        return True
 
     def get(self, dut: str, role: str) -> Session | None:
         path = self._path(dut, role)
@@ -79,9 +97,7 @@ class Sessions:
             s = Session.from_dict(json.loads(path.read_text()))
         except (OSError, ValueError, TypeError):
             return None
-        if not self.systemd.active(s.unit) and not self._alive(s.pid):
-            return None
-        return s
+        return s if self._live(s) else None
 
     def list(self, dut: str | None = None) -> list[Session]:
         out = []
@@ -92,9 +108,10 @@ class Sessions:
                 s = Session.from_dict(json.loads(p.read_text()))
             except (OSError, ValueError, TypeError):
                 continue
-            if dut is None or s.dut == dut:
-                if self.systemd.active(s.unit) or self._alive(s.pid):
-                    out.append(s)
+            if dut is not None and s.dut != dut:
+                continue
+            if self._live(s):
+                out.append(s)
         return out
 
     def _save(self, s: Session) -> Session:

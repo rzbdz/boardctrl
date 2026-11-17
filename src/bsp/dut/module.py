@@ -431,6 +431,10 @@ class DutModule(Module):
     def list(self) -> list[dict[str, Any]]:
         return [self.status(d) for d in self.boards]
 
+    def lease_live(self, token: str) -> bool:
+        """Whether a lease token is a live one: a session started under it is still the holder's (see Sessions)."""
+        return self.leases.is_live_token(token)
+
     def acquire(self, dut: str, holder: str, ttl: int, purpose: str, lease: str | None) -> dict[str, Any]:
         self.board(dut)
         out = self.leases.acquire(dut, holder, ttl, purpose, lease)

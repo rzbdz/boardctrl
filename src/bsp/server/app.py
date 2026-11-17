@@ -64,7 +64,8 @@ class Hub:
         # Sessions (console, trace, debug servers) are transient units: the DUT manager starts them under a lease.
         from ..core.sessions import Sessions, Systemd
 
-        self.sessions = Sessions(config.state_dir / "sessions", Systemd())
+        self.sessions = Sessions(config.state_dir / "sessions", Systemd(),
+                                 held=self._lease_held)
         ctx.services["sessions"] = self.sessions
         # Site plugins: code a site carries (modules/<name>/module.py). A name in `modules:` that no built-in
         # module registers is a plugin (its config goes to it), so a host enables one the way it enables a module.
@@ -122,6 +123,12 @@ class Hub:
                 "ports": dut.ports() if dut else {}, "catalog_rev": self.follower.rev if self.follower else 0,
                 "files_digest": self.follower.files_digest if self.follower else "",
                 "catalog_shadowed": self.follower.shadowed if self.follower else []}
+
+    def _lease_held(self, token: str) -> bool:
+        """Whether a lease token is the live one on its board: asked of the DUT module, which owns the leases (and
+        is built after this, so it is looked up when asked, not held)."""
+        dut = self.modules.get("dut")
+        return bool(dut and getattr(dut, "lease_live", lambda _token: True)(token))
 
     def status(self) -> dict[str, Any]:
         return {

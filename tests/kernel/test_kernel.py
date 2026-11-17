@@ -132,6 +132,30 @@ def test_a_server_that_comes_up_without_answering_is_stopped_not_left_running(tm
     assert stopped == [unit]                                    # it was stopped, not left restarting
 
 
+def test_a_session_outliving_its_lease_is_reaped_rather_than_handed_on(tmp_path):
+    """
+    A debug server runs under a lease. When that lease runs out the board is someone else's, and the next holder must
+    not inherit a session pointed at the old holder's breakpoint: reading it reaps it.
+    """
+    live = {"tok-a": True}
+
+    class Stopped(FakeSystemd):
+        stops: list[str] = []
+
+        def stop(self, unit):
+            self.stops.append(unit)
+            super().stop(unit)
+
+    systemd = Stopped()
+    sessions = Sessions(tmp_path / "sessions", systemd, held=lambda token: bool(token) and live.get(token, False))
+    started = sessions.start("k1-a", "debug", "fake", ["serve"], endpoint="127.0.0.1:3334", lease="tok-a")
+    assert sessions.get("k1-a", "debug") is not None                 # the holder's own lease is live
+    live["tok-a"] = False                                           # it ran out
+    assert sessions.get("k1-a", "debug") is None
+    assert systemd.stops == [started.unit]                           # the server was stopped, not handed on
+    assert sessions.list() == []
+
+
 def test_stop_needs_the_lease_that_started_it(tmp_path):
     sessions = Sessions(tmp_path, FakeSystemd())
     sessions.start("k1-a", "debug", "fake", ["s"], endpoint="e", lease="mine")

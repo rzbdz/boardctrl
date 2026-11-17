@@ -92,6 +92,14 @@ class LeaseManager:
             self._save()
             return dict(cur) | {"expires_in_s": ttl_s}
 
+    def is_live_token(self, token: str | None) -> bool:
+        """Whether `token` is the token of some live lease: what a session started under it may check, without knowing
+        which board (a session records the lease it was started under)."""
+        if not token:
+            return False
+        with self._lock:
+            return any(lease.get("token") == token for lease in self._leases.values() if lease["expires"] > time.time())
+
     def check(self, rid: str, token: str | None) -> dict[str, Any]:
         """Require a live lease held with `token` for a mutating operation."""
         cur = self._live(rid)
