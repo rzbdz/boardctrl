@@ -185,11 +185,12 @@ def flash(req, work, pkg, binary, usb, args, media, skip, t0):
         table = json.load(open(os.path.join(work, name)))
         parts = []
         for p in table["partitions"]:
-            # A partition's `image` is a file name, or a list of them where a builder composed a
-            # filesystem (image_build.py lists bootfs.vfat's inputs): the directory holds the result.
+            # A partition's `image` is a file name, or a list of them where a builder composed a filesystem
+            # (image_build.py lists bootfs.vfat's inputs, the composed file last): what gets flashed is the
+            # composed file, so the list is read from its end.
             image = p.get("image")
             names = [image] if isinstance(image, str) else [str(x) for x in image or []]
-            chosen = next((n for n in names if os.path.exists(os.path.join(work, n))), None)
+            chosen = next((n for n in reversed(names) if os.path.exists(os.path.join(work, n))), None)
             if chosen:
                 parts.append((p["name"], os.path.join(work, chosen)))
             elif names and p["name"] not in skip:

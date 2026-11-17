@@ -658,6 +658,47 @@ esac
     assert pkg.is_dir() and (pkg / "rootfs.ext4").exists()              # the caller's directory is left alone
 
 
+def test_spacemit_pkg_flashes_the_composed_image_when_a_partition_lists_its_inputs(tmp_path):
+    """A builder that composed a filesystem lists its inputs (`image: [a, b]`, image_build.py's bootfs.vfat):
+    the composed file is what gets flashed, and a partition whose files are all absent is skipped, not a crash."""
+    import subprocess
+    import sys
+
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "fastboot.yaml").write_text("version: 1\nactions:\n- multi_flash: {relate_partition: [gpt]}\n")
+    for name, data in (("bootfs.vfat", "b" * 300), ("rootfs.ext4", "r" * 700), ("boot.img", "k" * 50)):
+        (pkg / name).write_text(data)
+    (pkg / "partition_universal.json").write_text(json.dumps({"format": "gpt", "partitions": [
+        {"name": "bootfs", "image": ["boot.img", "bootfs.vfat"]},     # the composed one is what is there
+        {"name": "vendor", "image": ["vendor.img"]},                 # nothing to write
+        {"name": "rootfs", "image": "rootfs.ext4"}]}))
+    log = tmp_path / "fastboot.log"
+    fb = tmp_path / "fastboot"
+    fb.write_text(f"""#!/bin/sh
+echo "$*" >> {log}
+if [ "$1" = devices ]; then printf 'x\\tfastboot usb:2-1.1\\n'; exit 0; fi
+case "$3 $4" in
+  "getvar mtd-size") echo "mtd-size: NULL" >&2 ;;
+  "getvar blk-size") echo "blk-size: universal" >&2 ;;
+  *) echo OKAY >&2 ;;
+esac
+""")
+    fb.chmod(0o755)
+    hook = ROOT / "packs" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
+    req = {"usb": "usb:2-1.1", "fastboot": str(fb), "package_dir": str(pkg), "artifacts": {}}
+    r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stdout + r.stderr
+    result = json.loads(r.stdout.strip().splitlines()[-1])
+    assert [f["partition"] for f in result["flashed"]] == ["gpt", "bootfs", "rootfs"]
+    assert "skip vendor: none of vendor.img is in the package" in r.stdout
+    calls = [l for l in log.read_text().splitlines() if l.startswith("-s ")]
+    assert [c for c in calls if " flash " in c] == [
+        f"-s usb:2-1.1 flash gpt {pkg}/partition_universal.json",
+        f"-s usb:2-1.1 flash bootfs {pkg}/bootfs.vfat",
+        f"-s usb:2-1.1 flash rootfs {pkg}/rootfs.ext4"]
+
+
 def test_a_board_whose_fdl_is_not_known_says_what_to_set():
     import pytest
 
