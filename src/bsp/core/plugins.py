@@ -5,7 +5,7 @@ A pack or a site may bring code, not only data: a `modules/<name>/` directory wi
 commands and routes — the kernel-style loadable module of a board host:
 
     site/modules/ec/
-        module.py        def setup(ctx, api): api.provider("debug", "ec-swd", factory, title=..., about=...)
+        module.py        def setup(ctx, api): api.provider("debug", "my-swd", factory, title=..., about=...)
         ...              whatever else the plugin ships (bundles, data files)
 
 The host config selects them (``modules: {ec: {enabled: true}}``, or ``plugins: [ec]``); a plugin that fails to
@@ -38,7 +38,7 @@ class PluginApi:
         self.providers: list[str] = []
 
     def provider(self, role: str, provider: str, factory: Any, *, title: str = "", about: str = "") -> None:
-        """Register a service provider for this host: `provider("debug", "ec-swd", factory, title=…, about=…)`."""
+        """Register a service provider for this host: `provider("debug", "my-swd", factory, title=…, about=…)`."""
         from .providers import PROVIDERS, ROLES
 
         if role not in ROLES:
@@ -133,7 +133,8 @@ def _takes(fn: Any, count: int) -> bool:
 
 def _import(name: str, path: Path):
     """Import a plugin's module.py under a name of its own (two plugins may use the same file name)."""
-    modname = f"bsp_plugin_{name}"
+    digest = __import__("hashlib").sha1(str(path.resolve()).encode()).hexdigest()[:10]
+    modname = f"bsp_plugin_{name}_{digest}"      # the same site in two processes: one module; two sites: two
     if modname in sys.modules:
         return sys.modules[modname]
     spec = importlib.util.spec_from_file_location(modname, path)

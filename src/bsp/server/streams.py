@@ -16,12 +16,11 @@ import base64
 import queue
 import socket
 import threading
-import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import Body, FastAPI
+from fastapi.responses import StreamingResponse
 
 from ..core.errors import InvalidRequest, NotFound
 from ..core.sessions import Sessions
@@ -35,27 +34,28 @@ def sessions_router(get_sessions) -> Any:
     from fastapi import APIRouter
 
     router = APIRouter(tags=["sessions"])
-    sessions = get_sessions()
 
     @router.get("/api/v1/sessions", summary="Sessions running on this host")
     async def listing() -> dict[str, Any]:
-        return {"ok": True, "sessions": [s.to_dict() for s in sessions.list()]}
+        return {"ok": True, "sessions": [s.to_dict() for s in get_sessions().list()]}
 
     def _session(dut: str, role: str):
-        s = sessions.get(dut, role)
+        s = get_sessions().get(dut, role)
         if s is None:
             raise NotFound(f"{dut}: no {role} session is running",
                            hint=f"start one: POST /api/v1/tools/debug_start for role debug")
         return s
 
     @router.get("/api/v1/sessions/{dut}/{role}/stream", summary="A session's output as it comes")
-    async def stream(dut: str, role: str, request: Request):
+    async def stream(dut: str, role: str):
         s = _session(dut, role)
         if not s.endpoint:
             raise InvalidRequest(f"{dut}: its {role} session serves no stream")
 
         def events():
-            q: "queue.Queue[bytes | None]" = queue.Queue(maxsize=64)
+            # The server is read on its own thread; this generator only forwards what it got, so a client
+            # that stops reading does not hold the session's socket.
+            q: "queue.Queue[bytes | None]" = queue.Queue(maxsize=256)
             stop = threading.Event()
 
             def pump():
@@ -66,30 +66,29 @@ def sessions_router(get_sessions) -> Any:
                             data = conn.recv(CHUNK)
                             if not data:
                                 break
-                            while not stop.is_set():
-                                try:
-                                    q.put(data, timeout=0.5)
-                                    break
-                                except queue.Full:
-                                    continue
+                            q.put(data)
                     finally:
                         conn.close()
-                except OSError as e:
-                    q.put(f"error: {e}".encode())
+                except OSError:
+                    pass
                 finally:
-                    q.put(None)
+                    q.put(None)      # the server closed: this stream ends with it
 
             threading.Thread(target=pump, name=f"session-{dut}-{role}", daemon=True).start()
             yield "event: ready\ndata: {}\n\n"
-            while True:
-                if request.is_disconnected() or stop.is_set():
-                    break
+            idle = 0.0
+            while not stop.is_set():
                 try:
-                    data = q.get(timeout=0.5)
+                    data = q.get(timeout=0.2)
+                    if data is None:
+                        break
                 except queue.Empty:
+                    idle += 0.2
+                    if idle >= 15:
+                        yield ": ping\n\n"
+                        idle = 0.0
                     continue
-                if data is None:
-                    break
+                idle = 0.0
                 yield f"data: {base64.b64encode(data).decode()}\n\n"
             stop.set()
 
@@ -130,4 +129,3 @@ def _connect(endpoint: str, timeout: float = 5.0) -> socket.socket:
 
 def include_session_routes(app: FastAPI, get_sessions) -> None:
     app.include_router(sessions_router(get_sessions))
-    _ = time  # imported for the linter's sake in this module's docstring example

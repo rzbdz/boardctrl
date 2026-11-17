@@ -3,7 +3,7 @@
 Every module command is exposed four ways from one CommandSpec:
   REST     POST /api/v1/<group>/<target>/<verb>   (GET too for read-only commands)
   AI tool  GET /api/v1/tools  +  POST /api/v1/tools/<tool_name>
-  CLI      `bsp <group> <verb> ...` (thin client builds argparse from /api/v1/tools)
+  CLI      `boardctrl <group> <verb> ...` (thin client builds argparse from /api/v1/tools)
   console  POST /api/v1/cli {"line": "gpio set 33 low"} (web remote CLI)
 """
 
@@ -68,6 +68,9 @@ class Hub:
         ctx.services["sessions"] = self.sessions
         # Site plugins: code a site carries (modules/<name>/module.py). A name in `modules:` that no built-in
         # module registers is a plugin (its config goes to it), so a host enables one the way it enables a module.
+        # Plugins load before the built-in modules: a DUT record the site ships may bind a plugin's provider, and
+        # the DUT module builds its boards as it starts. A plugin that needs a module's service reads it lazily
+        # (`ctx.service(...)` inside what it registers, not in `setup`).
         from ..core.plugins import Plugins
         from ..core.site import layers
 
@@ -77,15 +80,15 @@ class Hub:
         wanted += [name for name in config.modules
                    if name not in MODULES and name not in wanted and config.modules[name].get("enabled", True)]
         plugin_config = {name: config.modules.get(name) or {} for name in wanted}
+        self.plugin_commands = self.plugins.load(wanted, ctx, plugin_config)
+        for name in wanted:
+            if name not in available and name not in self.plugins.errors:
+                self.plugins.errors[name] = "no modules/%s/module.py in the site or its packs" % name
         self.modules: dict[str, Module] = {}
         for name, mcfg in config.modules.items():
             if name in wanted or not mcfg.get("enabled", True):
                 continue
             self.modules[name] = MODULES.get(name)(ctx, mcfg)
-        self.plugin_commands = self.plugins.load(wanted, ctx, plugin_config)
-        for name in wanted:
-            if name not in available and name not in self.plugins.errors:
-                self.plugins.errors[name] = "no modules/%s/module.py in the site or its packs" % name
         # A host announcing itself to a registry follows the registry's SDK catalog.
         self.follower = None
         if config.announce:
@@ -130,6 +133,7 @@ class Hub:
             "auth": bool(self.config.auth_token),
             "modules": {n: {"title": m.title, **m.status()} for n, m in self.modules.items()},
             "plugins": self.plugins.summary(),
+            "providers": _providers_summary(),
             "sessions": [s.to_dict() for s in self.sessions.list()],
             **({"announce": {"url": self.announcer.url, **self.announcer.last}} if self.announcer else {}),
             **({"catalog": {"rev": self.follower.rev, **self.follower.last, "shadowed": self.follower.shadowed}}
@@ -138,7 +142,7 @@ class Hub:
 
     def _core_commands(self) -> list[Command]:
         def render_status(s: dict[str, Any]) -> str:
-            lines = [f"{s['host']} ({s['hostname']}) bsp {s['version']} up {s['uptime_s']}s"]
+            lines = [f"{s['host']} ({s['hostname']}) boardctrl {s['version']} up {s['uptime_s']}s"]
             for n, m in s["modules"].items():
                 be = m.get("backend") or {}
                 lines.append(f"  module {n}: {m.get('title')} board={m.get('board')} backend={be.get('name')}"
@@ -158,7 +162,7 @@ class Hub:
             def shown(r: dict[str, Any]) -> str:
                 text = f"catalog revision {r.get('rev')}" + ("" if r.get("ok") else f" (registry unreachable: {r.get('error')})")
                 for x in r.get("shadowed") or []:
-                    text += f"\nNOT IN EFFECT: {x['file']} differs from the registry's {x['ref']}; publish it: bsp catalog put {x['ref']} -f <file>"
+                    text += f"\nNOT IN EFFECT: {x['file']} differs from the registry's {x['ref']}; publish it: boardctrl catalog put {x['ref']} -f <file>"
                 return text
 
             follow = [Command(CommandSpec("catalog.sync", "Fetch the registry's SDK catalog now (the registry asks after changes)",
@@ -184,6 +188,13 @@ class Hub:
                                 [Param("limit", "integer", "max events", required=False, default=30)], mutating=False),
                     lambda limit: [e.to_dict() for e in self.bus.recent(limit)], render_events),
         ]
+
+
+def _providers_summary() -> dict[str, Any]:
+    """What providers this host has, by role (the built-ins are registered when the host's modules import)."""
+    from ..core.providers import describe
+
+    return describe()
 
 
 def _render_job(j: dict[str, Any]) -> str:
@@ -229,9 +240,9 @@ def create_app(config: HostConfig) -> FastAPI:
             m.shutdown()
 
     app = FastAPI(
-        title=f"bsp hostd · {config.host_id}",
+        title=f"boardctrld · {config.host_id}",
         version=__version__,
-        description="bsp dev-loop host controller. AI agents: start at GET /llms.txt or GET /api/v1/tools.",
+        description="boardctrl dev-loop host controller. AI agents: start at GET /llms.txt or GET /api/v1/tools.",
         lifespan=lifespan,
         root_path_in_servers=False,  # a proxy's prefix stays out of the schema boardctrld serves to everyone
     )
@@ -300,6 +311,9 @@ def create_app(config: HostConfig) -> FastAPI:
             app.include_router(r)
     for r in hub.plugins.routers():
         app.include_router(r)
+    from .streams import include_session_routes
+
+    include_session_routes(app, lambda: app.state.hub.sessions)
 
     # Served by a route of its own: a mounted StaticFiles takes the proxy's `root_path` off the path again and would
     # look the file up in the wrong place under a prefix.
@@ -343,7 +357,7 @@ def _core_routes(app: FastAPI, hub: Hub) -> None:
         result, text = await run_in_threadpool(hub.registry.execute, name, args)
         return {"ok": True, "command": hub.registry.get(name).spec.name, "result": result, "text": text}
 
-    @app.post("/api/v1/cli", tags=["core"], summary="Remote CLI: run one `bsp ...` command line")
+    @app.post("/api/v1/cli", tags=["core"], summary="Remote CLI: run one `boardctrl ...` command line")
     async def cli(body: CliLine):
         code, output, result = await run_in_threadpool(hub.registry.run_line, body.line)
         return {"ok": code == 0, "exit_code": code, "output": output, "result": result}
@@ -439,9 +453,9 @@ def _command_routes(app: FastAPI, hub: Hub, spec: CommandSpec) -> None:
 
 def _llms_txt(hub: Hub, base: str) -> str:
     lines = [
-        f"# bsp hostd · {hub.config.host_id}",
+        f"# boardctrld · {hub.config.host_id}",
         "",
-        f"> {hub.config.description or 'bsp dev-loop host controller'}. HTTP API, CLI and AI tools share one command set.",
+        f"> {hub.config.description or 'boardctrl dev-loop host controller'}. HTTP API, CLI and AI tools share one command set.",
         "",
         "## How to call",
         f"- Tool catalogue (JSON schema): GET {base}/api/v1/tools  (?format=anthropic|openai)",
