@@ -30,8 +30,6 @@ def build_commands(mod: "DutModule") -> list[Command]:
             render=_render_list, mutating=False),
         cmd("dut.status", "One DUT: lease, stage (fdl/fastboot/os), fastboot, control lines, console tail",
             mod.status, [DUT], render=_render_status, mutating=False),
-        cmd("dut.ports", "USB download-port candidates from the host's port watcher (no discovery or reset)",
-            mod.download_ports, [], render=lambda ds: "\n".join(d["usb"] for d in ds) or "(none)", mutating=False),
         cmd("dut.acquire", "Lease a DUT (needed for reset/boot/console); returns a token",
             mod.acquire,
             [DUT, Param("holder", help="who holds it (user or agent id)", required=False, positional=False,
@@ -120,9 +118,11 @@ def build_commands(mod: "DutModule") -> list[Command]:
              Param("reset", "boolean", "enter download mode first", required=False, default=True)],
             render=lambda r: f"job {r['job']}: {r['dut']} flash {r['package']} with {r['flasher']}",
             description="The package is a .tar.gz, .tgz, .tar or .zip (the CLI sends a local directory as a .tar). "
-                        "The host unpacks it, puts the board in download mode and runs the flash hook "
-                        "`flash/<flasher>` on the unpacked directory. Background job: follow it with `bsp job get`; "
-                        "its progress is a percent when the flasher reports one."),
+                        "With the board's flash provider `hook` (the default), the host unpacks it, puts the board "
+                        "in download mode and runs the flash hook `flash/<flasher>` on the unpacked directory. A "
+                        "board whose record names another flash provider (a site plugin's image writer) has the "
+                        "file written by that provider instead, with no download mode. Background job: follow it "
+                        "with `boardctrl job get`; its progress is a percent when the flasher reports one."),
         cmd("artifact.has", "Whether a file with this sha256 is in the host's artifact cache",
             mod.artifact_has, [Param("sha256", help="64 hex digits")], mutating=False,
             render=lambda r: f"{r['sha256'][:16]}...: " + (f"cached ({r['size']:,} B, {r['file']})"
@@ -171,7 +171,8 @@ def build_commands(mod: "DutModule") -> list[Command]:
              Param("flash_provider", help="who writes images to it", required=False, positional=False),
              Param("debug_provider", help="who debugs it", required=False, positional=False),
              Param("relay_provider", help="who resets it", required=False, positional=False),
-             Param("services", help="JSON object replacing the providers' own values for a role, e.g. '{\"debug\": {\"provider\": \"ec-swd\", \"target\": \"pico2\"}}'",
+             Param("services", help="JSON object replacing the providers' own values for a role, e.g. "
+                                    "'{\"debug\": {\"provider\": \"my-swd\", \"target\": \"probe0\"}}'",
                    required=False, positional=False)],
             render=_render_status),
         cmd("dut.logins", "ssh console logins on this host: `ssh <login>@<host>` opens that DUT's console",
@@ -182,10 +183,6 @@ def build_commands(mod: "DutModule") -> list[Command]:
         cmd("dut.export", "All DUT specs on this host (save into <site>/duts/ to make them static)",
             mod.export, mutating=False,
             render=lambda r: __import__("yaml").safe_dump(r, sort_keys=False, allow_unicode=True)),
-        cmd("dut.ports", "USB devices that may be a board's download port, with their fastboot selector",
-            mod.usb_ports, mutating=False,
-            render=lambda r: "\n".join(f"{d['usb']}  {d.get('vid', '')}:{d.get('pid', '')}  {d.get('product', '')}"
-                                       for d in r) or "no download ports on the bus"),
         cmd("dut.ports", "USB devices that may be a board's download port, with their fastboot selector",
             mod.usb_ports, mutating=False,
             render=lambda r: "\n".join(f"{d['usb']}  {d.get('vid', '')}:{d.get('pid', '')}  {d.get('product', '')}"

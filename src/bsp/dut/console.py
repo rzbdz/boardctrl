@@ -16,6 +16,12 @@ from typing import Any, Callable
 class ConsoleProvider(ABC):
     """One board's console. `config` is the role's block of the DUT record (`{"provider": ..., ...}`)."""
 
+    provider_name = "abstract"
+
+    def __init__(self, spec: Any, config: dict[str, Any] | None = None):
+        self.spec = spec
+        self.config = dict(config or {})
+
     # A marker for a mark() the provider cannot read back (a transient stream): reads since then are empty.
     def mark(self) -> Any:
         return None

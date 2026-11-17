@@ -26,7 +26,7 @@ def test_a_usage_claims_pins_and_others_cannot_touch_them(make_service):
     with pytest.raises(Conflict):
         svc.alias_add("DUT1/reset", "P11")
     with pytest.raises(Conflict):
-        svc.switch("P13", "on")
+        svc.set_level("P13", "high")
     with pytest.raises(Conflict):          # another usage cannot take a claimed pin
         svc.claim("jtag", {"tck": "P11"})
     assert [c["usage"] for c in svc.claims()] == ["swd"]
@@ -143,7 +143,7 @@ def test_a_site_plugin_registers_a_provider_and_takes_its_config(tmp_path):
     plugins = Plugins([site / "modules"])
     assert plugins.available() == {"fake": site / "modules" / "fake", "broken": site / "modules" / "broken"}
     plugins.load(["fake", "broken", "missing"], Ctx(), {"fake": {"pins": "J40:11"}})
-    assert "debug/fake-swd" in PROVIDERS["debug"].names()
+    assert "fake-swd" in PROVIDERS["debug"].names()
     assert Ctx.services["plugin_seen"] == {"pins": "J40:11"}
     assert "no hardware here" in plugins.errors["broken"]
     assert "missing" in plugins.errors and plugins.errors["missing"].startswith("no plugin directory")
@@ -152,6 +152,8 @@ def test_a_site_plugin_registers_a_provider_and_takes_its_config(tmp_path):
 
 
 def test_providers_report_their_roles():
+    from bsp.dut import console_providers, debug_providers  # noqa: F401 - register the built-ins
+
     described = describe()
     assert set(described) == {"relay", "console", "download", "flash", "debug"}
     assert "serial-mux" in described["console"]["names"]
@@ -174,16 +176,16 @@ def test_old_records_bind_the_default_providers():
 
 def test_a_record_can_name_every_provider():
     spec = spec_from_dict({**SPEC, "services": {
-        "console": {"provider": "rtt", "port": 19022}, "flash": {"provider": "ec-aprom"},
-        "debug": {"provider": "ec-swd", "target": "pico2"}, "download": {"provider": "none"}}})
+        "console": {"provider": "trace", "port": 19022}, "flash": {"provider": "my-flasher"},
+        "debug": {"provider": "my-swd", "target": "probe0"}, "download": {"provider": "none"}}})
     b = bindings.bindings(spec)
-    assert b["console"] == {"provider": "rtt", "port": 19022}
-    assert b["debug"]["target"] == "pico2"
-    assert bindings.describe(spec)["flash"] == {"provider": "ec-aprom"}
+    assert b["console"] == {"provider": "trace", "port": 19022}
+    assert b["debug"]["target"] == "probe0"
+    assert bindings.describe(spec)["flash"] == {"provider": "my-flasher"}
 
 
 def test_dut_set_fields_become_the_services_block():
     spec = spec_from_dict(dict(SPEC))
-    block = bindings.services_from_fields(spec, debug_provider="ec-swd", console_provider="rtt")
-    assert block["debug"] == {"provider": "ec-swd"} and block["console"] == {"provider": "rtt"}
+    block = bindings.services_from_fields(spec, debug_provider="my-swd", console_provider="trace")
+    assert block["debug"] == {"provider": "my-swd"} and block["console"] == {"provider": "trace"}
     assert bindings.services_from_fields(spec, board="x") is None

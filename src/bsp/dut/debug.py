@@ -8,8 +8,10 @@ the board's lease, and answers the actions it declares — nothing here assumes 
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any
+
+from ..core.errors import InvalidRequest
 
 
 class DebugProvider(ABC):
@@ -17,9 +19,24 @@ class DebugProvider(ABC):
     # What this provider can do, as names a page and a CLI render: halt, run, reset, step, regs, trace, gdb, write.
     kinds: tuple[str, ...] = ()
 
-    def __init__(self, dut: Any, config: dict[str, Any] | None = None):
+    def __init__(self, dut: Any, config: dict[str, Any] | None = None, services: Any = None):
         self.dut = dut
         self.config = dict(config or {})
+        self._services = services
+
+    @property
+    def sessions(self):
+        """The host's session service: where a provider's server runs (a transient unit under the board's lease)."""
+        if self._services is None:
+            raise RuntimeError(f"{self.provider_name}: no session service on this host")
+        return self._services("sessions")
+
+    @property
+    def gpio(self):
+        """The host's GPIO service, for a provider whose path is bit-banged over header pins."""
+        if self._services is None:
+            raise RuntimeError(f"{self.provider_name}: no GPIO service on this host")
+        return self._services("gpio")
 
     # ------------------------------------------------------------ lifecycle
     def start(self, lease: str | None = None) -> dict[str, Any]:
@@ -48,14 +65,20 @@ class NoDebug(DebugProvider):
 
     provider_name = "none"
 
+    def _no(self) -> InvalidRequest:
+        return InvalidRequest(
+            f"{self.dut.id} has no debug provider: it is not debugged through this host",
+            hint=f"record one: bsp dut set {self.dut.id} --debug-provider <name> (bsp status lists them)",
+        )
+
     def start(self, lease: str | None = None) -> dict[str, Any]:
-        raise NotImplementedError("this board has no debug provider: record one with `bsp dut set --debug-provider`")
+        raise self._no()
 
     def stop(self) -> dict[str, Any]:
-        raise NotImplementedError("this board has no debug provider")
+        raise self._no()
 
     def action(self, name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-        raise NotImplementedError("this board has no debug provider")
+        raise self._no()
 
     def shelf(self) -> dict[str, Any]:
         return {"provider": "none", "kinds": []}

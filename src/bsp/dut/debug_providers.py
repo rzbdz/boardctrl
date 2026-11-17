@@ -14,7 +14,7 @@ from .debug import NoDebug
 
 
 def _none(ctx: Any, spec: Any, services: Any) -> NoDebug:
-    return NoDebug(spec, {})
+    return NoDebug(spec, {}, services)
 
 
 PROVIDERS["debug"].register("none", _none)

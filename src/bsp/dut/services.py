@@ -14,8 +14,8 @@ New record:
       relay:    {provider: gpio-relay, reset: {pin: J40:11}}
       console:  {provider: rtt, port: 19022}
       download: {provider: none}
-      flash:    {provider: ec-aprom, expect_version: ...}
-      debug:    {provider: ec-swd, target: pico2}
+      flash:    {provider: my-flasher, expect_version: ...}
+      debug:    {provider: my-swd, target: probe0}
 
 The values a provider reads are its own; it describes them with `fields()` so `bsp dut set` and the page can offer
 them. Role names and provider names are plain strings: a plugin adds providers without touching this file.

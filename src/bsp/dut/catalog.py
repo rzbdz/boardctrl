@@ -1,8 +1,10 @@
 """DUT catalog: one YAML per board under <site>/duts/, shared by the CLI (to route
 `bsp dut ... <id>` to the right host) and by each host (to drive its own boards).
 
-A DUT is the 4-tuple from the design: host + control (reset / FDL) + fastboot USB
-port + serial console, plus what it can run (sdks).
+A DUT is a board on a host (and its identity). How it is reset, how its console is reached, how an image gets
+onto it and how it is debugged are its *services*: each role names a provider (`services: {console: {provider:
+rtt}}`). A record that predates that (console/fastboot/control blocks) is read as the built-in providers, so old
+files keep working; `dut/services.py` maps between the two.
 """
 
 from __future__ import annotations
@@ -30,11 +32,11 @@ class DutSpec:
 
     @property
     def usb(self) -> str:
-        return self.fastboot["usb"]
+        return self.fastboot.get("usb") or ""
 
     @property
-    def console_alias(self) -> str:
-        return self.console["alias"]
+    def console_alias(self) -> str | None:
+        return self.console.get("alias") or (self.raw.get("services", {}).get("console") or {}).get("alias")
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -46,9 +48,20 @@ class DutSpec:
 
 
 def spec_from_dict(d: dict[str, Any], where: str = "DUT") -> DutSpec:
-    for key in ("id", "host", "console", "fastboot", "control"):
+    """Read a DUT record. With a `services:` block the roles are the provider's business; without one the old
+    console/fastboot/control blocks are required, because they *are* those roles' configuration."""
+    for key in ("id", "host"):
         if key not in d:
             raise InvalidRequest(f"{where}: DUT is missing `{key}`")
+    if d.get("services"):
+        return DutSpec(d["id"], d["host"], d.get("board", ""), d.get("soc", ""), d.get("description", ""),
+                       dict(d.get("console") or {}), dict(d.get("fastboot") or {}), dict(d.get("control") or {}),
+                       list(d.get("sdks") or []), d)
+    for key in ("console", "fastboot", "control"):
+        if key not in d:
+            raise InvalidRequest(f"{where}: DUT is missing `{key}`",
+                                 hint="an old record needs console, fastboot and control; a new one may name "
+                                      "`services:` instead")
     if "usb" not in d["fastboot"]:
         raise InvalidRequest(f"{where}: fastboot.usb (e.g. usb:2-1.2 from `fastboot devices -l`) is required")
     if "alias" not in d["console"]:

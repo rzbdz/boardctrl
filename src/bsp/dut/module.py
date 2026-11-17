@@ -14,7 +14,6 @@ import logging
 import os
 import re
 from pathlib import Path
-from pathlib import Path
 
 from typing import Any
 
@@ -41,7 +40,11 @@ class Board:
         from ..core.providers import build
 
         self.spec = spec
+        self.sessions = mod.sessions
+        self._ctx = mod.ctx
+        self._services = mod.ctx.service
         self.bindings = bindings.bindings(spec)
+        self._flash: Any = None
         self.control = make_control(spec, mod.ctx.service)
         self.fastboot = Fastboot(spec.usb, mod.fastboot_bin)
         console = self.bindings.get("console") or {}
@@ -57,13 +60,25 @@ class Board:
 
         try:
             self.debug = (build("debug", debug.get("provider", "none"), mod.ctx, spec, mod.ctx.service)
-                          if debug.get("provider", "none") != "none" else NoDebug(spec, debug))
-        except BspError:
-            self.debug = NoDebug(spec, debug)
+                          if debug.get("provider", "none") != "none" else NoDebug(spec, debug, mod.ctx.service))
+        except BspError as e:
+            log.warning("%s: debug provider %s did not build (%s)", spec.id, debug.get("provider"), e)
+            self.debug = NoDebug(spec, debug, mod.ctx.service)
 
     @property
     def console_alias(self) -> str | None:
         return getattr(self.console, "alias", None)
+
+    @property
+    def flash_provider(self):
+        """The flash role's provider; `hook` (the built-in) is the host's own job, not a provider object."""
+        if self._flash is None:
+            from ..core.providers import build
+
+            block = self.bindings.get("flash") or {}
+            name = block.get("provider", "hook")
+            self._flash = name if name == "hook" else build("flash", name, self._ctx, self.spec, self._services)
+        return self._flash
 
     def runner(self, mod: "DutModule") -> BootRunner:
         expect = (self.spec.control.get("fdl") or {}).get("expect") or mod.socs.download_mode(self.spec.soc)
@@ -77,6 +92,18 @@ class Board:
 
 
 log = logging.getLogger(__name__)
+
+
+class _NoSystemd:
+    """Sessions cannot outlive a host without systemd: refuse rather than run a server in the service's cgroup."""
+
+    def start(self, unit, command, env=None):
+        raise HardwareError("this host has no session service (systemd-run)", hint="sessions need systemd on the host")
+
+    active = lambda self, unit: False       # noqa: E731
+    reset = lambda self, unit: None         # noqa: E731
+    stop = lambda self, unit: None          # noqa: E731
+    pid = lambda self, unit: None           # noqa: E731
 
 
 @MODULES.register("dut")
@@ -119,9 +146,16 @@ class DutModule(Module):
         self.leases = LeaseManager(state / "leases.json")
         self.store = ArtifactStore(state / "artifacts")
         self._flash_work = state / "flash"
+        from ..core.sessions import Sessions
+        from . import console_providers, debug_providers  # noqa: F401 - register the built-in providers
+
+        self.sessions = ctx.services.get("sessions") or Sessions(state / "sessions", _NoSystemd())
         from .consoles import ConsoleManager
 
         self.consoles = ConsoleManager(self.serial_mux, self.serial_log_dir)
+        # The console providers read the host's tools (smtty, serial-mux, the log directory) from here.
+        ctx.services["dut_tools"] = {"smtty": self.smtty, "serial_mux": self.serial_mux,
+                                     "log_dir": self.serial_log_dir, "fastboot": self.fastboot_bin}
         from .slots import SlotTable
 
         self.slots = SlotTable(state / "slots.json", self._list_consoles,
@@ -362,6 +396,9 @@ class DutModule(Module):
                 "console_attach": b.console.attach() or b.console.describe().get("attach"),
                 "console_socket": b.console.socket(),
                 "console_up": b.console.up(), "slot": self.slot_of(dut),
+                # how the console is served: a serial-mux alias speaks that protocol, another provider (a trace
+                # channel over a debug adapter) serves plain bytes on the socket it reports
+                "console_provider": b.console.provider_name,
                 # what fills each role of this board (provider names only; the page and the CLI read them)
                 "services": {role: (b.bindings.get(role) or {}).get("provider") for role in
                              ("relay", "console", "download", "flash", "debug")}
@@ -578,31 +615,60 @@ class DutModule(Module):
         b = self.board(dut)
         self.leases.check(dut, lease)
         self._guard_busy(dut)
-        shas = [s.strip() for s in (files or "").split(",") if s.strip()]
-        if not shas:
-            raise InvalidRequest("no files to boot", hint="files = comma list of sha256, host:/absolute/path or http(s) URL, in boot order")
-        items = []
-        for spec in shas:
-            if spec.startswith("host:"):
-                got = self.store.adopt_path(spec[5:])
-            elif spec.startswith("http://") or spec.startswith("https://"):
-                from . import flashpkg
+        if not files:
+            raise InvalidRequest("no files to boot",
+                                 hint="files = sha256, host:/absolute/path or http(s) URL, in boot order")
+        # `host:` is the explicit board-host reference; a bare absolute path is one too (the older form). An
+        # uploaded artifact and a URL are told apart from both. The job resolves them, so a big image is fetched
+        # or read under the board's busy guard and never travels through the caller.
+        refs = []
+        for ref in files:
+            path = ref[5:] if ref.startswith("host:") else ref
+            source = ("host" if ref.startswith("host:")
+                      else "url" if ref.startswith(("http://", "https://"))
+                      else "host" if ref.startswith("/")
+                      else "sha256")
+            refs.append({"source": source, "path": path})
 
-                got = flashpkg.fetch(self.store, spec, None, lambda _line: None)
-                got = {**got, "name": Path(got["path"]).name}
+        def resolve(ref: dict[str, str], log) -> dict[str, Any]:
+            import hashlib
+
+            from . import flashpkg
+
+            source, path = ref["source"], ref["path"]
+            if source == "url":
+                got = flashpkg.fetch(self.store, flashpkg.check_url(path), None, log)
+                p, sha = Path(got["path"]), got["sha256"]
+            elif source == "host":
+                # A build product or share already on this host; hash what is actually read.
+                p = Path(path)
+                if not p.is_absolute() or not p.is_file():
+                    raise NotFound(f"no such file on {self.ctx.host_id}: {path}",
+                                   hint="a path here, on the board host, not on the machine you are running the CLI on")
+                if not p.stat().st_size:
+                    raise InvalidRequest(f"empty boot file on {self.ctx.host_id}: {path}")
+                h = hashlib.sha256()
+                with p.open("rb") as f:
+                    for chunk in iter(lambda: f.read(1 << 20), b""):
+                        h.update(chunk)
+                sha = h.hexdigest()
+                log(f"host file {p.name}: sha256 {sha}")
             else:
-                p = self.store.get(spec)
-                got = {"sha256": spec, "path": str(p), "size": p.stat().st_size, "name": p.name}
-            items.append(got)
+                p, sha = self.store.get(path), path
+            return {"sha256": sha, "path": str(p), "name": p.name, "size": p.stat().st_size}
+
         runner = b.runner(self)
-        names = " ".join(i["name"] for i in items)
-        job = self._start_job(dut, f"boot files {names}",
-                              lambda log: runner.run_files(items, log, reset=reset, first_wait=first_wait,
-                                                           later_wait=later_wait, port_timeout=port_timeout),
-                              kind="boot", files=[i["sha256"] for i in items])
+        names = " ".join(Path(ref["path"]).name for ref in refs)
+
+        def body(log) -> dict[str, Any]:
+            items = [resolve(ref, log) for ref in refs]
+            return runner.run_files(items, log, reset=reset, first_wait=first_wait,
+                                    later_wait=later_wait, port_timeout=port_timeout)
+
+        job = self._start_job(dut, f"boot files {names}", body, kind="boot",
+                              files=[ref["path"] for ref in refs])
         self._event("boot", dut=dut, files=names, job=job.id)
-        return {"job": job.id, "dut": dut, "files": [{k: i[k] for k in ("name", "sha256", "size")} for i in items],
-                "host": self.ctx.host_id}
+        return {"job": job.id, "dut": dut, "files": refs, "host": self.ctx.host_id}
 
     # -------------------------------------------------------------- flash --
     DEFAULT_FLASHER = "spacemit-pkg"
@@ -622,7 +688,12 @@ class DutModule(Module):
 
     def flash(self, dut: str, package: str, sha256: str | None, flasher: str | None, lease: str | None,
               timeout: float, reset: bool) -> dict[str, Any]:
-        """Write a package to the board: enter download mode, then run the flash hook on the unpacked package."""
+        """Write a package to the board.
+
+        With the flash role's built-in `hook` provider: enter download mode, then run the flash hook on the unpacked
+        package. With another provider (a site plugin's image writer): the file is resolved and verified here, and
+        the provider writes it; what needs download mode, a hook or a package layout is that provider's business.
+        """
         import shutil
         import tempfile
         from pathlib import Path
@@ -633,17 +704,21 @@ class DutModule(Module):
         b = self.board(dut)
         self.leases.check(dut, lease)
         self._guard_busy(dut)
+        provider = b.flash_provider
+        hook_based = provider == "hook"
         usb = str(b.spec.fastboot.get("usb") or "")
-        if not usb or "UNKNOWN" in usb.upper():
+        if hook_based and (not usb or "UNKNOWN" in usb.upper()):
             raise InvalidRequest(f"{dut} has no download port (fastboot.usb) recorded",
                                  hint=f"set it: `bsp dut set {dut} --usb usb:<bus>-<port>` "
                                       "(the path `fastboot devices -l` shows in download mode)")
-        name, why = self.flasher_for(b, flasher)
-        available = self.hooks.names("flash")
-        if name not in available:
-            raise NotFound(f"no flasher {name!r} on {self.ctx.host_id} ({why})",
-                           hint=f"flashers here: {', '.join(available) or '(none)'}; choose one with --flasher, or set "
-                                "flash.flasher on the board or its SoC profile")
+        name, why = (self.flasher_for(b, flasher) if hook_based
+                     else (provider.provider_name, f"{dut}'s flash provider"))
+        if hook_based:
+            available = self.hooks.names("flash")
+            if name not in available:
+                raise NotFound(f"no flasher {name!r} on {self.ctx.host_id} ({why})",
+                               hint=f"flashers here: {', '.join(available) or '(none)'}; choose one with --flasher, or set "
+                                    "flash.flasher on the board or its SoC profile")
         max_bytes = int(self.flash_cfg.get("max_package_bytes") or flashpkg.DEFAULT_MAX_BYTES)
         package = (package or "").strip()
         url = None
@@ -675,6 +750,15 @@ class DutModule(Module):
             self._flash_work.mkdir(parents=True, exist_ok=True)
             work = Path(tempfile.mkdtemp(prefix=f"{dut}-", dir=self._flash_work))
             try:
+                if not hook_based:
+                    # The provider writes the file itself: no unpacking, no download mode, no hook.
+                    log(f"{dut}: {name} writes {path.name}")
+                    res = provider.flash(path, log=log, timeout=timeout)
+                    out = {"dut": dut, "flasher": name, "package": path.name,
+                           "elapsed_s": round(time.monotonic() - t0, 1), **dict(res or {})}
+                    log(f"{dut} written by {name} in {out['elapsed_s']}s")
+                    self._event("flashed", dut=dut, flasher=name, package=path.name)
+                    return out
                 pkg_dir = flashpkg.unpack(path, work / "pkg", max_bytes=4 * max_bytes)
                 files = sum(1 for p in pkg_dir.rglob("*") if p.is_file())
                 log(f"unpacked {path.name}: {files} file(s)")
@@ -1103,11 +1187,6 @@ class DutModule(Module):
             out.append({"usb": usb, "vid": vid, "pid": pid})
         return out
 
-    def usb_ports(self) -> list[dict[str, Any]]:
-        """USB devices that may be a board's download port, as `probe --dry-run` reports them."""
-        from .probe import Prober
-        return list(Prober(self, pins=None, consoles=None, identify=False, default_sdks=None).usb_snapshot().values())
-
     def _ports_changed(self, change: dict, now: dict) -> None:
         # A new adapter is a new slot with its own console; one that went away drops its slot, or leaves it offline
         # (and the card greyed) while a board is registered there.
@@ -1127,8 +1206,13 @@ class DutModule(Module):
                 b.control.setup()
             except BspError as e:
                 self._event("error", dut=b.spec.id, error=e.to_dict())
+            # A console provider that is not serial-mux (a trace channel, a network console) starts what it needs
+            # itself; the slot table still belongs to the serial consoles.
+            if not b.console_alias:
+                continue
             try:
-                self.consoles.ensure(b.spec.console_alias, b.spec.console.get("device"), only_if_known=True)
+                b.console.ensure() if b.console.provider_name != "serial-mux" else \
+                    self.consoles.ensure(b.spec.console_alias, b.spec.console.get("device"), only_if_known=True)
             except BspError as e:
                 self._event("error", dut=b.spec.id, error=e.to_dict())
         self.refresh_slots()
