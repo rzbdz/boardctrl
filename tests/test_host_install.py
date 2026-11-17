@@ -19,7 +19,7 @@ def _run_config(site: Path, conf: Path, prefix: Path, **facts: str) -> None:
     interpreter.parent.mkdir(parents=True, exist_ok=True)
     interpreter.symlink_to(sys.executable)
     env = {"PATH": "/usr/bin:/bin", "SITE": str(site), "ID": "test-host", "MODEL": "test model",
-           "BIND": "127.0.0.1", "PORT": "8765", "BOARD": "", "RELAY": "none",
+           "BIND": "127.0.0.1", "PORT": "8765", "BOARD": "", "RELAY": "none", "SITE_HOSTS": "",
            "PREFIX": str(prefix), "NEW": str(prefix / "current"), **facts}
     subprocess.run(["bash", "-c", script[start:end]], check=True, env=env)
 
@@ -64,6 +64,38 @@ modules:
     assert config["modules"]["dut"]["slots"] == {"s1": {"alias": "board-1"}}            # the site's, kept
     assert config["modules"]["dut"]["hook_dirs"] == [str(site / "hooks")]
     assert config["host"] == {"id": "test-host", "description": "test model (test-host)"}
+
+
+def test_host_config_takes_a_plugins_section_from_the_site_and_keeps_a_local_one(tmp_path):
+    """A plugin's settings travel in the site's copy of this host's config: the installer takes them for the plugins it
+    does not register, whole, and never for its own modules. A section the machine already has wins."""
+    site, conf, prefix = tmp_path / "site", tmp_path / "site/hosts/test-host.yaml", tmp_path / "prefix"
+    shipped = tmp_path / "shipped"
+    conf.parent.mkdir(parents=True)
+    conf.parent.mkdir(parents=True, exist_ok=True)
+    shipped.mkdir()
+    conf.write_text("""host: {id: test-host}
+modules:
+  ec: {enabled: true}
+  dut: {serial_log_dir: /srv/local}
+""")
+    (shipped / "test-host.yaml").write_text("""host: {id: test-host}
+modules:
+  ec:
+    kit: modules/ec/vendor/kit
+    targets: {pico2: {pins: {swclk: "J40:11", swdio: "J40:13"}}}
+  dut: {serial_log_dir: /srv/from-the-site}
+  other: {listened: true}
+""")
+    _run_config(site, conf, prefix, SITE_HOSTS=str(shipped))
+    config = yaml.safe_load(conf.read_text())
+    # The plugin's whole section is the site's: the machine only turned it on.
+    assert config["modules"]["ec"]["kit"] == "modules/ec/vendor/kit"
+    assert config["modules"]["ec"]["targets"]["pico2"]["pins"] == {"swclk": "J40:11", "swdio": "J40:13"}
+    # The installer's own modules are its own, wherever the site also names them.
+    assert config["modules"]["dut"]["serial_log_dir"].endswith("/.serial-mux/logs")
+    # A plugin the machine set itself keeps its setting.
+    assert config["modules"]["other"] == {"listened": True}
 
 
 def test_host_config_with_no_board_has_no_gpio_section(tmp_path):

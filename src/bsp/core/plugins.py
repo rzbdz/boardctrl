@@ -98,7 +98,8 @@ class Plugins:
                 if not callable(setup):
                     raise ValueError("module.py has no setup(ctx, api[, config])")
                 if _takes(setup, 3):
-                    setup(ctx, api, dict((config or {}).get(name) or {}))
+                    section = (config or {}).get(name)
+                    setup(ctx, api, dict(section) if isinstance(section, dict) else {})
                 else:
                     setup(ctx, api)
                 self.loaded[name] = api
