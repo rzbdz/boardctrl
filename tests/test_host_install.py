@@ -116,3 +116,28 @@ def test_takeover_moves_the_old_token_and_reads_it_before_the_old_file():
     old = script.index("EnvironmentFile=-/etc/bsp/hostd.env")
     new = script.index("EnvironmentFile=-/etc/boardctrl/boardctrld.env")
     assert old < new
+
+
+def test_the_gpio_backend_is_chosen_by_a_python_that_has_gpiod_not_whatever_is_first_on_path(tmp_path):
+    """A host whose first python3 is a tool's venv without gpiod (serial-mux's, say) still gets the gpiod backend when
+    the machine's own python has the bindings: the backend needs them, and a site plugin may run the system python."""
+    bin = tmp_path / "bin"
+    bin.mkdir()
+    fake = bin / "python3"                                    # first on PATH, no gpiod
+    fake.write_text("#!/bin/sh\nexit 1\n")
+    fake.chmod(0o755)
+    system = tmp_path / "system-python"
+    system.write_text("#!/bin/sh\nexit 0\n")                  # the machine's python, with gpiod
+    system.chmod(0o755)
+    script = (ROOT / "deploy" / "bspd-install.sh").read_text()
+    start = script.index('[[ $BOARD == none ]] && BOARD=""')
+    end = script.index("# The code: a fresh venv", start)
+    run = subprocess.run(
+        # `ls` stands in for the gpio character devices, which this machine may not have.
+        ["bash", "-c", f'ls() {{ return 0; }}; {script[start:end].strip()}; echo "RELAY=$RELAY"'],
+        env={"PATH": f"{bin}:/usr/bin:/bin", "BOARD": "spacemit-k3-com260", "RELAY": "auto",
+             "SYSTEM_PYTHON": str(system)}, capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    assert "RELAY=gpiod" in run.stdout, run.stdout
+    assert str(system) in run.stdout                              # it says which python has the bindings
+

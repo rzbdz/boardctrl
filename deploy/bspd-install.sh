@@ -102,8 +102,31 @@ EOF
   [[ -n $BOARD ]] && echo "--> board: $BOARD ($MODEL)" || echo "--> no known GPIO header for '${MODEL:-this machine}': no relay lines (human reset only)"
 fi
 [[ $BOARD == none ]] && BOARD=""
+# An interpreter that has the gpiod bindings: the program's own environment gets them, but a site plugin that runs a
+# wrapper with the host's python needs that python to have them, and the choice must not depend on whichever python3 is
+# first on PATH (a tool's own venv, say, which is not the machine's python).
+SYSTEM_PYTHON=${SYSTEM_PYTHON:-/usr/bin/python3}
+[[ -x $SYSTEM_PYTHON ]] || SYSTEM_PYTHON=$(command -v python3)
+gpiod_python() {
+  local candidate
+  for candidate in "$SYSTEM_PYTHON" "$(command -v python3)"; do
+    [[ -n $candidate && -x $candidate ]] || continue
+    "$candidate" -c 'import gpiod' 2>/dev/null && { printf '%s\n' "$candidate"; return 0; }
+  done
+  return 1
+}
 if [[ $RELAY == auto ]]; then
-  if [[ -z $BOARD ]]; then RELAY=none; elif ls /dev/gpiochip* >/dev/null 2>&1 && python3 -c 'import gpiod' 2>/dev/null; then RELAY=gpiod; else RELAY=sysfs; fi
+  if [[ -z $BOARD ]]; then RELAY=none; elif ls /dev/gpiochip* >/dev/null 2>&1 && gpiod_python >/dev/null; then RELAY=gpiod; else RELAY=sysfs; fi
+fi
+# Saying which python has gpiod matters when it is not the machine's own: the program's environment is given the
+# bindings either way, but a plugin that runs the system python has to know to install them there.
+if [[ $RELAY == gpiod ]]; then
+  host_python=$(gpiod_python || true)
+  if [[ -n $host_python && $host_python != "$SYSTEM_PYTHON" ]]; then
+    echo "--> gpiod is in $host_python, not $SYSTEM_PYTHON: a plugin that runs the system python needs it there"
+  elif [[ -n $host_python ]]; then
+    echo "--> gpiod: $host_python has it, and the program's own environment gets it"
+  fi
 fi
 
 # The code: a fresh venv beside the running one, swapped in when it is ready.
