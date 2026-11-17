@@ -17,7 +17,7 @@ Every command takes a *target*, written as any of:
 
 The header layout — pin numbers, power and ground pins, GPIO numbers, alternate functions — comes
 from a board map (`boards/<id>.yaml`) in a pack or the site, selected by
-`modules.gpio_relay.board`.
+`modules.gpio.board`.
 
 ## Channel modes
 

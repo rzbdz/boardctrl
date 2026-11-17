@@ -61,7 +61,7 @@ Describe its GPIO header in `boards/<id>.yaml`: one entry per header with its pi
 gives its Linux GPIO number (`gpio: 83`), other pins a `kind` (`power`, `gnd`) and `label` —
 plus optional alternate-function labels and where the kernel's pin-mux information lives. See
 `examples/site/boards/example-40pin.yaml` and the files in `packs/spacemit/boards/`. Select it
-with `modules.gpio_relay.board` in the host configuration.
+with `modules.gpio.board` in the host configuration.
 
 GPIO access goes through a backend: `sysfs`, `gpiod` (installed automatically by `deploy.sh`) or `mock`. A new
 backend implements the `GpioBackend` interface in `src/bsp/gpio_relay/backends/` and registers
@@ -69,9 +69,40 @@ itself.
 
 ## A new reset mechanism
 
-Control backends live in `src/bsp/dut/control.py`: subclass `ControlBackend`, implement
+Providers of the `relay` role live in `src/bsp/dut/control.py`: subclass `ControlBackend`, implement
 `reset(log, ready)` (and `enter_fdl` if the board needs more than a reset), and register it with
-`@CONTROL_BACKENDS.register("name")`. Boards select it with `control.backend`.
+`@CONTROL_BACKENDS.register("name")`. A record selects it with `services.relay.provider` (or the older
+`control.backend`).
+
+## A new provider: console, download, flash or debug
+
+A DUT's roles are filled by providers (`src/bsp/core/providers.py`; the record says which, under `services:`).
+A provider of any role is a class with the role's interface — `ConsoleProvider` (`dut/console.py`),
+`DebugProvider` (`dut/debug.py`), `FlashProvider` (`dut/flash.py`), the download shape — and a factory
+`(ctx, spec, services) -> instance` registered as `PROVIDERS["<role>"].register("<name>", factory)`. Say what it
+offers (`DebugProvider.kinds`) and describe its own settings with `Field`s, so `boardctrl dut set` and the page offer
+exactly that. A flash provider's `flash(package, log, timeout)` is handed the local file the host resolved (an
+uploaded one or a downloaded one, its hash checked) and writes it; the built-in `hook` provider is the host's own
+job, which unpacks a package and runs `hooks/flash/<flasher>`.
+
+A provider whose server outlives one command uses the session service (`core/sessions.py`):
+`services("sessions").start(dut, role, provider, command, endpoint=…, lease=…, ready=…)`. The session is a
+transient systemd unit under the board's lease, so releasing the board stops it.
+
+## A site plugin
+
+Hardware nobody bought a driver for is a site plugin: a directory `modules/<name>/` in the site (or a pack) with a
+`module.py` that defines `setup(ctx, api, config)`. The API registers providers
+(`api.provider("debug", "my-swd", factory, title=…, about=…)`), services for other modules, commands
+(`api.command(Command(CommandSpec(…), handler))`) and FastAPI routers. Select it in the host config by naming it
+under `modules:` (its own section is passed as `config`), or in `plugins:`. It is loaded at host start; one that
+fails says so in `boardctrl status` and never takes the host down.
+
+    <site>/modules/<name>/module.py      def setup(ctx, api, config)
+    <site>/modules/<name>/…              whatever it ships (bundles, data files)
+
+Code belongs in the site, not in the packs a public distribution ships: a pack carries public knowledge, a site
+carries what belongs to one lab.
 
 ## Hooks
 

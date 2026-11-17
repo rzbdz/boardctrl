@@ -209,8 +209,8 @@ minimum site you need and how to probe safely.
 
 boardctrl is designed so an agent needs nothing but the CLI:
 
-- `deploy/install-skills.sh` installs the bundled skills (`skills/bsp-dev-loop`,
-  `skills/bsp-gpio-relay`) for Claude Code, opencode and Hermes.
+- `deploy/install-skills.sh` installs the bundled skills (`skills/boardctrl`,
+  `skills/gpio`) for Claude Code, opencode and Hermes.
 - `boardctrl install`, run inside an SDK tree, writes a `SKILL.md` that adds what this directory
   is, which boards can run it and your site's hints to the full skill.
 - `--json` gives `{"ok": true, "result": …}` or `{"ok": false, "error": {"code", "message",

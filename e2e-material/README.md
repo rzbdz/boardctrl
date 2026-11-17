@@ -1,6 +1,6 @@
 # e2e-material — end-to-end acceptance test of the bsp dev loop
 
-Proves that an agent with **no context** except the `bsp-dev-loop` skill and the `bsp`
+Proves that an agent with **no context** except the `boardctrl` skill and the `bsp`
 binary can run the whole loop on real hardware:
 
 change SDK code -> build on the build server -> lease a board on a board host ->
@@ -10,7 +10,7 @@ reset into download mode -> RAM boot -> `dmesg | grep` the new print on the seri
 | file | role |
 |---|---|
 | `task.md` | the only instruction the agent gets (`{{MARKER}}`, `{{TASK}}` filled in per run) |
-| `run-e2e.sh` | snapshots the SDK state, starts a clean `claude -p` session in an empty workspace whose only project content is `.claude/skills/bsp-dev-loop`, with `bsp` on PATH; then runs `verify.sh` |
+| `run-e2e.sh` | snapshots the SDK state, starts a clean `claude -p` session in an empty workspace whose only project content is `.claude/skills/boardctrl`, with `bsp` on PATH; then runs `verify.sh` |
 | `verify.sh` | independent checks with `bsp --json`: marker in the board's console log, commit on `bsp/<task>` contains it, SDK + DUT leases released, owner's branch/dirty files restored |
 | `results/<stamp>-<sdk>/` | prompt, agent transcript (stream-json), final answer, verify report (not committed) |
 

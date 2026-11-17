@@ -1,4 +1,4 @@
-# Using bsp with AI agents
+# Using boardctrl with AI agents
 
 boardctrl was designed so a coding agent can run the whole hardware loop with nothing but a shell: no
 ssh sessions to manage, no device paths to discover, and errors that say what to do next.
@@ -9,8 +9,8 @@ The repository ships two skills:
 
 | Skill | For |
 |---|---|
-| `skills/bsp-dev-loop` | The full loop: SDK leases, remote edits, builds, board leases, boot, console checks, cleanup; managing boards; extending bsp |
-| `skills/bsp-gpio-relay` | Direct GPIO, relay and button control on a board host |
+| `skills/boardctrl` | The full loop: SDK leases, remote edits, builds, board leases, boot, console checks, cleanup; managing boards; debug sessions; extending boardctrl |
+| `skills/gpio` | Direct GPIO, relay and button control on a board host |
 
 Two ways to install them:
 
@@ -19,12 +19,12 @@ Two ways to install them:
   (whichever agent directories exist).
 - **Per SDK tree:** run `boardctrl install` in the tree (on the machine where the agent works). It
   writes `./SKILL.md`: a header describing which configured SDK target this directory is, which
-  boards can run it, the site's hints, and then the full `bsp-dev-loop` skill. An existing
+  boards can run it, the site's hints, and then the full `boardctrl` skill. An existing
   `SKILL.md` is backed up as `SKILL.md.bak.<timestamp>`. The directory is matched against the
   SDK paths in the site (symlinks and the build server's `home_aliases` are resolved); for an
   unknown directory the header tells the agent to ask the user. Point your agent at this file
   the way it expects (for Claude Code, for example, copy or link it to
-  `.claude/skills/bsp-dev-loop/SKILL.md`, or reference it from `CLAUDE.md`).
+  `.claude/skills/boardctrl/SKILL.md`, or reference it from `CLAUDE.md`).
 
 ## Conventions agents should follow
 
@@ -32,6 +32,8 @@ Two ways to install them:
 - Several agents on one machine: pass `--stateless` (or set `BOARDCTRL_STATELESS=1`), name the host
   with `-r` where it matters, and pass lease tokens explicitly (`--lease`, or `BSP_LEASE` /
   `BSP_SDK_LEASE`). Otherwise leases are remembered per user in `~/.config/bsp/leases.json`.
+- Before working on hardware, ask for the levels that apply: `boardctrl hints --dut <board>` (its SoC's notes and
+  its SDKs' skills), so nothing is guessed from memory; see `boardctrl hints --list`.
 - On boards reset by a person (control backend `human`), run `boardctrl dut reset` and `boardctrl dut boot`
   in the background, relay the `ACTION NEEDED` line to the user, and run
   `boardctrl dut confirm DUT` when the user says it is done.

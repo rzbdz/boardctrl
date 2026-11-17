@@ -10,18 +10,18 @@ and the web console. This page describes the internals; start with the [README](
 ```mermaid
 flowchart TB
   subgraph client["Client (workstation or build server)"]
-    cli["bsp CLI<br/>Python ≥ 3.8, stdlib + PyYAML"]
+    cli["boardctrl CLI<br/>Python ≥ 3.8, stdlib + PyYAML"]
   end
   subgraph server["Build server"]
     helper["sdk/helper.py over ssh<br/>leases · task branches · build jobs"]
   end
   subgraph host["Board host"]
     hostd["boardctrld (FastAPI)"]
-    gpio["gpio_relay module<br/>channels · aliases"]
+    gpio["gpio module<br/>channels · aliases"]
     sdkm["sdk module<br/>catalog (read-only)"]
     dut["dut module<br/>registry · leases · boot runner · probe · console logins"]
     hooks["hooks<br/>probe/* · flash/*"]
-    mux["serial-mux consoles<br/>bsp-console-ALIAS units"]
+    mux["serial-mux consoles<br/>boardctrl-console-ALIAS units"]
     hostd --> gpio & sdkm & dut
     dut --> gpio
     dut --> hooks
@@ -40,42 +40,63 @@ server over ssh, so nothing is installed there.
 
 ## Layers of a board host
 
-A board host is a remote flasher host: it resets boards, loads and flashes them over USB, and
-carries their serial consoles. Each of these is a service of its own, and the DUT manager binds
-the three to each board:
+A board host controls boards: it resets them, carries their consoles, puts images on them and, where the hardware
+allows, debugs them. Each of those is a **role**, and a role is filled by a **provider** the board's record names —
+the device-model idea, with the DUT as the device and providers as its drivers:
 
 ```mermaid
 flowchart TB
   subgraph hostd["boardctrld"]
     dutm["DUT manager (dut module)<br/>registry · leases · busy guard · jobs · probe"]
-    subgraph relay["relay controller"]
-      ctl["control backends<br/>gpio-relay · human"]
-      gpio["gpio_relay module<br/>pins · relay/button channels · aliases"]
-      ctl --> gpio
+    subgraph roles["a DUT's roles, each filled by a provider"]
+      relay["relay<br/>gpio-relay · human"]
+      console["console<br/>serial-mux · none · plugin"]
+      download["download<br/>fastboot"]
+      flash["flash<br/>hook (hooks/flash/*) · plugin"]
+      debug["debug<br/>none · plugin (SWD, USB-JTAG, …)"]
     end
-    subgraph download["download path"]
-      boot["boot runner<br/>recipes: load · download"]
-      fb["fastboot on the DUT's USB port<br/>artifact cache"]
-      boot --> fb
-    end
-    subgraph serial["serial console service"]
-      mux["serial-mux daemons<br/>bsp-console-ALIAS units"]
-      pipe["dut pipe · ssh console logins"]
-      pipe --> mux
-    end
-    dutm --> ctl
-    dutm --> boot
-    dutm --> mux
-    boot --> ctl
+    gpio["gpio module<br/>pins · relay/button channels · aliases · usage claims"]
+    sess["sessions<br/>transient units under the board's lease"]
+    dutm --> relay & console & download & flash & debug
+    relay --> gpio
+    console -. "a daemon or server" .-> sess
+    debug -. "a server" .-> sess
   end
 ```
 
-| Layer | Code | Its own commands | Extension point |
+```yaml
+# A DUT record names its providers; a record without `services:` reads as the built-ins
+services:
+  relay:    {provider: gpio-relay, reset: {pin: J40:11}}
+  console:  {provider: serial-mux, alias: tty-a}
+  download: {provider: fastboot, usb: "usb:2-1.4"}
+  flash:    {provider: hook}
+  debug:    {provider: my-swd, target: probe0}    # a site plugin's
+```
+
+| Role | Code | Commands | Providers it ships |
 |---|---|---|---|
-| Relay controller | `gpio_relay/`, `dut/control.py` | `boardctrl gpio`, `boardctrl relay`, `boardctrl button` | `GpioBackend`, `ControlBackend` |
-| Download path | `dut/hostio.py`, `dut/boot.py`, `dut/flashpkg.py` | `boardctrl dut stage`, `present`, `boot`, `flash` | recipe steps, `hooks/flash/*` |
-| Serial console service | `dut/consoles.py`, serial-mux | `boardctrl dut pipe`, `console`, `log` | serial-mux transports |
-| DUT manager | `dut/module.py`, `dut/commands.py`, `dut/leases.py`, `dut/probe.py` | `boardctrl dut …`, `boardctrl probe` | DUT specs, `hooks/probe/*` |
+| `relay` | `dut/control.py` | `boardctrl dut reset`, `relay`, `button` | `gpio-relay`, `human` |
+| `console` | `dut/console.py`, `dut/consoles.py` | `boardctrl dut console`, `pipe`, `log` | `serial-mux`, `none` (plugins add more) |
+| `download` | `dut/hostio.py`, `dut/boot.py` | `boardctrl dut stage`, `present`, `boot` | `fastboot` |
+| `flash` | `dut/flash.py`, `dut/flashpkg.py`, `hooks/flash/*` | `boardctrl dut flash` | `hook` (a flasher executable; plugins add writers) |
+| `debug` | `dut/debug.py` | `boardctrl debug …` | `none` (plugins add the real ones) |
+
+A provider says what it offers (`debug` reports `halt`, `run`, `step`, `regs`, `trace`, `gdb`) and describes its own
+settings, so the API, the CLI and the page offer exactly that. A provider whose server outlives one command — a
+console daemon, a debug adapter, a trace bridge — runs as a **session**: a transient systemd unit recorded per DUT
+and role, started and stopped through `boardctrl`, and reaped when the board's lease ends, so nobody inherits a
+server pointed at someone else's breakpoint.
+
+**The GPIO service** hands out the header's lines three ways: channels (relay, button, raw level, behind the
+timeout guard), aliases (`DUT3/reset`), and **usage claims** — a feature claims the pins it needs
+(`swd: swclk=J40:11, swdio=J40:13`) and drives them directly, for timing a thread hop would spoil. A claimed pin
+cannot be configured, aliased or driven by anyone else.
+
+**Site plugins** carry hardware nobody bought a driver for: `modules/<name>/module.py` with
+`setup(ctx, api[, config])` registers providers, services, commands and routers at host start. A plugin that fails
+to load is reported as degraded and never takes the host with it; code lives in the site layers, never in this
+repository.
 
 The serial console service is where a board host starts: every serial console is a **slot**
 (`dut/slots.py`), with a serial-mux console of its own as soon as its adapter is plugged in and
@@ -89,10 +110,11 @@ line a site names `<dut>/<role>`), so a person, a script or a front end can work
 with `boardctrl relay`/`boardctrl button` while the DUT manager uses the same lines for resets.
 
 boardlab, the lab-wide registry and front end, drives board hosts through this CLI only (`--json
---stateless`): its `bsp` module maps its backend contract onto these layers — relay to `boardctrl dut
+--stateless`): its `bsp` module maps its backend contract onto these roles — relay to `boardctrl dut
 reset`/`confirm` and to `boardctrl relay`/`boardctrl button` for single lines, download to `boardctrl dut
-stage`/`present`/`boot`, consoles to `boardctrl dut pipe`, inventory and discovery to `boardctrl dut list` and
-`boardctrl probe`, news to `boardctrl watch --registry`.
+stage`/`present`/`boot`, consoles to `boardctrl dut pipe` (or the session stream of a console provider that is not
+serial-mux), debug to `boardctrl debug …` and its session stream, inventory and discovery to `boardctrl dut list`
+and `boardctrl probe`, news to `boardctrl watch --registry`.
 
 ## Concepts
 
@@ -139,13 +161,13 @@ packs and recipe templates for one SoC family's upstream kernel work.
 | SoC profile | SoC id | `socs/<soc>/soc.yaml` in packs and the site (deep-merged) | — |
 | Board host | host id | `SITE/hosts/`, `SITE/remotes.json` | — |
 | DUT | DUT id: host, SoC, control backend, USB path, console | Registered on the host (`probe`, `bind`, `add`) or `SITE/duts/` | DUT lease on its host |
-| Reset / download-mode line | aliases `<dut>/reset`, `<dut>/fdl` | Registered by the dut module with gpio_relay | Through the DUT |
+| Reset / download-mode line | aliases `<dut>/reset`, `<dut>/fdl` | Registered by the dut module with the gpio service | Through the DUT |
 | Slot | `s<N>` on its host (`<host>/s<N>`): one serial console, by its physical USB port | Found on the host (`boardctrl slot list`) | Through the DUT in it |
-| Console | serial-mux alias, systemd unit `bsp-console-<alias>` | serial-mux on the host | Through the DUT (writes) |
+| Console | serial-mux alias, systemd unit `boardctrl-console-<alias>` | serial-mux on the host | Through the DUT (writes) |
 | Build artifact | SHA-256 | Host cache `STATE_DIR/dut/artifacts/` | — |
 
 Aliases let commands pass straight through the layers: `boardctrl dut reset board-1` reaches the dut
-module, its control backend calls `button click board-1/reset`, and gpio_relay resolves that to
+module, its control backend calls `button click board-1/reset`, and the gpio service resolves that to
 a header pin.
 
 ## SoC profiles

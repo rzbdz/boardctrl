@@ -1,4 +1,4 @@
-/* bsp hostd web UI — vanilla JS, no build step. Talks only to the public API. */
+/* boardctrld web UI — vanilla JS, no build step. Talks only to the public API. */
 (() => {
   'use strict';
 
@@ -15,9 +15,9 @@
 
   const S = {
     board: null, pins: {}, tools: {}, selected: null, ctlKey: null,
-    token: lsGet('bsp.token'), evCount: 0, hist: [], histIdx: -1, refreshTimer: null,
+    token: lsGet('boardctrl.token'), evCount: 0, hist: [], histIdx: -1, refreshTimer: null,
   };
-  try { S.hist = JSON.parse(lsGet('bsp.hist') || '[]'); } catch { S.hist = []; }
+  try { S.hist = JSON.parse(lsGet('boardctrl.hist') || '[]'); } catch { S.hist = []; }
 
   // ------------------------------------------------------------------ API
   async function api(method, path, body) {
@@ -417,7 +417,7 @@
   function equiv(name, args) {
     const t = S.tools[name];
     if (!t) return null;
-    const cli = ['bsp', ...name.split('.')];
+    const cli = ['boardctrl', ...name.split('.')];
     for (const p of t.params) {
       const v = args[p.name];
       if (v === undefined || v === null) continue;
@@ -505,9 +505,9 @@
     if (!line.trim()) return;
     S.hist = [line, ...S.hist.filter((h) => h !== line)].slice(0, 100);
     S.histIdx = -1;
-    lsSet('bsp.hist', JSON.stringify(S.hist));
+    lsSet('boardctrl.hist', JSON.stringify(S.hist));
     if (line.trim() === 'clear') { $('#console-out').textContent = ''; return; }
-    conWrite(`bsp> ${line}\n`, 'cmd');
+    conWrite(`boardctrl> ${line}\n`, 'cmd');
     const r = await api('POST', 'api/v1/cli', { line });
     if (r.output !== undefined) conWrite(r.output, r.exit_code ? 'err' : '');
     else conWrite(errText(r.error) + '\n', 'err');
@@ -520,7 +520,7 @@
       if (e.key === 'ArrowUp' && S.histIdx < S.hist.length - 1) { inp.value = S.hist[++S.histIdx]; e.preventDefault(); }
       if (e.key === 'ArrowDown') { S.histIdx = Math.max(-1, S.histIdx - 1); inp.value = S.histIdx < 0 ? '' : S.hist[S.histIdx]; e.preventDefault(); }
     });
-    conWrite('bsp remote CLI: same syntax as the local `bsp` command. Type help for commands, clear to clear, ↑↓ for history.\n');
+    conWrite('boardctrl remote CLI: same syntax as the local `boardctrl` command. Type help for commands, clear to clear, ↑↓ for history.\n');
   }
 
   // ------------------------------------------------------------------ tabs
@@ -545,7 +545,7 @@
       const v = window.prompt('API token (empty to clear)', S.token || '');
       if (v === null) return;
       S.token = v.trim() || null;
-      lsSet('bsp.token', S.token || '');
+      lsSet('boardctrl.token', S.token || '');
     });
     const [st, board, tools] = await Promise.all([
       api('GET', 'api/v1/status'), api('GET', 'api/v1/board/info'), api('GET', 'api/v1/tools'),

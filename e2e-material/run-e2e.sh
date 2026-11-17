@@ -20,8 +20,8 @@ bsp --json dut list > "$OUT/duts-before.json" || true
 
 WS=$(mktemp -d /tmp/bsp-e2e-ws-XXXX)
 mkdir -p "$WS/.claude/skills"
-cp -r "$REPO/skills/bsp-dev-loop" "$WS/.claude/skills/"
-echo "workspace: $WS (only .claude/skills/bsp-dev-loop)"
+cp -r "$REPO/skills/boardctrl" "$WS/.claude/skills/"
+echo "workspace: $WS (only .claude/skills/boardctrl)"
 
 START=$(date +%s)
 ( cd "$WS" && claude -p "$(cat "$OUT/prompt.md")" \

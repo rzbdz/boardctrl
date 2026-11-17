@@ -9,7 +9,7 @@ Client-side groups:
     boardctrl catalog ...                   the SDK catalog in the registry (shared, versioned, validated)
     boardctrl install                       write ./SKILL.md for agents working in this directory
     boardctrl hints                         guidance by level: the site, one SoC, one SDK, or a board
-    boardctrl remote ...                    manage known hosts (~/.config/bsp/remotes.json)
+    boardctrl remote ...                    manage known hosts (~/.config/boardctrl/remotes.json)
 
 Host-level groups are fetched from the host and passed through
 (`gpio`, `relay`, `button`, `board`, `job`, `events`, `status`); pick the host
@@ -318,7 +318,7 @@ def _images(args) -> tuple[Any, str]:
 
     site = site_dir()
     if site is None:
-        raise RemoteError("no site directory", code="invalid_request", hint="set BSP_SITE or create ~/.config/bsp/site")
+        raise RemoteError("no site directory", code="invalid_request", hint="set BOARDCTRL_SITE or create ~/.config/boardctrl/site")
     from .catalogcli import registry_files
 
     shared = registry_files(sync=False)        # the registry's SoC profiles (`bsp catalog sync`), above the site

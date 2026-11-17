@@ -193,8 +193,8 @@ git clone --recurse-submodules https://github.com/rzbdz/bsp-remote-dev-workflow.
 
 boardctrl 的设计目标是让 agent 只靠 CLI 就能完成全部工作：
 
-- `deploy/install-skills.sh` 为 Claude Code、opencode 和 Hermes 安装自带的 skill（`skills/bsp-dev-loop`、
-  `skills/bsp-gpio-relay`）。
+- `deploy/install-skills.sh` 为 Claude Code、opencode 和 Hermes 安装自带的 skill（`skills/boardctrl`、
+  `skills/gpio`）。
 - 在 SDK 源码树中运行 `boardctrl install` 生成 `SKILL.md`：在完整 skill 的基础上，补充说明本目录是哪个 SDK、
   哪些板子能运行它，以及 site 中的提示。
 - `--json` 输出 `{"ok": true, "result": …}` 或 `{"ok": false, "error": {"code", "message", "hint",

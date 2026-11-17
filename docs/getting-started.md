@@ -38,7 +38,7 @@ The minimum useful site describes one board host. Replace the example values in:
 
 | File | What to set |
 |---|---|
-| `hosts/HOST.yaml` | Host id, `server.bind` and `server.auth_token` (see [SECURITY.md](../SECURITY.md)), the GPIO header (`modules.gpio_relay.board`, `backend`), and `modules.dut` |
+| `hosts/HOST.yaml` | Host id, `server.bind` and `server.auth_token` (see [SECURITY.md](../SECURITY.md)), the GPIO header (`modules.gpio.board`, `backend`), and `modules.dut` |
 | `deploy/HOST.env` | How to reach the host over ssh (`SSH_HOST`, `SSH_USER`), `INSTALL_DIR`, `SERVICE_PORT` |
 | `remotes.json` | How clients reach the host: `url`, optional `fallback_urls`, and `ssh` for tunnelling |
 | `boards/*.yaml` | The pin map of the host's GPIO header, if no pack provides it |

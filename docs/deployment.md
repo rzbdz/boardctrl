@@ -46,7 +46,7 @@ install `sshpass`; the password is never written to disk by bsp.
 | `INSTALL_DIR/venv` | Python environment with bsp and serial-mux |
 | `/usr/local/bin/bsp` | The CLI, in local mode on the host |
 | `boardctrld.service` | The service: `boardctrld --config INSTALL_DIR/site/hosts/HOST.yaml` with `BOARDCTRL_SITE` set |
-| `bsp-console-<alias>` | One transient unit per serial console, started on demand |
+| `boardctrl-console-<alias>` | One transient unit per serial console, started on demand |
 | `/var/lib/bsp` (`server.state_dir`) | Leases, probed boards, runtime GPIO settings, artifact cache |
 
 With console logins enabled, the service also manages `bsp-*` system users, a `bsp-console`

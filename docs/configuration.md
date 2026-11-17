@@ -39,7 +39,10 @@ site/
 ├── sdk/instances/*.yaml     # SDK targets            ─┘
 ├── duts/*.yaml              # boards declared statically (probed ones live on the host)
 ├── hooks/<kind>/<name>      # site-specific hooks, e.g. a flash tool wrapper
-└── hints/*.md               # notes for agents and people
+├── hints/*.md               # notes for agents and people
+├── socs/<soc>/*.md          # one SoC's notes, beside its soc.yaml
+├── skills/<id>.md           # one SDK's skill
+└── modules/<name>/module.py # site plugins: providers, commands, routes (see porting.md)
 ```
 
 `examples/site/` contains a working example of every file; the test suite runs against it.
@@ -79,7 +82,7 @@ env:                             # values hooks receive: see "Host environment" 
   BSP_SERIAL_LOG_DIR: /root/.serial-mux/logs
   BSP_SMTTY: smtty
 modules:
-  gpio_relay:                    # list it before dut: dut drives reset lines through it
+  gpio:                         # list it before dut: dut drives reset lines through it (gpio_relay still works)
     board: example-40pin         # a boards/<id>.yaml from a pack or the site
     backend: sysfs               # sysfs | gpiod | mock
     hw_timeout_s: 3.0            # GPIO calls slower than this mark the backend degraded
