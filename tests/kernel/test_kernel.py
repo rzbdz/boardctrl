@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Iterable
 
 import pytest
 
@@ -273,3 +274,40 @@ def test_a_guarded_backend_still_says_where_a_line_is():
     # One that cannot say refuses, saying which backend and which line: a caller then configures chip and line itself.
     with pytest.raises(HardwareError, match="drives.*GPIO118"):
         GuardedBackend(Drives()).locate(118)
+
+
+class _Busy:
+    """A backend whose lines someone else holds, as a stale sysfs export or another program looks."""
+
+    name = "busy"
+    consumer = "bsp"
+
+    def __init__(self, free: Iterable[int] = ()):
+        from bsp.gpio.backends.mock import MockBackend
+
+        self.inner = MockBackend()
+        self.free = set(free)
+
+    def __getattr__(self, item):
+        return getattr(self.inner, item)
+
+    def status(self, gpio):
+        from bsp.gpio.backends.base import LineStatus
+
+        if gpio in self.free:
+            return self.inner.status(gpio)
+        return LineStatus(gpio, True, "in", None, "sysfs")
+
+
+def test_a_claim_refuses_a_line_someone_else_holds(make_service):
+    """A stale export is found when the claim is taken, not later as an EBUSY inside the feature's server."""
+    from bsp.gpio.backends.mock import MockBackend
+
+    svc = make_service()
+    svc.backend = _Busy(free=[62])
+    with pytest.raises(Conflict) as e:
+        svc.claim("swd", {"swclk": "J40:11", "swdio": "J40:13"})
+    assert "held by sysfs" in e.value.message and "J40:11" in e.value.message
+    assert svc.claims() == []                    # nothing half-taken
+    svc.backend = MockBackend()                  # the export released: the same claim now succeeds
+    assert svc.claim("swd", {"swclk": "J40:11", "swdio": "J40:13"}).usage == "swd"

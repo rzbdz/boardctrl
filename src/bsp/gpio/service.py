@@ -162,6 +162,10 @@ class GpioService:
         A claimed pin cannot be configured, aliased or driven through the service until the claim is released;
         two usages never share one. The claim is remembered, so a restarted host still knows which lines its
         features own, and is (re)taken by the feature that holds it.
+
+        A line another process holds — an export left behind by a sysfs driver, a program of someone's — is
+        refused here, saying who holds it. A claim is the promise that its holder can drive the pins; taking it
+        anyway would surface the same conflict much later, inside that feature's own server, as a bare EBUSY.
         """
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", usage or ""):
             raise InvalidRequest(f"usage name {usage!r} is not usable", hint="letters, digits, _ . - (max 64)")
@@ -176,6 +180,11 @@ class GpioService:
             if holder and holder != usage:
                 raise Conflict(f"{usage}: pin {_pin_text(pin)} is used by {holder!r}",
                                hint=f"release it first (`bsp gpio claim release {holder}`), or choose another pin")
+            other = self._other_holder(pin)
+            if other:
+                raise Conflict(f"{usage}: pin {_pin_text(pin)} ({pin.label}) is held by {other}",
+                               hint="the line is in use outside this host's GPIO service: free it there, or "
+                                    "choose another pin (`gpio list` shows each pin's owner)")
             keys[role] = pin.key
         if len(set(keys.values())) != len(keys):
             raise InvalidRequest(f"{usage}: one pin cannot fill two roles", details={"pins": keys})
@@ -189,6 +198,18 @@ class GpioService:
         self._save_claims()
         self.bus.publish("gpio.claimed", usage=usage, pins={r: _pin_text(self._pin_by_key(k)) for r, k in keys.items()})
         return Claim(self, usage, {role: self._pin_by_key(key) for role, key in keys.items()})
+
+    def _other_holder(self, pin: HeaderPin) -> str | None:
+        """Who holds this line outside the service (a sysfs export, another program), or None when it is free."""
+        try:
+            line = self.backend.status(pin.gpio)      # type: ignore[arg-type]
+        except BspError:
+            return None                               # cannot tell: let the feature find out by driving it
+        if not line.claimed or not line.owner:
+            return None
+        # A line this service requested itself is the service's, whatever its backend calls the consumer: a
+        # usage may claim a channel's line (the claim is what then keeps everything else off it).
+        return None if line.owner == getattr(self.backend, "consumer", None) else line.owner
 
     def release_claim(self, usage: str) -> list[str]:
         """Drop a usage's claims (its holder is gone, or it was asked to). Idempotent."""
