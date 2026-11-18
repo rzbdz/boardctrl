@@ -270,6 +270,25 @@ WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
 systemctl enable -q boardctrld.service
+# A restart does not lose a lock or a console (both live outside this process: leases in the state directory,
+# consoles and sessions as their own systemd units), but a job runs in a thread of this process, so restarting
+# mid-flash cuts the image off. Wait for one to finish instead of killing it; a job that never ends is a reason to
+# stop and ask, not to guess. BOARDCTRL_UPGRADE_WAIT is how long to wait for a job (default: 30 minutes).
+wait_for_jobs() {
+  local port budget=${BOARDCTRL_UPGRADE_WAIT:-1800} seen=""
+  port=$(sed -n 's/^  port: *\([0-9]*\).*/\1/p' "$CONF" | head -1); port=${port:-8765}
+  for _ in $(seq 1 "$budget"); do
+    seen=$(curl -fsS -m 2 "http://127.0.0.1:$port/api/v1/tools/job_list" 2>/dev/null \
+           || python3 -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:$port/api/v1/tools/job_list',timeout=2).read().decode())" 2>/dev/null) || return 0
+    echo "$seen" | grep -q '"status": *"running"' || return 0
+    echo "--> a job is running on this host; waiting for it before restarting (ctrl-c stops this install)"
+    sleep 1
+  done
+  echo "!! jobs are still running after ${budget}s: not restarting boardctrld (a flash would be cut off)." >&2
+  echo "!! finish or cancel them (\`boardctrl job list\`, \`boardctrl cancel <board>\`), then run this installer again." >&2
+  exit 1
+}
+wait_for_jobs
 systemctl restart boardctrld.service
 # The old unit is gone once the new one serves: a machine does not answer to two names at once.
 if [[ -n $TAKEOVER ]]; then rm -f /etc/systemd/system/bsp-hostd.service; systemctl daemon-reload; fi
