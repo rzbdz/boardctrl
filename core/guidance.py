@@ -1,11 +1,11 @@
 """Guidance a site carries, in levels: hints, SoC notes, SDK skills — found through the CLI, not guessed.
 
 An agent starts from the boardlab skill (the DUT: locking, reset, console, boot, flash). What it needs next
-belongs to the *hardware*: which SoC profile a board has, the notes that SoC's site carries, and the skill of the
+belongs to the *hardware*: which SoC a board has, the notes that SoC's site carries, and the skill of the
 SDK it is building. That knowledge changes with the site, so it is not in the client; it is asked for:
 
     bsp hints                         everything the platforms say (the shipped ones, then the site)
-    bsp hints --soc <soc>             one SoC's notes, and its profile paths
+    bsp hints --soc <soc>             one SoC's notes, and where its facts are
     bsp hints --sdk <sdk>             an SDK's skill and its catalog entry
     bsp hints --dut <dut>             what applies to one board: its SoC's notes, its SDKs' skills
     bsp hints --list                  what there is to ask for, by level
@@ -113,12 +113,12 @@ def resolve(args: Any, site: Path | None = None) -> tuple[Any, str]:
     blocks: list[dict[str, str]] = []
     if getattr(args, "soc", None):
         blocks += soc_docs(args.soc, site)
-        profile = []
+        facts = []
         for root in layered("socs", site):
             if (root / args.soc / "soc.yaml").is_file():
-                profile.append(str(root / args.soc / "soc.yaml"))
-        if profile:
-            blocks.append({"name": f"{args.soc}/soc.yaml", "layer": "", "text": "profile: " + ", ".join(profile), "path": profile[-1]})
+                facts.append(str(root / args.soc / "soc.yaml"))
+        if facts:
+            blocks.append({"name": f"{args.soc}/soc.yaml", "layer": "", "text": "soc facts: " + ", ".join(facts), "path": facts[-1]})
     if getattr(args, "sdk", None):
         skill = sdk_skill(args.sdk, site)
         if skill:

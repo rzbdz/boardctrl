@@ -1,6 +1,6 @@
 """Images the host stages (probe images, media-boot helpers) that a site does not keep in its tree.
 
-An image in a SoC profile may say where it comes from and what it must hash to:
+An image in a SoC's facts may where it comes from and what it must hash to:
 
     images:
       helper:
@@ -73,7 +73,7 @@ def _git(args: list[str]) -> None:
 
 
 def plan(profiles, site: Path) -> list[dict[str, Any]]:
-    """Every image of every SoC profile: where it comes from and whether this site has it."""
+    """Every image of every SoC: where it comes from and whether this site has it."""
     out = []
     for soc, prof in sorted(profiles.profiles.items()):
         for key, img in sorted((prof.get("images") or {}).items()):

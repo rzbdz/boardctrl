@@ -1,9 +1,9 @@
-"""Profiles: the directories a board host reads its knowledge from, in priority order.
+"""Layers: the directories a board host reads its knowledge from, in priority order.
 
-A **profile** is a directory with the same shape, whoever wrote it:
+A **layer** is a directory with the same shape, whoever wrote it:
 
-    <profile>/
-      boardctrl.yaml   optional: which shipped profiles to use (`profiles: [...]`), settings
+    <layer>/
+      boardctrl.yaml   optional: settings for this layer
       boards/          pin maps of boards (a 40-pin header, a 26-pin header)
       socs/            SoC facts: boot-ROM fingerprints, download mode, USB ids, U-Boot identity
       hooks/           executables for probe and flash steps

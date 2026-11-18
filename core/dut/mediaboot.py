@@ -2,7 +2,7 @@
 
 A board whose FDL (download) strap is held down can be loaded from RAM and flashed, but a plain
 reset never boots what is on its media. Some SoCs have a way around that, done from download mode.
-bsp does not know any such way itself: a SoC profile (or one DUT's `control`) declares it as steps,
+bsp does not know any such way itself: a SoC's facts (or one DUT's `control`) declares it as steps,
 the same steps SDK boot recipes use:
 
     media_boot:
@@ -10,7 +10,7 @@ the same steps SDK boot recipes use:
       steps:                                   # run with the board reset into download mode first
         - {do: check, serial: <regex>}         # the boot ROM's banner says this is a board the steps suit
         - {do: getvar, name: <var>, match: <regex>}
-        - {do: stage, image: <key in images>}  # an image from the SoC profile, verified by sha256
+        - {do: stage, image: <key in images>}  # an image from the SoC's facts, verified by sha256
         - {do: continue}
         - {do: hook, kind: boot, name: <hook>} # or anything a hook does (hooks/README.md)
         - {do: wait, serial: <regex>, timeout: 60}
