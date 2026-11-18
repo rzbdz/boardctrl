@@ -355,3 +355,44 @@ def test_two_boards_with_no_download_port_and_no_console_do_not_clash():
     assert shared_usb(Board("a", usb="usb:2-1.4"), Board("b", usb="usb:2-1.4"))
     assert shared_console(Board("a", console_alias="s1"), Board("b", console_alias="s1"))
 
+
+
+def test_a_start_whose_lease_ended_while_it_was_prepared_refuses(tmp_path):
+    """
+    `debug start` checks the lease, then makes a unit; `dut release` deletes the lease and stops the board's
+    sessions. If the release lands between those two steps the old start would bring a server up for a board that
+    is now someone else's — which is exactly what the lease exists to prevent. The start re-checks the lease under
+    the lock a release takes, and refuses.
+    """
+    live = {"tok-a": True}
+    sessions = Sessions(tmp_path / "sessions", FakeSystemd(), held=lambda token: bool(token) and live.get(token, False))
+    live["tok-a"] = False                                        # the lease ended before the unit was made
+    with pytest.raises(Conflict):
+        sessions.start("k1-a", "debug", "fake", ["serve"], endpoint="127.0.0.1:1", lease="tok-a")
+    assert sessions.list() == [] and sessions._records() == []
+
+
+def test_a_record_that_cannot_be_read_is_forgotten_by_reap_stale(tmp_path):
+    """A crash can leave a half-written record; the cleanup that promises to forget those must actually forget them."""
+    sessions = Sessions(tmp_path / "sessions", FakeSystemd())
+    (tmp_path / "sessions").mkdir(exist_ok=True)
+    broken = tmp_path / "sessions" / "broken.debug.json"
+    broken.write_text("{not json")
+    wrong = tmp_path / "sessions" / "wrong.debug.json"
+    wrong.write_text('{"dut": ["k1-a"], "role": "debug"}')
+    assert sessions.reap_stale() == []
+    assert not broken.exists() and not wrong.exists()
+
+
+def test_a_session_whose_stop_did_not_take_is_kept_and_not_reported_stopped(tmp_path):
+    """A stop can be refused or hang. Reporting it stopped would hide a server still holding the pins under a lease
+    nobody has any more; the record stays, so a later release or reap can try again."""
+    class Stubborn(FakeSystemd):
+        def stop(self, unit):
+            pass                                   # systemd refused: the unit is still active
+
+    systemd = Stubborn()
+    sessions = Sessions(tmp_path / "sessions", systemd)
+    sessions.start("k1-a", "debug", "fake", ["serve"], endpoint="127.0.0.1:1")
+    assert sessions.reap("k1-a") == []
+    assert sessions.list()[0].role == "debug"      # still there, to be stopped again

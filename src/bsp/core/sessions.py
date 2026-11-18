@@ -13,6 +13,7 @@ rule of the whole host: the lease is the lifetime root of everything that runs f
 from __future__ import annotations
 
 import re
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -68,6 +69,11 @@ class Sessions:
         self.systemd = run
         self._alive = alive or _pid_alive
         self._held = held
+        # Starting a session and letting go of a board take the same lock: `debug start` validates its lease and
+        # then makes a unit, while `dut release` deletes the lease and stops that board's sessions. Interleaved the
+        # other way, a start that passed its check just before the release would launch a server under a lease that
+        # no longer exists — the one thing the lease is supposed to prevent.
+        self._lock = threading.RLock()
 
     # -------------------------------------------------------------- records
     def _path(self, dut: str, role: str) -> Path:
@@ -79,11 +85,14 @@ class Sessions:
             return False
         if s.lease and self._held and not self._held(s.lease):
             # Its lease expired (or was taken): the board belongs to someone else now, and a server pointed at the
-            # old holder's breakpoint is not theirs to inherit.
-            try:
-                self.systemd.stop(s.unit)
-            finally:
-                self._path(s.dut, s.role).unlink(missing_ok=True)
+            # old holder's breakpoint is not theirs to inherit. Taking the start lock keeps this cleanup from
+            # swallowing a record between a release and its own reap: the release still gets to report what it
+            # stopped, and a start cannot slip a unit in while this is being taken down.
+            with self._lock:
+                try:
+                    self.systemd.stop(s.unit)
+                finally:
+                    self._path(s.dut, s.role).unlink(missing_ok=True)
             return False
         return True
 
@@ -131,10 +140,20 @@ class Sessions:
         """Run ``command`` as a transient unit and wait until ``ready()`` names its endpoint.
 
         A unit already serving this DUT and role is kept (idempotent: `console ensure` is called by every reader).
+        A session named with a lease re-checks that lease here, under the lock a release takes: a start whose lease
+        ended while it was being prepared must not bring a server up for a board that now belongs to someone else.
         """
-        s = self.get(dut, role)
-        if s:
-            return s
+        with self._lock:
+            if lease is not None and self._held is not None and not self._held(lease):
+                raise Conflict(f"{dut}: the lease this session would run under has ended",
+                               hint="take the board's lease and start the session again")
+            s = self.get(dut, role)
+            if s:
+                return s
+            return self._start_locked(dut, role, provider, command, endpoint=endpoint, lease=lease, env=env,
+                                      ready=ready, timeout=timeout, meta=meta)
+
+    def _start_locked(self, dut, role, provider, command, *, endpoint, lease, env, ready, timeout, meta) -> Session:
         if not command:
             raise InvalidRequest(f"{dut}: the {provider} provider needs no server", hint="open it directly")
         unit = unit_name(dut, role)
@@ -168,37 +187,55 @@ class Sessions:
 
     # ----------------------------------------------------------------- stop
     def stop(self, dut: str, role: str, *, lease: str | None = None) -> dict[str, Any]:
-        s = self.get(dut, role)
-        if not s:
-            raise NotFound(f"{dut}: no {role} session is running")
-        if lease is not None and s.lease and lease != s.lease:
-            raise Conflict(f"{dut}: the {role} session belongs to another lease",
-                           hint="take the board's lease first (`bsp dut acquire`)")
-        self.systemd.stop(s.unit)
-        self._path(dut, role).unlink(missing_ok=True)
-        return {"dut": dut, "role": role, "stopped": True, "unit": s.unit}
+        with self._lock:
+            s = self.get(dut, role)
+            if not s:
+                raise NotFound(f"{dut}: no {role} session is running")
+            if lease is not None and s.lease and lease != s.lease:
+                raise Conflict(f"{dut}: the {role} session belongs to another lease",
+                               hint="take the board's lease first (`bsp dut acquire`)")
+            self.systemd.stop(s.unit)
+            self._path(dut, role).unlink(missing_ok=True)
+            return {"dut": dut, "role": role, "stopped": True, "unit": s.unit}
 
     def reap(self, dut: str, role: str | None = None) -> list[str]:
         """Stop the sessions of a DUT (all roles when ``role`` is None); used when its lease ends.
 
         Reads the records as they are, not through :meth:`list`: after a lease ends, that filter stops and forgets
-        a session on its own, so going through it would report nothing stopped right after stopping everything.
+        a session on its own, so going through it would report nothing stopped right after stopping everything. It
+        holds the start lock, so a start racing the release cannot make a unit between the release and this stop.
         """
-        stopped = []
-        for s in self._records(dut):
-            if role and s.role != role:
-                continue
-            self.systemd.stop(s.unit)
-            self._path(s.dut, s.role).unlink(missing_ok=True)
-            stopped.append(s.role)
-        return stopped
+        with self._lock:
+            stopped = []
+            for s in self._records(dut):
+                if role and s.role != role:
+                    continue
+                self.systemd.stop(s.unit)
+                if self.systemd.active(s.unit):
+                    # The stop did not take (a hung ExecStop, a systemd that refused): keep the record so it can be
+                    # stopped again, and do not tell the caller it was.
+                    continue
+                self._path(s.dut, s.role).unlink(missing_ok=True)
+                stopped.append(s.role)
+            return stopped
 
     def reap_stale(self) -> list[str]:
         """Forget records whose unit and process are both gone (a crash, a reboot)."""
         gone = []
-        for s in self._records():
+        for p in sorted(self.dir.glob("*.json")):
+            try:
+                import json
+
+                s = Session.from_dict(json.loads(p.read_text()))
+            except (OSError, ValueError, TypeError):
+                # A record nobody can read is what a crash leaves behind: forget it, as this method promises.
+                p.unlink(missing_ok=True)
+                continue
+            if not isinstance(s.dut, str) or not isinstance(s.role, str):
+                p.unlink(missing_ok=True)
+                continue
             if not self.systemd.active(s.unit) and not self._alive(s.pid):
-                self._path(s.dut, s.role).unlink(missing_ok=True)
+                p.unlink(missing_ok=True)
                 gone.append(s.unit)
         return gone
 
