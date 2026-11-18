@@ -27,8 +27,8 @@ from ..sdk.catalog import SdkCatalog
 from .boot import BootRunner
 from .catalog import DutRegistry, DutSpec
 from .commands import build_commands
-from .control import make_control
-from .hostio import ArtifactStore, Fastboot, SerialConsole
+from .control import build_download, build_relay, register_download_providers, register_relay_providers
+from .hostio import ArtifactStore, SerialConsole
 from .mediaboot import MediaBoot
 from .leases import LeaseManager
 
@@ -45,8 +45,17 @@ class Board:
         self._services = mod.ctx.service
         self.bindings = bindings.bindings(spec)
         self._flash: Any = None
-        self.control = make_control(spec, mod.ctx.service)
-        self.fastboot = Fastboot(spec.usb, mod.fastboot_bin)
+        # The relay role: the record may name a provider (a built-in backend or a site plugin's), and an older
+        # record states the same thing as `control.backend`, which `bindings()` reads through.
+        relay = self.bindings.get("relay") or {}
+        explicit_relay = (spec.raw.get("services") or {}).get("relay")
+        # A record that names the role gives the provider its own block; one written the old way is configured by
+        # `control:` (the provider's settings lived there before the role had a name).
+        self.control = build_relay(relay.get("provider", "gpio-relay"), spec, mod.ctx.service,
+                                   cfg=relay if explicit_relay is not None else None)
+        download = self.bindings.get("download") or {}
+        self.fastboot = build_download(download.get("provider", "fastboot"), spec, mod.fastboot_bin,
+                                       mod.ctx.service, cfg=download)
         console = self.bindings.get("console") or {}
         try:
             self.console = build("console", console.get("provider", "serial-mux"), mod.ctx, spec, mod.ctx.service)
@@ -148,6 +157,10 @@ class DutModule(Module):
         self._flash_work = state / "flash"
         from ..core.sessions import Sessions
         from . import console_providers, debug_providers  # noqa: F401 - register the built-in providers
+        # The relay and download roles are provider roles too: their built-ins are offered under the same table, so
+        # a record may name them and a site plugin may add its own.
+        register_relay_providers()
+        register_download_providers()
 
         self.sessions = ctx.services.get("sessions") or Sessions(state / "sessions", _NoSystemd())
         from .consoles import ConsoleManager

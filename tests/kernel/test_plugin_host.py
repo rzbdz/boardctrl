@@ -364,3 +364,79 @@ def test_a_plugin_named_in_plugins_and_switched_off_is_not_loaded(site, tmp_path
     with TestClient(app) as client:
         status = client.get("/api/v1/status").json()
         assert "fake" not in (status.get("plugins") or {}).get("loaded", {})
+
+
+RELAY_PLUGIN = '''
+class FakeRelay:
+    """A reset a vendor tool performs: registers under the relay role, which had no provider before."""
+
+    needs_human = False
+
+    def __init__(self, dut, cfg):
+        self.dut, self.cfg = dut, cfg
+        self.resets = 0
+
+    def setup(self):
+        pass
+
+    def reset(self, log, ready=None):
+        self.resets += 1
+        log(f"fake reset of {self.dut.id}")
+
+    def describe(self):
+        return {"backend": "fake-relay", "cfg": self.cfg}
+
+def setup(ctx, api, config):
+    api.provider("relay", "fake-relay", lambda c, s, sv: FakeRelay(s, config), title="fake reset tool")
+'''
+
+
+def test_a_plugin_can_fill_the_relay_role(site, tmp_path, monkeypatch):
+    """`relay` is a provider role like debug/console/flash: a site plugin registers one and a record binds it.
+
+    This is what the role table promised and did not do — the built-ins only reached the old `control.backend`
+    path, so a `services.relay.provider` a plugin registered was ignored.
+    """
+    (site / "modules" / "relayplug").mkdir(parents=True)
+    (site / "modules" / "relayplug" / "module.py").write_text(RELAY_PLUGIN)
+    (site / "duts").mkdir(exist_ok=True)
+    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BSP_SITE", str(site))
+    import yaml
+
+    (site / "hosts" / "relay.yaml").write_text(yaml.safe_dump({
+        "host": {"id": "relay-host"},
+        "server": {"bind": "127.0.0.1", "port": 8768, "state_dir": str(tmp_path / "state4")},
+        "modules": {"gpio": {"board": "example-40pin", "backend": "mock", "pinmux": False},
+                    "sdk": {}, "dut": {}, "relayplug": {}},
+    }))
+    (site / "duts" / "relay-board.yaml").write_text(yaml.safe_dump({
+        "id": "relay-board", "host": "relay-host",
+        "services": {"relay": {"provider": "fake-relay", "why": "vendor tool"},
+                     "console": {"provider": "none"}, "download": {"provider": "none"},
+                     "debug": {"provider": "none"}},
+    }, sort_keys=False))
+    app = create_app(HostConfig.load(site / "hosts" / "relay.yaml"))
+    with TestClient(app) as client:
+        status = client.post("/api/v1/tools/dut_status", json={"dut": "relay-board"}).json()["result"]
+        # The record's own provider name comes back, not the default.
+        assert status["services"]["relay"] == "fake-relay"
+        board = app.state.hub.modules["dut"].boards["relay-board"]
+        # ... and it is the plugin's object, built for this board (the factory sees the host's module config).
+        assert board.control.describe()["backend"] == "fake-relay"
+        assert board.control.dut.id == "relay-board"
+        board.control.reset(lambda line: None)
+        assert board.control.resets == 1
+
+
+def test_the_built_in_roles_are_still_the_defaults_and_still_work(site, tmp_path, monkeypatch):
+    """Filling the role table must not change what a record that names nothing gets."""
+    from bsp.dut.control import build_download, build_relay
+    from bsp.dut.catalog import spec_from_dict
+
+    spec = spec_from_dict({"id": "plain", "host": "h1", "services": {"download": {"provider": "fastboot", "usb": "usb:1-1"}}})
+    control = build_relay("gpio-relay", spec, lambda name: None)
+    assert type(control).__name__ == "GpioRelayControl"
+    download = build_download("fastboot", spec, "fastboot", lambda name: None,
+                              cfg={"provider": "fastboot", "usb": "usb:1-1"})
+    assert download.usb == "usb:1-1"

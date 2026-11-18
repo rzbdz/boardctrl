@@ -22,6 +22,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable
 
 from ..core.errors import HardwareTimeout, InvalidRequest, NotFound, BspError
+from ..core.providers import PROVIDERS
 from ..core.registry import Registry
 from .catalog import DutSpec
 
@@ -130,9 +131,11 @@ class ControlBackend(ABC):
     """The board's two control roles. `fdl.strategy` decides topology; a role's GPIO/human actor only performs it."""
     needs_human = False      # reset/enter_fdl block until a person acts (run them as jobs)
 
-    def __init__(self, dut: DutSpec, services: Callable[[str], Any]):
+    def __init__(self, dut: DutSpec, services: Callable[[str], Any], cfg: dict[str, Any] | None = None):
         self.dut = dut
-        self.cfg = dut.control
+        # Its own settings: the record's `services.relay` block when it wrote one (the provider role's config),
+        # else the older `control:` block, which is where these values lived before the role had a name.
+        self.cfg = cfg if cfg is not None else dut.control
         self._services = services
 
     def setup(self) -> None:
@@ -313,3 +316,58 @@ class HomeAssistantControl(ControlBackend):
 
 def make_control(dut: DutSpec, services: Callable[[str], Any]) -> ControlBackend:
     return CONTROL_BACKENDS.get(dut.control.get("backend", "gpio-relay"))(dut, services)
+
+
+def build_relay(name: str, dut: DutSpec, services: Callable[[str], Any],
+                cfg: dict[str, Any] | None = None) -> ControlBackend:
+    """The relay role's provider: one of the built-in backends, or one a site plugin registered."""
+    if name in CONTROL_BACKENDS:
+        return CONTROL_BACKENDS.get(name)(dut, services, cfg)
+    return PROVIDERS["relay"].get(name)(None, dut, services)
+
+
+def register_relay_providers() -> None:
+    """Offer the built-in control backends under the provider table too.
+
+    The relay role is a provider role like the other four: a record may name it as `services.relay.provider`, and a
+    site plugin may register its own. The built-ins register here so both ways of writing a record reach the same
+    classes; `control.backend` keeps working for records written before the role had a name.
+    """
+    for name in CONTROL_BACKENDS:
+        if name not in PROVIDERS["relay"]:
+            PROVIDERS["relay"].register(name, _relay_factory(name))
+
+
+def _relay_factory(name: str):
+    def make(ctx: Any, spec: DutSpec, services: Callable[[str], Any]) -> Any:
+        return CONTROL_BACKENDS.get(name)(spec, services)
+    return make
+
+
+def download_usb(dut: DutSpec, cfg: dict[str, Any] | None = None) -> str:
+    """The board's download port: the role's own `usb` when a record wrote `services.download`, else `fastboot.usb`."""
+    return str((cfg or {}).get("usb") or dut.usb or "")
+
+
+def build_download(name: str, dut: DutSpec, binary: str, services: Callable[[str], Any],
+                   cfg: dict[str, Any] | None = None) -> Any:
+    """The download role's provider: the host's own fastboot, or one a site plugin registered.
+
+    `fastboot` and `none` are the built-ins, and both are the same `Fastboot` CLI bound to the board's USB path:
+    `none` says the board has no download port, so the object reports that it is not on the bus rather than
+    pretending to be reachable. A site plugin may register another (a vendor downloader, say).
+    """
+    if name in ("fastboot", "none"):
+        from .hostio import Fastboot
+
+        return Fastboot(download_usb(dut, cfg), binary)
+    return PROVIDERS["download"].get(name)(None, dut, services)
+
+
+def register_download_providers() -> None:
+    """Offer the built-in download providers under the provider table (see `register_relay_providers`)."""
+    from .hostio import Fastboot
+
+    for name in ("fastboot", "none"):
+        if name not in PROVIDERS["download"]:
+            PROVIDERS["download"].register(name, lambda ctx, spec, services: Fastboot(spec.usb))
