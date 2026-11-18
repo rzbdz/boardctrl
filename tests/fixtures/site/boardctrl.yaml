@@ -1,5 +1,3 @@
-# Site settings (optional).
-# profiles: the profiles shipped in the boardctrl repo that this site builds on (profiles/<name>/).
-# Omit the key to use every shipped profile; [] to use none. The site itself is always read last,
-# and overrides whatever a shipped profile says.
-profiles: [spacemit]
+# Settings for this site, the layer read last (optional: every file here can stand alone).
+# A site overrides a shipped platform file by file; nothing has to be listed to take part.
+{}

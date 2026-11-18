@@ -95,14 +95,14 @@ pip_install() {
 
 echo "--> [1/6] looking at this machine (board, GPIO header)"
 
-# What this machine is: its board (for the GPIO header) from the device tree, matched against the profiles' boards.
+# What this machine is: its board (for the GPIO header) from the device tree, matched against the platforms' boards.
 MODEL=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || true)
 if [[ $BOARD == auto ]]; then
   BOARD=$(MODEL="$MODEL" python3 - <<'EOF'
 import os, re, pathlib
 model = os.environ.get("MODEL", "").strip().lower()
 best = ""
-for f in sorted(pathlib.Path("profiles").glob("*/boards/*.yaml")):
+for f in sorted(pathlib.Path("platforms").glob("*/boards/*.yaml")):
     text = f.read_text()
     name = (re.search(r"^name:\s*(.+)$", text, re.M) or [None, ""])[1].strip().strip('"').lower()
     if model and name and (name in model or model in name):
@@ -151,7 +151,7 @@ ticking python3 -m venv "$NEW/venv"
 ticking pip_install -U "pip>=24" || true
 echo "--> [3/6] installing boardctrl"
 EXTRAS=server; [[ $RELAY == gpiod ]] && EXTRAS=server,gpiod
-# Editable, from the tree beside it: boardctrl finds its profiles (board pin maps, SoC profiles) beside its source.
+# Editable, from the tree beside it: boardctrl finds its platforms (board pin maps, SoC facts) beside its source.
 ticking pip_install -e "$NEW/app[$EXTRAS]"
 [[ -f "$NEW/app/modules/smtty/serial-mux/pyproject.toml" ]] && ticking pip_install -e "$NEW/app/modules/smtty/serial-mux"
 ln -sfn "$NEW" "$PREFIX/current.new" && mv -Tf "$PREFIX/current.new" "$PREFIX/current"

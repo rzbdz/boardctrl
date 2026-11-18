@@ -36,7 +36,7 @@ import os
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-PROFILES = REPO / "profiles"
+PLATFORMS = REPO / "platforms"
 
 
 def site_dir() -> Path | None:
@@ -63,37 +63,25 @@ def site_settings(site: Path | None) -> dict:
     return {}
 
 
-def shipped(site: Path | None = None) -> list[Path]:
-    """The profiles shipped in this repository that this host uses: all of them, or the subset its
-    settings name (`profiles:` in the site's boardctrl.yaml; `packs:` is the older spelling)."""
-    available = {p.name: p for p in sorted(PROFILES.iterdir()) if p.is_dir()} if PROFILES.is_dir() else {}
-    settings = site_settings(site)
-    wanted = settings.get("profiles", settings.get("packs"))
-    if wanted is None:
-        return list(available.values())
-    missing = [w for w in wanted if w not in available]
-    if missing:
-        from core.errors import InvalidRequest
-
-        raise InvalidRequest(f"the site selects unknown profile(s) {missing}",
-                             hint=f"shipped profiles: {', '.join(available)}")
-    return [available[w] for w in wanted]
+def shipped() -> list[Path]:
+    """The platforms shipped in this repository, all of them, lowest priority first."""
+    return [p for p in sorted(PLATFORMS.iterdir()) if p.is_dir()] if PLATFORMS.is_dir() else []
 
 
 def layers(site: Path | None = None, use_env: bool = True) -> list[Path]:
-    """Every profile this host reads, lowest priority first: the shipped ones, then the site."""
+    """Every platform layer this host reads, lowest priority first: the shipped ones, then the site."""
     if site is None and use_env:
         site = site_dir()
-    return shipped(site) + ([site] if site else [])
+    return shipped() + ([site] if site else [])
 
 
 def layered(kind: str, site: Path | None = None) -> list[Path]:
-    """Existing `kind` dirs (boards, socs, hooks, sdk, duts, hints, modules) across every profile, lowest first."""
+    """Existing `kind` dirs (boards, socs, hooks, sdk, duts, hints, providers) across every layer, lowest first."""
     return [d for d in (root / kind for root in layers(site)) if d.is_dir()]
 
 
 def hints(site: Path | None = None) -> list[tuple[str, str]]:
-    """(profile/name, text) of every <profile>/hints/*.md: the shipped profiles first, then the site's."""
+    """(platform/name, text) of every <layer>/hints/*.md: the shipped platforms first, then the site's."""
     if site is None:
         site = site_dir()
     out = []

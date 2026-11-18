@@ -317,7 +317,7 @@ def _images(args) -> tuple[Any, str]:
     """`bsp images [list|sync]`: SoC images of this machine's site, fetched into <site>/.blobs by sync."""
     from core.site import layered, site_dir
     from core.dut import images
-    from core.dut.soc import SocProfiles
+    from core.dut.soc import SocFacts
 
     site = site_dir()
     if site is None:
@@ -325,7 +325,7 @@ def _images(args) -> tuple[Any, str]:
     from frontends.cli.catalogcli import registry_files
 
     shared = registry_files(sync=False)        # the registry's SoC profiles (`bsp catalog sync`), above the site
-    profiles = SocProfiles(layered("socs", site) + ([shared / "socs"] if shared and (shared / "socs").is_dir() else []))
+    profiles = SocFacts(layered("socs", site) + ([shared / "socs"] if shared and (shared / "socs").is_dir() else []))
     if args.images_cmd == "sync":
         lines: list[str] = []
         r = images.sync(profiles, site, (lambda line: print(line, file=sys.stderr)) if not args.json else lines.append)

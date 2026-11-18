@@ -5,42 +5,41 @@ boardctrl separates **mechanism** (this repository) from **knowledge about your 
 
 ## Profiles
 
-Everything a host knows about hardware is a **profile**: a directory with the same shape, whoever
-wrote it. A host reads its shipped profiles first and the site last, so the site wins:
+Everything a host knows about hardware is a **platform**: a directory with the same shape, whoever
+wrote it. A host reads its shipped platforms first and the site last, so the site wins:
 
 | Profile | Contents | Location |
 |---|---|---|
-| Shipped | Public hardware knowledge: SoC profiles, board header pin maps, hooks for public tool formats | `profiles/<name>/` in this repository |
+| Shipped | Public hardware knowledge: SoC facts, board header pin maps, hooks for public tool formats | `platforms/<name>/` in this repository |
 | Site | Your hosts, build servers, SDK trees, boot and flash recipes, probe images, boards, hints, site plugins | first existing of `$BOARDCTRL_SITE`, `~/.config/boardctrl/site`, `/etc/boardctrl/site` |
 | Core | Generic fallbacks a host always has (the `hooks/` directory) | this repository |
 
-It is one mechanism, not three: each profile contributes the same kinds of directories —
+It is one mechanism, not three: each platform contributes the same kinds of directories —
 `boards/`, `socs/`, `hooks/`, `sdk/{families,servers,workspaces,instances}/`, `duts/`, `hints/` and
-`modules/` (site plugins) — and a file in a later profile replaces the file with the same name in an
-earlier one. SoC profiles are deep-merged key by key, so a site can add probe images to a shipped
-profile without copying it. `profiles:` in the site's `boardctrl.yaml` narrows which shipped
-profiles this host uses (the older key `packs:` is still read).
+`providers/` (provider code) — and a file in a later layer replaces the file with the same name in an
+earlier one. SoC facts are deep-merged key by key, so a site can add probe images to a shipped
+platform without copying it.
 
-The shipped profiles are complete enough to run a board on their own, and each one is an example of the
-files a profile can carry: `profiles/spacemit/` for boards, SoCs, hooks and hints, `profiles/rockchip/`
-for what a partial SoC profile looks like. `tests/fixtures/site/` shows the files only a site has — hosts, DUT
+The shipped platforms are complete enough to run a board on their own, and each one is an example of the
+files a platform can carry: `platforms/spacemit/` for boards, SoCs, hooks and hints, `platforms/rockchip/`
+for what a partial SoC file looks like. `tests/fixtures/site/` shows the files only a site has — hosts, DUT
 records, SDK trees, remotes, deploy targets and site plugins — and is complete enough to copy.
 
 A rule of thumb for contributors: if anyone who buys the hardware sees the same thing — boot-ROM
-output, a header pinout, a vendor's documented image format — it can go in a shipped profile. Anything about
+output, a header pinout, a vendor's documented image format — it can go in a shipped platform. Anything about
 your machines, accounts, trees or procedures belongs in the site.
 
 ## Site layout
 
 ```text
 site/
-├── boardctrl.yaml           # optional: which shipped profiles to use
+├── boardctrl.yaml           # optional settings for this layer
 ├── .bspignore               # optional: files deploy/install scripts do not ship
 ├── remotes.json             # board hosts the CLI talks to
 ├── hosts/<host>.yaml        # configuration of each boardctrld
 ├── deploy/<host>.env        # how deploy.sh reaches and installs each host
-├── boards/<board>.yaml      # GPIO header pin maps (if no shipped profile has yours)
-├── socs/<soc>/              # SoC profile overrides and probe images
+├── boards/<board>.yaml      # GPIO header pin maps (if no shipped platform has yours)
+├── socs/<soc>/              # SoC facts and probe images
 ├── sdk/families/*.yaml      # build styles          ─┐
 ├── sdk/servers/*.yaml       # build servers           │ see sdk.md
 ├── sdk/workspaces/*.yaml    # shared source trees     │
@@ -50,16 +49,11 @@ site/
 ├── hints/*.md               # notes for agents and people
 ├── socs/<soc>/*.md          # one SoC's notes, beside its soc.yaml
 ├── skills/<id>.md           # one SDK's skill
-└── modules/<name>/module.py # site plugins: providers, commands, routes (see porting.md)
+└── providers/<name>/provider.py  # provider code: implementations of a role (see porting.md)
 ```
 
-`tests/fixtures/site/` contains a working example of every file; the test suite runs against it.
-
-### boardctrl.yaml
-
-```yaml
-profiles: [spacemit]  # omit to use every shipped profile; [] for none
-```
+`tests/fixtures/site/` contains a working example of every file; the test suite runs against it. A site
+that still carries code under `modules/<name>/` is read too — the name sites used before providers.
 
 ### .bspignore
 
@@ -91,7 +85,7 @@ env:                             # values hooks receive: see "Host environment" 
   BSP_SMTTY: smtty
 modules:
   gpio:                         # list it before dut: dut drives reset lines through it (gpio_relay still works)
-    board: example-40pin         # a boards/<id>.yaml from a profile or the site
+    board: example-40pin         # a boards/<id>.yaml from a platform or the site
     backend: sysfs               # sysfs | gpiod | mock
     hw_timeout_s: 3.0            # GPIO calls slower than this mark the backend degraded
     pinmux: true                 # read pinctrl state to flag pins muxed to other functions
@@ -126,7 +120,7 @@ modules:
       retry_ambiguous: 1         # press a line that made several consoles speak again, this many times
       watch_s: 3.0               # how long to watch consoles/USB after each reset pulse
       pulse_ms: 1000             # reset pulse width while probing
-      usb_vids: []               # USB vendor ids to consider (default: from SoC profiles)
+      usb_vids: []               # USB vendor ids to consider (default: from the SoC facts)
       default_soc: null          # used when no boot-ROM fingerprint matches
       default_sdks: {}           # per SoC; empty = every SDK target of that SoC
 ```
@@ -175,7 +169,7 @@ address); `board_subnet` has no default because bsp does not run the boards' DHC
 ### Site images
 
 Images a host stages (probe images, images a `media_boot` stages) are often not yours to publish. Keep them
-out of the shipped profiles: put the file in `<site>/socs/<soc>/`, or list it in the site's `socs/<soc>/soc.yaml`
+out of the shipped platforms: put the file in `<site>/socs/<soc>/`, or list it in the site's `socs/<soc>/soc.yaml`
 with its hash and where it comes from, and keep the file out of git:
 
 ```yaml
@@ -248,7 +242,7 @@ removes the users and every file bsp installed for them. `boardctrl dut logins` 
 id: example-board
 host: lab-1
 board: board-x                   # board model, free text
-soc: soc-b                       # a SoC profile id
+soc: soc-b                       # a SoC id
 description: shelf 2, left
 console: {alias: example-board}  # serial-mux alias; add `device: /dev/ttyUSB0` to start one,
                                  # `prompt: "# $"` to override the SDK's shell prompt
@@ -262,7 +256,7 @@ control:
                                  # button: on-demand FDL; a plain reset boots media, no media_boot wrapper
                                  # unset: topology unknown; enter-fdl refuses to guess
     # pin: P35
-    # expect: {console: "...", fastboot: "..."}   # override the SoC profile's download_mode
+    # expect: {console: "...", fastboot: "..."}   # override the SoC's download_mode
   human:                         # human backend only (all optional)
     timeout_s: 900
     reset: "press the red button"

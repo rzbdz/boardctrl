@@ -87,7 +87,7 @@ class FakeGpio:
 
 
 def fake_host(tmp_path, monkeypatch, wiring, aliases=("s1", "s2"), **probe_cfg):
-    from core.dut.soc import SocProfiles
+    from core.dut.soc import SocFacts
 
     logs = {a: tmp_path / "logs" / a for a in aliases}
     for d in logs.values():
@@ -99,7 +99,7 @@ def fake_host(tmp_path, monkeypatch, wiring, aliases=("s1", "s2"), **probe_cfg):
     gpio = FakeGpio(logs, wiring, history_modes=probe_cfg.pop("relays", ()))
     added = []
     mod = types.SimpleNamespace(
-        probe_cfg={"watch_s": 0, **probe_cfg}, socs=SocProfiles([SITE / "socs"]),
+        probe_cfg={"watch_s": 0, **probe_cfg}, socs=SocFacts([SITE / "socs"]),
         boards={}, slots=slots, serial_log_dir=str(tmp_path / "logs"), fastboot_bin="fastboot",
         hooks=types.SimpleNamespace(run=lambda kind, name, req, timeout=0, log=None: types.SimpleNamespace(data={"devices": []})),
         ctx=types.SimpleNamespace(host_id="lab-9", service=lambda name: gpio), _event=lambda topic, **d: None)

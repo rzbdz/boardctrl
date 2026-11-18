@@ -233,10 +233,10 @@ class DutManager:
 
     def _load_socs(self) -> None:
         from core.site import layered
-        from core.dut.soc import SocProfiles
+        from core.dut.soc import SocFacts
 
         files = [self._files_layer / k for k in ("socs", "hooks")]
-        self.socs = SocProfiles(layered("socs", self._site) + ([files[0]] if files[0].is_dir() else []))
+        self.socs = SocFacts(layered("socs", self._site) + ([files[0]] if files[0].is_dir() else []))
         hooks = layered("hooks", self._site) + ([files[1]] if files[1].is_dir() else [])
         self.hooks = HookRunner(self._hook_dirs + tuple(str(d) for d in reversed(hooks)), env=self.ctx.env)
 

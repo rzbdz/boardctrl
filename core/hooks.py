@@ -9,7 +9,7 @@ A hook is any executable file ``<hooks-dir>/<kind>/<name>`` (any language).
             (stderr / last stdout lines are surfaced in the error)
 
 Search order (first match wins): $BSP_HOOKS_PATH (":"-separated), the caller's dirs
-(host config, then: the site before the shipped profiles), ~/.config/bsp/hooks, then the core
+(host config, then: the site before the shipped platforms), ~/.config/bsp/hooks, then the core
 hooks/ of the repo — so a site or a pack can add or override a hook without
 touching core.
 """

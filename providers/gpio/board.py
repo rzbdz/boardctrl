@@ -1,4 +1,4 @@
-"""Board profiles: physical header pin maps, decoupled from code.
+"""Board maps: physical header pin maps, decoupled from code.
 
 A profile is pure data (``<site>/boards/<id>.yaml``). Adding a new board means
 adding a YAML file; the pin layout geometry is a pluggable strategy.

@@ -57,23 +57,23 @@ def test_a_site_overrides_a_shipped_profile_and_the_rest_still_applies(tmp_path)
     (site / "boards" / "spacemit-k1x-deb1.yaml").write_text(
         "id: spacemit-k1x-deb1\nname: local pin map\nheaders:\n  - {id: J1, layout: single-row, pin_count: 2, "
         "pins: {1: {kind: power, label: 3.3V}, 2: {kind: gnd, label: GND}}}\n")
-    # Lowest first: every shipped profile, then the site.
+    # Lowest first: every shipped platform, then the site.
     assert layers(site)[-1] == site
     catalog = BoardCatalog(layered("boards", site))
     assert len(catalog.get("spacemit-k1x-deb1").headers[0].pins) == 2     # the site's copy won
     assert catalog.get("spacemit-k3-com260") is not None                     # the shipped ones still apply
 
 
-def test_every_shipped_profile_is_read_and_its_socs_stay_distinct():
-    """Each directory under `profiles/` is a profile; a host reads all of them unless its site narrows."""
+def test_every_shipped_platform_is_read_and_its_socs_stay_distinct():
+    """Each directory under `platforms/` is a platform; a host reads all of them."""
     from core.site import shipped
-    from core.dut.soc import SocProfiles
+    from core.dut.soc import SocFacts
 
-    for name in [p.name for p in (ROOT / "profiles").iterdir() if p.is_dir()]:
-        assert (ROOT / "profiles" / name / "profile.yaml").is_file(), f"{name} has no profile.yaml"
-    profiles = SocProfiles([p / "socs" for p in shipped(None)])
+    for name in [p.name for p in (ROOT / "platforms").iterdir() if p.is_dir()]:
+        assert (ROOT / "platforms" / name / "platform.yaml").is_file(), f"{name} has no platform.yaml"
+    profiles = SocFacts([p / "socs" for p in shipped()])
     assert {"k1", "k3", "rk3568"} <= set(profiles.profiles)
-    assert {p.name for p in shipped(SITE)} == {"spacemit"}
+    assert {p.name for p in shipped()} == {"rockchip", "spacemit"}
     rk = profiles.get("rk3568")
     assert rk["download_mode"] == {}
     assert profiles.detect("DDR Version V1.13 20220218\nIN\n")[0] == "rk3568"

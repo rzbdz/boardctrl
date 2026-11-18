@@ -1,5 +1,5 @@
-"""SoC profiles (<layer>/socs/<soc>/soc.yaml, merged across profiles: the shipped ones, then the site):
-everything bsp knows about a SoC is data.
+"""SoC facts (<layer>/socs/<soc>/soc.yaml, merged across layers: the shipped platforms, then the site):
+everything boardctrl knows about a SoC is data.
 
     soc: <id>
     fingerprint: [regex, ...]          boot-ROM console lines after a reset (probe: best match wins)
@@ -33,7 +33,8 @@ def _merge(a: dict, b: dict) -> dict:
     return out
 
 
-class SocProfiles:
+class SocFacts:
+    """Every SoC's facts, lowest layer first (a later layer's file wins)."""
     def __init__(self, directories: "Path | list[Path] | None"):
         dirs = [Path(d) for d in (directories if isinstance(directories, (list, tuple)) else
                                   [directories] if directories else [])]

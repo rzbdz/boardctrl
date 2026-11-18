@@ -155,7 +155,7 @@ def build_commands(mod: "DutModule") -> list[Command]:
             lambda dut, lease, **f: mod.set_fields(dut, lease, **f),
             [DUT, LEASE,
              Param("board", help="board name", required=False, positional=False),
-             Param("soc", help="SoC id (see the SoC profiles)", required=False, positional=False),
+             Param("soc", help="SoC id (see the SoC facts)", required=False, positional=False),
              Param("description", help="free text", required=False, positional=False),
              Param("sdks", help="comma list; empty string = all SDKs of its SoC", required=False, positional=False),
              Param("usb", help="fastboot selector, e.g. usb:2-1.4", required=False, positional=False),
@@ -254,7 +254,7 @@ def build_commands(mod: "DutModule") -> list[Command]:
                               if "job" in r else f"{r['host']} would ")
             + f"forget {', '.join(r['forget_duts']) or 'no DUTs'}"
             + (f", keep {', '.join(r['keep_duts'])} (site catalog)" if r["keep_duts"] else "")),
-        cmd("site.reload", "Read the site again (SDK catalog, SoC profiles, hooks) after it changed on disk",
+        cmd("site.reload", "Read the site again (SDK catalog, SoC facts, hooks) after it changed on disk",
             mod.reload_site,
             render=lambda r: f"{r['site']}: {len(r['sdks'])} sdks ({', '.join(r['sdks']) or 'none'}), "
                              f"socs {', '.join(r['socs']) or 'none'}",

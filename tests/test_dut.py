@@ -262,10 +262,10 @@ def test_registry_update_and_rename(tmp_path):
 
 
 def test_soc_profiles_detect_and_layer_merge(tmp_path):
-    from core.dut.soc import SocProfiles
+    from core.dut.soc import SocFacts
 
     site = SITE / "socs"
-    p = SocProfiles([site])
+    p = SocFacts([site])
     assert p.detect("ROMB: hello\nROMB: usb2 init")[0] == "soc-b"
     assert p.detect("ROMA: boot start\nROMA: usb init")[0] == "soc-a"
     assert p.detect("random noise")[0] is None
@@ -275,7 +275,7 @@ def test_soc_profiles_detect_and_layer_merge(tmp_path):
     top.mkdir(parents=True)
     (top / "soc.yaml").write_text("images: {fsbl: {sha256: abc}}\ndownload_mode: {fastboot: OTHER}\n")
     (top / "fsbl.bin").write_bytes(b"x")
-    m = SocProfiles([site, tmp_path / "socs"]).get("soc-a")
+    m = SocFacts([site, tmp_path / "socs"]).get("soc-a")
     assert m["download_mode"] == {"console": "download handler", "fastboot": "OTHER"}
     assert m["images"]["fsbl"] == {"file": "fsbl.bin", "sha256": "abc", "path": str(top / "fsbl.bin")}
     assert "path" not in m["images"]["uboot"]                        # file not present in any layer
@@ -284,7 +284,7 @@ def test_soc_profiles_detect_and_layer_merge(tmp_path):
 def test_a_site_overlay_adds_media_boot_and_images_to_a_pack_profile(tmp_path):
     """A site is an overlay: it writes only what it adds, the public pack supplies everything else."""
     from core.dut import images
-    from core.dut.soc import SocProfiles
+    from core.dut.soc import SocFacts
 
     site = tmp_path / "socs" / "k3"
     site.mkdir(parents=True)
@@ -294,7 +294,7 @@ def test_a_site_overlay_adds_media_boot_and_images_to_a_pack_profile(tmp_path):
         "media_boot:\n"
         "  name: media-handoff\n"
         "  steps: [{do: check, serial: 'sys: 0x'}, {do: stage, image: handoff}, {do: continue}]\n")
-    p = SocProfiles([ROOT / "profiles" / "spacemit" / "socs", tmp_path / "socs"])
+    p = SocFacts([ROOT / "platforms" / "spacemit" / "socs", tmp_path / "socs"])
     prof = p.get("k3")
     # the pack's facts survive
     assert prof["download_mode"]["fastboot"] == "DFU download"
@@ -308,9 +308,9 @@ def test_a_site_overlay_adds_media_boot_and_images_to_a_pack_profile(tmp_path):
 
 
 def test_common_boot_banners_count_as_a_boot_and_shell_chatter_does_not():
-    from core.dut.soc import SocProfiles
+    from core.dut.soc import SocFacts
 
-    p = SocProfiles(None)
+    p = SocFacts(None)
     for banner in ("NOTICE:  BL2: v2.7(release):v2.7-dirty", "NOTICE:  BL31: Built : 10:15:02, Jan 10 2026",
                    "INFO:    BL1: RAM 0x4022000 - 0x4023000", "DDR Version 1.16 20230821", "DDR V1.08 20221011",
                    "U-Boot TPL 2023.07 (Jan 01 2026 - 00:00:00)", "U-Boot SPL board init",
@@ -400,7 +400,7 @@ def test_human_probe_pairs_the_console_that_speaks_with_the_usb_port_that_appear
 
     from core.hooks import HookRunner as _H  # noqa: F401 - the real hooks are replaced below
     from core.dut import probe as probe_mod
-    from core.dut.soc import SocProfiles
+    from core.dut.soc import SocFacts
 
     logs = {a: tmp_path / a for a in ("con-a", "con-b")}
     for d in logs.values():
@@ -418,7 +418,7 @@ def test_human_probe_pairs_the_console_that_speaks_with_the_usb_port_that_appear
 
     events = []
     mod = types.SimpleNamespace(
-        probe_cfg={}, socs=SocProfiles([SITE / "socs"]), hooks=Hooks(), boards={},
+        probe_cfg={}, socs=SocFacts([SITE / "socs"]), hooks=Hooks(), boards={},
         serial_log_dir=str(tmp_path / "logs"), fastboot_bin="fastboot",
         ctx=types.SimpleNamespace(host_id="lab-9", service=lambda name: (_ for _ in ()).throw(NotFound("no gpio"))),
         _event=lambda topic, **d: events.append(d))
@@ -470,7 +470,7 @@ def test_human_probe_starts_from_a_running_board_not_one_already_in_download_mod
     import types
 
     from core.dut import probe as probe_mod
-    from core.dut.soc import SocProfiles
+    from core.dut.soc import SocFacts
 
     logdir = tmp_path / "logs" / "con-a"
     logdir.mkdir(parents=True)
@@ -484,7 +484,7 @@ def test_human_probe_starts_from_a_running_board_not_one_already_in_download_mod
             return types.SimpleNamespace(data={"devices": list(usb.values())})
 
     mod = types.SimpleNamespace(
-        probe_cfg={}, socs=SocProfiles([SITE / "socs"]), hooks=Hooks(), boards={},
+        probe_cfg={}, socs=SocFacts([SITE / "socs"]), hooks=Hooks(), boards={},
         serial_log_dir=str(tmp_path / "logs"), fastboot_bin="fastboot",
         ctx=types.SimpleNamespace(host_id="lab-9", service=lambda name: (_ for _ in ()).throw(NotFound("no gpio"))),
         _event=lambda topic, **d: None)
@@ -606,7 +606,7 @@ case "$3 $4" in
 esac
 """)
     fb.chmod(0o755)
-    hook = ROOT / "profiles" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
+    hook = ROOT / "platforms" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
     req = {"usb": "usb:2-1.1", "fastboot": str(fb), "artifacts": {"flash-zip": str(pkg)}}
     r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stdout
@@ -650,7 +650,7 @@ case "$3 $4" in
 esac
 """)
     fb.chmod(0o755)
-    hook = ROOT / "profiles" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
+    hook = ROOT / "platforms" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
     req = {"usb": "usb:2-1.1", "fastboot": str(fb), "package_dir": str(pkg), "artifacts": {}, "args": {"port_timeout": 5}}
     r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stdout + r.stderr
@@ -692,7 +692,7 @@ case "$3 $4" in
 esac
 """)
     fb.chmod(0o755)
-    hook = ROOT / "profiles" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
+    hook = ROOT / "platforms" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
     req = {"usb": "usb:2-1.1", "fastboot": str(fb), "package_dir": str(pkg), "artifacts": {}}
     r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stdout + r.stderr
@@ -735,7 +735,7 @@ esac
 exit 0
 """)
     fb.chmod(0o755)
-    hook = ROOT / "profiles" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
+    hook = ROOT / "platforms" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
     req = {"usb": "usb:2-1.2", "fastboot": str(fb), "artifacts": {"flash-zip": str(pkg)},
            "args": {"media": ["mtd", "gpt"], "skip": ["rootfs"]}}
     r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)

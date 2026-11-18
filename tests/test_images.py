@@ -3,7 +3,7 @@ import hashlib
 import subprocess
 
 from core.dut import images
-from core.dut.soc import SocProfiles
+from core.dut.soc import SocFacts
 
 HELPER = b"\x00helper for one boot ROM\n"
 SHA = hashlib.sha256(HELPER).hexdigest()
@@ -24,12 +24,12 @@ images:
   wrong: {{file: other.bin, sha256: {"0" * 64}, source: {{file: {repo / "boot" / "helper.bin"}}}}}
   handmade: {{file: probe.bin}}
 """)
-    profiles = SocProfiles([site / "socs"])
+    profiles = SocFacts([site / "socs"])
     assert {r["image"]: r["state"] for r in images.plan(profiles, site)} == {"handmade": "missing", "helper": "fetchable", "wrong": "fetchable"}
     r = images.sync(profiles, site, cache=tmp_path / "cache")
     assert r["fetched"] == ["k3/helper"] and [f["image"] for f in r["failed"]] == ["k3/wrong"]
     assert (site / ".blobs" / SHA / "helper.bin").read_bytes() == HELPER
     assert not (site / ".blobs" / ("0" * 64) / "other.bin").exists()       # nothing kept that hashes wrong
-    again = SocProfiles([site / "socs"])
+    again = SocFacts([site / "socs"])
     assert again.get("k3")["images"]["helper"]["path"] == str(site / ".blobs" / SHA / "helper.bin")
     assert images.sync(again, site, cache=tmp_path / "cache")["present"] == ["k3/helper"]
