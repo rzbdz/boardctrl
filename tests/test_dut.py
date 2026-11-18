@@ -699,6 +699,61 @@ esac
         f"-s usb:2-1.1 flash rootfs {pkg}/rootfs.ext4"]
 
 
+def test_spacemit_pkg_flashes_layouts_in_vendor_order_and_stops_at_a_failure(tmp_path):
+    """A package's zip layouts are flashed in the vendor's order, each one before its images, and images a
+    partition names but the package lacks are left out — and the first failure stops the rest, with the hint
+    a person needs, rather than carrying on to the next partition."""
+    import subprocess
+    import sys
+    import zipfile
+
+    pkg = tmp_path / "pkg.zip"
+    with zipfile.ZipFile(pkg, "w") as f:
+        f.writestr("partition_4M.json", json.dumps({"format": "mtd", "partitions": [
+            {"name": "fsbl", "image": "factory/FSBL.bin"}, {"name": "uboot", "image": "u-boot.itb"}]}))
+        f.writestr("partition_universal.json", json.dumps({"format": "gpt", "partitions": [
+            {"name": "bootfs", "image": "bootfs.vfat"}, {"name": "rootfs"}, {"name": "ESP", "image": "esp.vfat"}]}))
+        f.writestr("partition_64M.json", json.dumps({"format": "mtd", "partitions": []}))
+        for name in ("factory/FSBL.bin", "u-boot.itb", "bootfs.vfat"):
+            f.writestr(name, b"x" * 10)
+    log = tmp_path / "fastboot.log"
+    fb = tmp_path / "fastboot"
+    fb.write_text(f"""#!/bin/sh
+echo "$*" >> {log}
+shift 2
+case "$1" in
+  getvar) case "$2" in mtd-size) echo "mtd-size: 4M" >&2;; blk-size) echo "blk-size: universal" >&2;; esac;;
+  flash) [ "$2" = "$FAIL_PART" ] && {{ echo "FAILED (remote: 'boom')" >&2; exit 1; }}; echo "OKAY" >&2;;
+esac
+exit 0
+""")
+    fb.chmod(0o755)
+    hook = ROOT / "packs" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
+    req = {"usb": "usb:2-1.2", "fastboot": str(fb), "artifacts": {"flash-zip": str(pkg)},
+           "args": {"media": ["mtd", "gpt"], "skip": ["rootfs"]}}
+    r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stdout + r.stderr
+    result = json.loads(r.stdout.strip().splitlines()[-1])
+    assert result["layouts"] == ["partition_4M.json", "partition_universal.json"]
+    # Each layout is written first, then the images of its table in order; esp.vfat is not in the package and
+    # rootfs is skipped.
+    assert [(f["layout"], f["partition"]) for f in result["flashed"]] == [
+        ("partition_4M.json", "mtd"), ("partition_4M.json", "fsbl"), ("partition_4M.json", "uboot"),
+        ("partition_universal.json", "gpt"), ("partition_universal.json", "bootfs")]
+    assert not result["failed"]
+
+    (tmp_path / "calls").write_text("")
+    r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60,
+                       env={**__import__("os").environ, "FAIL_PART": "fsbl"})
+    assert r.returncode == 1, r.stdout + r.stderr
+    failed = json.loads(r.stdout.strip().splitlines()[-1])
+    assert failed["failed"][0]["partition"] == "fsbl" and "hint" in failed
+    calls = [l for l in (tmp_path / "calls").read_text().splitlines() if " flash " in l]
+    # The 4M layout's fsbl failed first, so its uboot was never touched and the gpt layout was never started.
+    assert not any(" flash uboot " in l for l in calls)
+    assert not any("flash gpt" in l for l in calls)
+
+
 def test_a_board_whose_fdl_is_not_known_says_what_to_set():
     import pytest
 
