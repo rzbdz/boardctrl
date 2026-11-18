@@ -177,6 +177,11 @@ class BootRunner:
                                          hint=step.get("why") or "the board is not one these steps are for")
                 log(f"{label}: {step['name']} = {val}")
             elif kind == "check":
+                if action is None:
+                    raise InvalidRequest(
+                        f"{label}: this board's console keeps no log, so /{step['serial']}/ cannot be checked",
+                        hint="the recipe's `check` step reads what the console printed; a console provider that "
+                             "cannot read back (no log) can only run steps that do not inspect the board's output")
                 text = self.console.read_since(action)
                 if not re.search(step["serial"], text):
                     raise InvalidRequest(f"{label}: the console since the last action does not match /{step['serial']}/",

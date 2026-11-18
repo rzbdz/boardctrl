@@ -148,7 +148,7 @@ class Prober:
             used["usb"].add(b.spec.usb)
             used["consoles"].add(b.spec.console_alias)
             for role in ("reset", "fdl"):
-                pin = (b.spec.control.get(role) or {}).get("pin")
+                pin = (getattr(b.control, "cfg", {}) or {}).get(role, {}).get("pin")
                 if pin and gpio:
                     used["pins"].add(gpio.resolve(pin).key)
         return used

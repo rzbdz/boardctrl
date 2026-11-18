@@ -31,9 +31,7 @@ class HumanControl(ControlBackend):
     """`services.relay.provider: human`; its own settings under the record's `services.relay.human` block."""
 
     needs_human = True
-
-    def human_timeout(self) -> float:
-        return float((self.cfg.get("human") or {}).get("timeout_s", HUMAN_TIMEOUT_S))
+    human_timeout_s = HUMAN_TIMEOUT_S
 
     def _ask(self, action: str, message: str, log: Log, ready: Ready | None) -> None:
         att = self._services("dut_attention")

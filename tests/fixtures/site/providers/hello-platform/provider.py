@@ -67,11 +67,16 @@ class HelloConsole(ConsoleProvider):
         return {"lines": [f"{self.greeting} (no log kept)"], "matched": 0, "truncated": False}
 
     def send(self, text: str, pattern: str | None = None, fail: str | None = None, timeout: float = 60,
-             mark: Any = None) -> dict[str, Any]:
-        """Type `text`, wait for `pattern`, return what came back."""
+             mark: Any = None, stall: float | None = None, nudge: float | None = None) -> dict[str, Any]:
+        """Type `text`, wait for `pattern`, return what came back.
+
+        `stall` and `nudge` are the contract's: a console that keeps a log can tell a quiet prompt from a missing
+        one. This one keeps none, so it takes them and does nothing with them.
+        """
         return {"sent": text, "output": f"{self.greeting} after {text!r}"}
 
-    def wait(self, pattern: str | None, fail: str | None = None, timeout: float = 60, mark: Any = None) -> str:
+    def wait(self, pattern: str | None, fail: str | None = None, timeout: float = 60, mark: Any = None,
+             stall: float | None = None, nudge: float | None = None) -> str:
         return f"{self.greeting} already"
 
     def run(self, command: str, expect: str, timeout: float) -> dict[str, Any]:

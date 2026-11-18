@@ -39,7 +39,12 @@ STEPS = ("check", "getvar", "stage", "continue", "oem", "wait", "settle", "hook"
 class MediaBoot:
     def __init__(self, spec, profile: dict[str, Any]):
         self.spec, self.profile = spec, profile
-        own = spec.control.get("media_boot")
+        from core.dut import services as bindings
+
+        # The record's own switch, wherever it put it; else what the SoC's facts declare.
+        relay = bindings.relay_settings(spec)
+        own = relay.get("media_boot", spec.control.get("media_boot"))
+        self.relay = relay
         self.cfg: dict[str, Any] = own if isinstance(own, dict) else (profile.get("media_boot") or {})
 
     @property
@@ -48,14 +53,14 @@ class MediaBoot:
 
     def unavailable(self) -> str | None:
         """Why this board cannot boot its media this way (None: it can)."""
-        strategy = (self.spec.control.get("fdl") or {}).get("strategy", "strapped")
+        strategy = (self.relay.get("fdl") or {}).get("strategy", "strapped")
         if strategy != "strapped":
             # On-demand FDL (button), or an explicitly unknown topology, does not imply a strapped boot ROM.
             # This is independent of whether a relay or a person pulses the controls. `enter-fdl` itself rejects
             # an unset strategy; a plain reset still just asks the control backend to reset.
             return "not needed unless FDL is strapped: the control backend and its notification mechanism do not change this"
-        if self.spec.control.get("media_boot") is False:
-            return "switched off for this DUT (control.media_boot: false)"
+        if self.relay.get("media_boot") is False or self.spec.control.get("media_boot") is False:
+            return "switched off for this DUT (media_boot: false)"
         steps = self.cfg.get("steps")
         if not steps:
             return f"the {self.spec.soc or 'unknown'} SoC profile declares no media_boot steps"
@@ -101,16 +106,18 @@ class MediaBoot:
         # Current state is not necessarily new console output: a board already sitting in FDL may have printed its
         # ROM banner before this request. Check retained console output first; only a reset needs a new log window.
         # This applies equally to relay and human controls (and their different notification/timeout behavior).
-        retained = runner.console.mark()
-        # A marker is (log path, byte offset), not a bare integer. Offset zero retains the earlier ROM banner.
-        before = runner.console.read_since((retained[0], 0))
+        retained = (runner.console.retained_mark() if hasattr(runner.console, "retained_mark")
+                    else runner.console.mark())
+        # A provider that keeps no log reads nothing back, which is the honest answer: the board is looked at as it
+        # is now, not as it printed before the host could hear it.
+        before = runner.console.read_since(retained) if retained is not None else ""
         try:
             waiting = runner.fb.state() is not None
         except Exception:  # no download port is the normal reason to reset, not a stale-log success
             waiting = False
         if waiting and before.strip():
             log(f"{self.name}: the download port is already present; verify the existing ROM state")
-            runner.run_steps(self.cfg["steps"], log, images=images, what=self.name, since=(retained[0], 0))
+            runner.run_steps(self.cfg["steps"], log, images=images, what=self.name, since=retained)
         else:
             since = runner.console.mark()
             runner.enter_fdl(log)

@@ -63,6 +63,7 @@ class FakeConsole:
 
     def __init__(self, spec, config):
         self.spec, self.config = spec, config
+        self.alias = config.get("alias")
         self.lines = ["boot 1.2.3", "trace # "]
 
     def tail(self, lines=50, grep=None):
@@ -71,10 +72,10 @@ class FakeConsole:
     def range(self, since=None, until=None, grep=None, regex=False, limit=20000, first=False):
         return {"lines": self.lines, "matched": len(self.lines), "truncated": False}
 
-    def send(self, text, pattern=None, fail=None, timeout=60, mark=None):
+    def send(self, text, pattern=None, fail=None, timeout=60, mark=None, stall=None, nudge=None):
         return {"output": "ok", "matched": True}
 
-    def wait(self, pattern=None, fail=None, timeout=60, mark=None):
+    def wait(self, pattern=None, fail=None, timeout=60, mark=None, stall=None, nudge=None):
         return "ok"
 
     def run(self, command, expect, timeout):
@@ -131,7 +132,7 @@ def site(tmp_path):
     (site / "hosts").mkdir()
     (site / "boards").mkdir()
     shutil.copy(SITE / "boards" / "example-40pin.yaml", site / "boards")
-    shutil.copytree(ROOT / "platforms", site / "profiles")
+    shutil.copytree(ROOT / "platforms", site / "platforms")
     return site
 
 
@@ -449,6 +450,79 @@ def test_a_host_file_written_with_the_old_sections_still_loads_them(site, tmp_pa
         assert client.post("/api/v1/tools/gpio_list", json={}).json()["ok"]
 
 
+def test_a_host_built_before_its_providers_still_has_their_services():
+    """The DUT manager is built before any provider sets up (a record may bind any provider), and the serial tooling
+    and the fastboot client it uses are read when used: a host whose smtty provider loaded afterwards still has real
+    consoles, its log directory and its binaries, not the empty fallbacks."""
+    from fastapi.testclient import TestClient
+
+    from frontends.server.app import create_app
+    from frontends.server.config import HostConfig
+
+    app = create_app(HostConfig.load(SITE / "hosts" / "dev-mock.yaml"))
+    with TestClient(app):
+        dut = app.state.hub.dut
+        assert type(dut.smtty_service).__name__ == "Smtty"
+        assert type(dut.consoles).__name__ == "ConsoleManager", "a host's serial consoles, not the empty fallback"
+        assert dut.serial_log_dir.endswith(".serial-mux/logs")
+        assert dut.fastboot_bin
+
+
+def test_identify_builds_its_request_with_the_hosts_fastboot_client():
+    """`dut probe` and `dut refresh` identify a board through the identify hook, and the request names the host's
+    fastboot client. The hook is faked here: what is checked is that the request is built (a manager with no such
+    attribute raises before the hook runs) and that it carries the configured binary."""
+    import tempfile
+
+    from fastapi.testclient import TestClient
+
+    from core.dut.probe import identify_board
+    from frontends.server.app import create_app
+    from frontends.server.config import HostConfig
+
+    app = create_app(HostConfig.load(SITE / "hosts" / "dev-mock.yaml"))
+    with TestClient(app):
+        dut = app.state.hub.dut
+        seen: dict = {}
+        dut.hooks.run = lambda kind, name, req, timeout=0, log=None: (
+            seen.update(req) or type("R", (), {"applicable": False, "data": {}})())
+        assert identify_board(dut, "usb:1-1", True, "soc-a", None, lambda line: None) == {}
+        assert seen["fastboot"] == (dut.config.get("fastboot") or "fastboot")
+
+
+def test_the_artifact_cache_can_pull_from_a_build_server(tmp_path):
+    """The cache's pull runs local commands (`ssh`/`scp`) through one helper. A store that lost it raises
+    `NameError` on the host after a boot recipe has started, before the board is touched: a pull that cannot reach
+    its server has to say so as a host failure instead."""
+    from core.dut.artifacts import ArtifactStore
+    from core.errors import BspError
+
+    try:
+        ArtifactStore(tmp_path).pull("nobody@192.0.2.1", {"kernel": "/tmp/nope"}, lambda line: None)
+    except BspError as e:
+        assert "nobody@192.0.2.1" in e.message
+    else:
+        raise AssertionError("an unreachable build server is a failure the caller must see")
+
+
+def test_a_download_provider_that_is_none_is_not_replaced_by_fastboot(site, tmp_path, monkeypatch):
+    """`download: {provider: none}` means the board has no download port; the fastboot provider must not register over
+    the kernel's `none`, or every such record would get a fastboot device that is not there."""
+    from core.dut.defaults import NoneDownload
+    from core.providers import build
+    from core.dut.records import spec_from_dict
+    from core.loader import Providers
+
+    class Ctx:
+        services: dict = {}
+
+    Providers([Path(__file__).resolve().parents[2] / "providers"]).load(
+        Ctx(), {"gpio": {}, "smtty": {}, "fastboot": {}, "human": {}})
+    spec = spec_from_dict({"id": "no-port", "host": "h1", "services": {"download": {"provider": "none"}}})
+    made = build("download", "none", Ctx(), spec, lambda name: None)
+    assert isinstance(made, NoneDownload), f"download/none became {type(made).__name__}"
+
+
 def test_the_built_in_roles_are_still_the_defaults_and_still_work(site, tmp_path, monkeypatch):
     """Filling the role table must not change what a record that names nothing gets."""
     from core.providers import build
@@ -470,3 +544,66 @@ def test_the_built_in_roles_are_still_the_defaults_and_still_work(site, tmp_path
     assert type(control).__name__ == "GpioRelayControl"
     download = build("download", "fastboot", ctx, spec, lambda name: None)
     assert download.usb == "usb:1-1"
+
+
+# --------------------------------------------------- a host that lacks a role
+def _bare_host(tmp_path, monkeypatch, providers: dict, duts: dict[str, dict] | None = None) -> TestClient:
+    """A host with exactly the providers given, and the DUT records it ships: no fixture, no platform boards."""
+    import yaml
+
+    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    site = tmp_path / "bare"
+    (site / "hosts").mkdir(parents=True)
+    (site / "duts").mkdir()
+    for name, raw in (duts or {}).items():
+        (site / "duts" / f"{name}.yaml").write_text(yaml.safe_dump(raw, sort_keys=False))
+    host = site / "hosts" / "bare.yaml"
+    host.write_text(json.dumps({"host": {"id": "bare"},
+                                "server": {"state_dir": str(tmp_path / "state"), "port": 8766},
+                                "providers": providers}))
+    monkeypatch.setenv("BSP_SITE", str(site))
+    return TestClient(create_app(HostConfig.load(host)))
+
+
+def test_a_host_without_a_relay_provider_still_starts_and_says_which_role_is_missing(tmp_path, monkeypatch):
+    """A USB-only machine (no GPIO header, so no `gpio` provider, and so no `gpio-relay` either) may still carry a
+    record that names the relay role — its own from before, or the site's. It starts, the other roles work, and the
+    missing one says what is missing instead of taking the whole host down.
+
+    The role tables are process-wide, so the providers another test's fixture registered are removed here: this is
+    what a host that loads only `fake` and `dut` sees.
+    """
+    from core.providers import PROVIDERS
+
+    for name in ("gpio-relay", "gpio_relay"):
+        if name in PROVIDERS["relay"]:
+            monkeypatch.delitem(PROVIDERS["relay"]._items, name)
+    record = {"id": "usb-only", "host": "bare", "board": "b", "soc": "soc-a",
+              "console": {"alias": "usb-only"}, "fastboot": {"usb": "usb:1-2"},
+              "control": {"backend": "gpio-relay", "reset": {"pin": "P11"}}}
+    with _bare_host(tmp_path, monkeypatch, {"fake": {}, "dut": {}}, {"usb-only": record}) as client:
+        status = client.post("/api/v1/tools/dut_status", json={"dut": "usb-only"}).json()
+        assert status.get("ok"), status                       # the host started, and the board is there
+        assert status["result"]["services"]["relay"] == "gpio-relay"
+        assert "no relay" in status["result"]["control_state"].get("error", "")
+        lease = client.post("/api/v1/tools/dut_acquire", json={"dut": "usb-only", "holder": "alice"}).json()["result"]
+        reset = client.post("/api/v1/tools/dut_reset", json={"dut": "usb-only", "lease": lease["token"]}).json()
+        assert not reset["ok"] and "no relay" in reset["error"]["message"]
+
+
+def test_a_mistyped_provider_is_refused_before_it_is_written(tmp_path, monkeypatch):
+    """`dut set --download-provider typo` must not save the name: a record naming a provider nobody registered is a
+    host that cannot build that board next start, with the person who typed it long gone."""
+    with _bare_host(tmp_path, monkeypatch, {"fake": {}, "dut": {}, "human": {}}) as client:
+        added = client.post("/api/v1/tools/dut_add", json={"spec": json.dumps({
+            "id": "b1", "host": "bare", "board": "b", "soc": "soc-a", "console": {"alias": "b1"},
+            "fastboot": {"usb": "usb:1-2"}, "control": {"backend": "human"}})}).json()
+        assert added.get("ok"), added
+        lease = client.post("/api/v1/tools/dut_acquire", json={"dut": "b1", "holder": "alice"}).json()["result"]
+        bad = client.post("/api/v1/tools/dut_set", json={"dut": "b1", "lease": lease["token"],
+                                                        "download_provider": "typo"}).json()
+        assert not bad["ok"] and bad["error"]["code"] == "invalid_request"
+        assert "download provider 'typo'" in bad["error"]["message"] and "none" in bad["error"]["message"]
+        # The record on disk is untouched, so the next start builds the board exactly as this one did.
+        after = client.post("/api/v1/tools/dut_status", json={"dut": "b1"}).json()["result"]
+        assert after["services"]["download"] == "fastboot"

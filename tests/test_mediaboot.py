@@ -57,6 +57,11 @@ class Board:
         from pathlib import Path
         return Path("console.log"), len(self.out)
 
+    def retained_mark(self):
+        """What the console kept before now: the log's start (SerialConsole's `retained_mark`)."""
+        from pathlib import Path
+        return Path("console.log"), 0
+
     def read_since(self, mark):
         path, offset = mark
         return self.out[offset:]
@@ -98,6 +103,7 @@ def test_an_already_waiting_download_port_uses_its_existing_rom_evidence_without
     con._log_path().write_text(BANNER)
     b = Board()
     b.mark, b.read_since = con.mark, con.read_since
+    b.retained_mark = con.retained_mark
     b.tail = lambda n=50: con.tail(n)
     b.wait = con.wait
     command = b.cmd
@@ -179,3 +185,46 @@ def test_recipes_cold_boot_the_flashed_media_of_a_strapped_board_instead_of_skip
     b2, lines2 = Board(), []
     runner(b2, MediaBoot(spec(), {})).run_steps(steps, lines2.append)
     assert sum("skipped" in l and "declares no media_boot" in l for l in lines2) == 2 and b2.calls == []
+
+
+def test_the_topology_a_record_reports_is_the_one_it_is_driven_by(tmp_path):
+    """A record written the current way states its relay settings under `services.relay`; one written before the role
+    had a name states them under `control:`. Media boot, the FDL policy and the board's status must read the same
+    one whichever way the record was written — otherwise a board says it is strapped and is driven as a button."""
+    from core.dut import services as bindings
+    from core.dut.records import spec_from_dict
+
+    written_ways = ({"console": {"alias": "tty-a"}, "fastboot": {"usb": "usb:1-1"},
+                     "control": {"backend": "gpio-relay", "fdl": {"strategy": "strapped"}}},
+                    {"services": {"relay": {"provider": "gpio-relay", "fdl": {"strategy": "strapped"}}}})
+    for written in written_ways:
+        spec = spec_from_dict({"id": "b", "host": "h", **written})
+        assert (bindings.relay_settings(spec).get("fdl") or {}).get("strategy") == "strapped", written
+        # The one answer every reader uses: the board can boot its media this way, and it is driven as strapped.
+        assert MediaBoot(spec, profile(image(tmp_path))).available(), written
+        driven = types.SimpleNamespace(**{**vars(spec)})
+        assert (bindings.relay_settings(driven).get("fdl") or {}).get("strategy") == "strapped", written
+
+
+def test_a_console_that_keeps_no_log_is_told_so_and_does_not_crash(tmp_path):
+    """Media boot reads the console's retained output to see whether the board is already in download mode, and a
+    recipe's `check` step reads what it printed. A provider whose mark is None (it keeps nothing) says "nothing
+    before now" — the board is then driven by a reset — and a step that needs the log says why it cannot run rather
+    than unpacking None."""
+    class Ephemeral(Board):
+        """A console with no log to read back: the contract's default marker."""
+
+        def mark(self):
+            return None
+
+        def read_since(self, mark):
+            return ""
+
+    b = Ephemeral()
+    b.out = BANNER                                # the board already prints a ROM banner
+    with pytest.raises(InvalidRequest) as e:
+        MediaBoot(spec(), profile(image(tmp_path))).run(runner(b), lambda _l: None)
+    assert "keeps no log" in e.value.message and "check" in e.value.message
+    # It did not trust a banner it could not read: it reset the board and began the steps there, stopping at the
+    # first one that needs what the console printed.
+    assert b.calls == ["reset"]

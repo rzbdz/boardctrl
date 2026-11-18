@@ -45,34 +45,41 @@ class Board:
         self._services = mod.ctx.service
         self.bindings = bindings.bindings(spec)
         self._flash: Any = None
+        from core.dut.defaults import NoDebug, NoneConsole, NoneDownload, NoRelay
+
+        # The role whose provider this host does not carry: the board keeps the roles it does have, and says which
+        # one is missing where it is used. A USB-only host has no relay at all; a record may still name one.
+        def role(what: str, make, fallback):
+            try:
+                return make()
+            except BspError as e:
+                log.warning("%s: %s provider %s is not on this host (%s); the rest of the board still works",
+                            spec.id, what, (self.bindings.get(what) or {}).get("provider"), e.message)
+                return fallback()
+
         # The relay role: the record may name a provider (a built-in backend or a site plugin's), and an older
         # record states the same thing as `control.backend`, which `bindings()` reads through.
         relay = self.bindings.get("relay") or {}
         explicit_relay = (spec.raw.get("services") or {}).get("relay")
         # A record that names the role gives the provider its own block; one written the old way is configured by
         # `control:` (the provider's settings lived there before the role had a name).
-        self.control = build("relay", relay.get("provider", "gpio-relay"), mod.ctx, spec, mod.ctx.service)
+        self.control = role("relay", lambda: build("relay", relay.get("provider", "gpio-relay"), mod.ctx, spec,
+                                                   mod.ctx.service),
+                            lambda: NoRelay(spec, mod.ctx.service, relay))
         if explicit_relay is not None and hasattr(self.control, "cfg"):
             self.control.cfg = {**relay}
         download = self.bindings.get("download") or {}
-        self.fastboot = build("download", download.get("provider", "fastboot"), mod.ctx, spec, mod.ctx.service)
+        self.fastboot = role("download", lambda: build("download", download.get("provider", "fastboot"), mod.ctx,
+                                                       spec, mod.ctx.service),
+                             lambda: NoneDownload(spec, download))
         console = self.bindings.get("console") or {}
-        try:
-            self.console = build("console", console.get("provider", "serial-mux"), mod.ctx, spec, mod.ctx.service)
-        except BspError:
-            # A console provider that cannot start (no serial-mux here, a board without one): the rest still works.
-            from core.dut.defaults import NoneConsole
-
-            self.console = NoneConsole(spec, {"provider": "none"})
+        self.console = role("console", lambda: build("console", console.get("provider", "serial-mux"), mod.ctx,
+                                                      spec, mod.ctx.service),
+                            lambda: NoneConsole(spec, {"provider": "none"}))
         debug = self.bindings.get("debug") or {}
-        from core.dut.defaults import NoDebug
-
-        try:
-            self.debug = (build("debug", debug.get("provider", "none"), mod.ctx, spec, mod.ctx.service)
-                          if debug.get("provider", "none") != "none" else NoDebug(spec, debug, mod.ctx.service))
-        except BspError as e:
-            log.warning("%s: debug provider %s did not build (%s)", spec.id, debug.get("provider"), e)
-            self.debug = NoDebug(spec, debug, mod.ctx.service)
+        self.debug = (NoDebug(spec, debug, mod.ctx.service) if debug.get("provider", "none") == "none"
+                      else role("debug", lambda: build("debug", debug.get("provider"), mod.ctx, spec, mod.ctx.service),
+                                lambda: NoDebug(spec, debug, mod.ctx.service)))
 
     @property
     def console_alias(self) -> str | None:
@@ -80,17 +87,19 @@ class Board:
 
     @property
     def flash_provider(self):
-        """The flash role's provider; `hook` (the built-in) is the host's own job, not a provider object."""
+        """The flash role's provider: the kernel's own `hook` one (the host's flash job) unless the record names another."""
         if self._flash is None:
             from core.providers import build
 
             block = self.bindings.get("flash") or {}
-            name = block.get("provider", "hook")
-            self._flash = name if name == "hook" else build("flash", name, self._ctx, self.spec, self._services)
+            self._flash = build("flash", block.get("provider", "hook"), self._ctx, self.spec, self._services)
         return self._flash
 
     def runner(self, mod: "DutManager") -> BootRunner:
-        expect = (self.spec.control.get("fdl") or {}).get("expect") or mod.socs.download_mode(self.spec.soc)
+        from core.dut import services as bindings
+
+        relay = bindings.relay_settings(self.spec)
+        expect = (relay.get("fdl") or {}).get("expect") or mod.socs.download_mode(self.spec.soc)
         return BootRunner(self.spec.id, self.control, self.fastboot, self.console, mod.store, mod.hooks, expect,
                           media=self.media(mod), env=mod.ctx.env, network=mod.network(),
                           product_dir=mod.product_dir)
@@ -162,9 +171,6 @@ class DutManager:
         base = ctx.config_dir
         site = (base / config.get("site", "..")).resolve()    # <site>/hosts/<id>.yaml -> <site>
         state = ctx.module_state_dir("dut")
-        # The serial tooling is the `smtty` module's service; slots, probe and logins read it from there, and a host
-        # that carries no smtty module has no serial consoles (`self.smtty` is None here).
-        self.smtty_service = None
         self.probe_cfg = config.get("probe") or {}
         # `dut flash`: packages the host takes (uploaded or downloaded), and where it unpacks them
         self.flash_cfg = config.get("flash") or {}
@@ -195,11 +201,8 @@ class DutManager:
         self.sessions = ctx.services.get("sessions") or Sessions(state / "sessions", _NoSystemd())
         # A host's serial consoles are the `smtty` provider's service: the slots, the probe and the logins use it
         # when the host carries one. A host without it (a machine that drives a board over USB only) has none.
-        self.smtty_service = ctx.services.get("smtty")
-        self.smtty = self.smtty_service.smtty if self.smtty_service else "smtty"
-        self.serial_log_dir = (self.smtty_service.log_dir if self.smtty_service
-                               else os.path.expanduser("~/.serial-mux/logs"))
-        self.consoles = self.smtty_service.consoles if self.smtty_service else _NoConsoles()
+        # It is read through `smtty_service` (below) rather than captured here: a host builds its DUT manager before
+        # the providers' setups publish their services, so reading it now would find none.
         from core.dut.slots import SlotTable
 
         self.slots = SlotTable(state / "slots.json", self._list_consoles,
@@ -214,6 +217,36 @@ class DutManager:
         ctx.services["dut_attention"] = self.attention
 
         self.logins = ConsoleLogins(config.get("ssh_console"), ctx.host_id, ctx.port, self.smtty)
+
+    # ------------------------------------------------------- serial tooling --
+    @property
+    def smtty_service(self) -> Any:
+        """The `smtty` provider's service, when the host carries one (read when used: its setup runs after this
+        manager is built)."""
+        return self.ctx.services.get("smtty")
+
+    @property
+    def smtty(self) -> str:
+        """The smtty client the console logins run (`smtty` from the host config, or the service's)."""
+        service = self.smtty_service
+        return service.smtty if service else (self.config.get("smtty") or "smtty")
+
+    @property
+    def serial_log_dir(self) -> str:
+        service = self.smtty_service
+        if service:
+            return service.log_dir
+        return os.path.expanduser(self.config.get("serial_log_dir") or "~/.serial-mux/logs")
+
+    @property
+    def consoles(self) -> Any:
+        service = self.smtty_service
+        return service.consoles if service else _NoConsoles()
+
+    @property
+    def fastboot_bin(self) -> str:
+        """The fastboot client the identify hook runs for a board in download mode."""
+        return self.config.get("fastboot") or "fastboot"
 
     def _rebuild(self) -> None:
         self.boards = {i: Board(s, self) for i, s in sorted(self.registry.all().items())}
@@ -258,6 +291,7 @@ class DutManager:
         SoC profiles, hooks and the DUT records it declares; the sdk module follows (`site.updated`). A part that does
         not load refuses the whole site — an error like a bad catalog, the running one kept — so a host never takes
         half a site."""
+        
         from core.site import layered
 
         roots = layered("sdk", self._site)
@@ -442,8 +476,8 @@ class DutManager:
                 "needs_human": self.attention.view(dut),
                 "control_state": ctl, "console_tail": tail,
             # Preserve which actor performs each role when a human coordinates an FDL button and a relay pulses reset.
-            "control": {"backend": b.spec.control.get("backend"), "reset": dict(b.spec.control.get("reset") or {}),
-                        "fdl": dict(b.spec.control.get("fdl") or {})},
+            "control": {"backend": b.spec.control.get("backend"), "reset": dict(b.control.cfg.get("reset") or {}),
+                        "fdl": dict(b.control.cfg.get("fdl") or {})},
                 # interactive: run this on the host; and where `bsp dut pipe` connects
                 "console_attach": b.console.attach() or b.console.describe().get("attach"),
                 "console_socket": b.console.socket(),
@@ -467,7 +501,7 @@ class DutManager:
         return self.slots.view(slot)["online"] if slot else None
 
     def _media_state(self, b: Board) -> dict[str, Any]:
-        if (b.spec.control.get("fdl") or {}).get("strategy", "strapped") != "strapped":
+        if (b.control.cfg.get("fdl") or {}).get("strategy", "strapped") != "strapped":
             return {"method": "reset", "available": True}
         m = b.media(self)
         why = m.unavailable()
@@ -740,11 +774,15 @@ class DutManager:
         return {"job": job.id, "dut": dut, "files": refs, "host": self.ctx.host_id}
 
     # -------------------------------------------------------------- flash --
+    # The flasher a board uses when neither its record nor its SoC facts name one: the vendor-neutral package layout
+    # shipped with the SpacemiT platform. A site overrides it with `<site>/socs/<soc>/flash.flasher`, a board with
+    # `flash.flasher`, or the host with `providers.dut.flash.flasher`; a host that carries no such hook says so and
+    # lists the ones it does carry.
     DEFAULT_FLASHER = "spacemit-pkg"
 
     def flasher_for(self, b: Board, flasher: str | None = None) -> tuple[str, str]:
         """Which flash hook writes this board's packages, and why: the one asked for, else the board's
-        `flash.flasher`, else its SoC profile's `flash.flasher`, else the default."""
+        `flash.flasher`, else its SoC facts' `flash.flasher`, else the host's, else the default."""
         if flasher:
             return flasher, "asked for"
         own = (b.spec.raw.get("flash") or {}).get("flasher")
@@ -753,6 +791,9 @@ class DutManager:
         soc = (self.socs.get(b.spec.soc).get("flash") or {}).get("flasher") if b.spec.soc else None
         if soc:
             return soc, f"SoC {b.spec.soc}'s flash.flasher"
+        host = self.flash_cfg.get("flasher")
+        if host:
+            return host, "the host's flash.flasher"
         return self.DEFAULT_FLASHER, "the default"
 
     def flash(self, dut: str, package: str, sha256: str | None, flasher: str | None, lease: str | None,
@@ -769,12 +810,13 @@ class DutManager:
 
         from core.errors import NotFound
         from core.dut import flashpkg
+        from core.dut.defaults import HookFlash
 
         b = self.board(dut)
         self.leases.check(dut, lease)
         self._guard_busy(dut)
         provider = b.flash_provider
-        hook_based = provider == "hook"
+        hook_based = isinstance(provider, HookFlash)
         usb = str(b.spec.fastboot.get("usb") or "")
         if hook_based and (not usb or "UNKNOWN" in usb.upper()):
             raise InvalidRequest(f"{dut} has no download port (fastboot.usb) recorded",
@@ -903,6 +945,22 @@ class DutManager:
                 raise InvalidRequest(f"not a valid regex: {e}") from None
         return {"dut": dut, **self.board(dut).console.range(since, until, grep, regex, max(1, min(int(limit), 200000)), first)}
 
+    def _check_providers(self, raw: dict[str, Any]) -> None:
+        """Refuse a record naming a provider no one registered, before it is written: a name saved now would be a
+        host that cannot start next time, and the person is here to be told the names that do exist."""
+        from core.dut import services as bindings
+        from core.dut.records import spec_from_dict
+
+        try:
+            spec = spec_from_dict({**raw, "host": self.ctx.host_id})
+        except InvalidRequest:
+            return                       # the record's own shape is checked where it is written
+        bad = bindings.unknown_providers({k: v for k, v in bindings.bindings(spec).items() if k in
+                                          (raw.get("services") or {})})
+        if bad:
+            raise InvalidRequest(f"{raw.get('id')}: {bindings.unknown_message(bad)}",
+                                 hint="`boardctrl status` lists the providers this host carries, by role")
+
     def add(self, spec: Any, replace: bool) -> dict[str, Any]:
         import json
 
@@ -913,6 +971,7 @@ class DutManager:
                 raise InvalidRequest(f"spec is not valid JSON: {e}") from None
         if not isinstance(spec, dict):
             raise InvalidRequest("spec must be a JSON object (see tests/fixtures/site/duts/*.yaml for the shape)")
+        self._check_providers(spec)
         con = spec.get("console") or {}
         start = con.pop("start", False)
         s = self.registry.add(spec, replace)
@@ -1020,6 +1079,7 @@ class DutManager:
             changed.append("services")
         if not changed:
             raise InvalidRequest("nothing to change", hint="see `bsp dut set --help`")
+        self._check_providers(raw)
         self.registry.update(dut, raw)
         self._drop_aliases(dut)
         self._rebuild()
@@ -1272,6 +1332,12 @@ class DutManager:
         Boards are built here, not in `__init__`: a record may bind a provider any module registered in its setup,
         and every module's setup has run by the time the host starts.
         """
+        # A session recorded before a crash or a reboot, whose unit and process are both gone, is not running: forget
+        # it, so a board does not look debugged by something that is not there.
+        try:
+            self.sessions.reap_stale()
+        except Exception as e:  # noqa: BLE001 - a stale record is housekeeping; it never stops the host
+            log.warning("could not check the sessions left from a previous run: %s", e)
         self._rebuild()
         from core.dut.ports import PortWatcher
 
@@ -1284,13 +1350,13 @@ class DutManager:
                 b.control.setup()
             except BspError as e:
                 self._event("error", dut=b.spec.id, error=e.to_dict())
-            # A console provider that is not serial-mux (a trace channel, a network console) starts what it needs
-            # itself; the slot table still belongs to the serial consoles.
+            # A console provider that is not served by the slots (a trace channel, a network console) starts what it
+            # needs itself; the slot table starts the serial adapters, one slot each.
             if not b.console_alias:
                 continue
             try:
-                b.console.ensure() if b.console.provider_name != "serial-mux" else \
-                    self.consoles.ensure(b.spec.console_alias, b.spec.console.get("device"), only_if_known=True)
+                self.consoles.ensure(b.spec.console_alias, b.spec.console.get("device"), only_if_known=True) \
+                    if b.console.served_by_slots else b.console.ensure()
             except BspError as e:
                 self._event("error", dut=b.spec.id, error=e.to_dict())
         self.refresh_slots()

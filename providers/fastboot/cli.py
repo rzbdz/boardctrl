@@ -6,7 +6,7 @@ import re
 from typing import Callable
 
 from core.errors import HardwareError, HardwareTimeout
-from core.dut.contracts import Log
+from core.dut.contracts import DownloadPort, Log
 
 
 def _run(argv: list[str], timeout: float):
@@ -73,14 +73,13 @@ _STAMP = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]")
 
 
 
-class FastbootDownload:
+class FastbootDownload(DownloadPort):
     """The `download` role over the host's fastboot: stage a file into RAM, flash a partition, report the port."""
 
     provider_name = "fastboot"
 
     def __init__(self, spec, config=None, binary: str = "fastboot"):
-        self.spec = spec
-        self.config = dict(config or {})
+        super().__init__(spec, config)
         self.fb = Fastboot(str(self.config.get("usb") or getattr(spec, "usb", "") or ""), binary)
 
     @property

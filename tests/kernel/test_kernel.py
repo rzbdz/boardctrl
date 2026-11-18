@@ -237,8 +237,11 @@ def test_providers_report_their_roles():
 
     described = describe()
     assert set(described) == {"relay", "console", "download", "flash", "debug"}
-    assert "serial-mux" in described["console"]["names"]
-    assert "none" in described["debug"]["names"]
+    # Every role has the kernel's own "this host does not fill it" provider, so a board whose record names what a
+    # host lacks keeps the rest of its roles instead of stopping the host.
+    assert {"none"} <= set(described["relay"]["names"])
+    assert {"none"} <= set(described["console"]["names"]) and {"none"} <= set(described["debug"]["names"])
+    assert "hook" in described["flash"]["names"]
 
 
 # -------------------------------------------------------------- role bindings
@@ -268,8 +271,24 @@ def test_a_record_can_name_every_provider():
 def test_dut_set_fields_become_the_services_block():
     spec = spec_from_dict(dict(SPEC))
     block = bindings.services_from_fields(spec, debug_provider="my-swd", console_provider="trace")
-    assert block["debug"] == {"provider": "my-swd"} and block["console"] == {"provider": "trace"}
+    assert block["debug"] == {"provider": "my-swd"}
+    # Naming a role keeps what the record already says it is: the console stays the alias `tty-a` a slot and the hooks
+    # call it by, with the new provider in front of it.
+    assert block["console"] == {"provider": "trace", "alias": "tty-a"}
     assert bindings.services_from_fields(spec, board="x") is None
+
+
+def test_unknown_providers_says_which_role_and_what_this_host_has():
+    from core.dut.defaults import register as register_defaults
+
+    register_defaults()
+    # Only the roles the record itself names are checked: the rest are this host's own defaults, filled in later.
+    spec = spec_from_dict({**SPEC, "services": {"console": {"provider": "typo"}, "debug": {"provider": "none"}}})
+    named = {"console": {"provider": "typo"}, "debug": {"provider": "none"}}
+    bad = bindings.unknown_providers(named)
+    assert bad == {"console": "typo"}
+    said = bindings.unknown_message(bad)
+    assert "console provider 'typo'" in said and "none" in said
 
 
 def test_a_guarded_backend_still_says_where_a_line_is():
@@ -398,3 +417,20 @@ def test_a_session_whose_stop_did_not_take_is_kept_and_not_reported_stopped(tmp_
     sessions.start("k1-a", "debug", "fake", ["serve"], endpoint="127.0.0.1:1")
     assert sessions.reap("k1-a") == []
     assert sessions.list()[0].role == "debug"      # still there, to be stopped again
+
+
+def test_every_role_has_a_contract_the_shipped_providers_implement():
+    """A site writes its adapter against the contract classes; the kernel's own and the shipped providers follow the
+    same ones, so `isinstance` in a test or a provider is a real statement about the interface."""
+    from core.dut import defaults
+    from core.dut.contracts import ConsoleProvider, ControlBackend, DebugProvider, DownloadPort, FlashProvider
+    from core.dut.records import spec_from_dict
+
+    defaults.register()
+    spec = spec_from_dict({"id": "b", "host": "h", "services": {"download": {"provider": "none"}}})
+    assert isinstance(defaults.NoneConsole(spec), ConsoleProvider)
+    assert isinstance(defaults.NoneDownload(spec), DownloadPort)
+    assert isinstance(defaults.NoDebug(spec, {}, None), DebugProvider)
+    assert isinstance(defaults.NoRelay(spec, lambda _n: None, {}), ControlBackend)
+    assert isinstance(defaults.HookFlash(spec), FlashProvider)
+

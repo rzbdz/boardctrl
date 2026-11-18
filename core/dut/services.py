@@ -61,6 +61,14 @@ def provider_for(spec: DutSpec, role: str) -> str:
     return bindings(spec).get(role, {}).get("provider") or DEFAULTS[role]
 
 
+def relay_settings(spec: DutSpec) -> dict[str, Any]:
+    """How this record configures its relay role: the `services.relay` block when it wrote one, else the older
+    `control:` block. The same rule `ControlBackend` applies to its own `cfg`, so the FDL topology a board reports
+    and the one it is driven by are one answer — whichever way the record was written."""
+    explicit = (getattr(spec, "raw", None) or {}).get("services", {}).get("relay")
+    return dict(explicit if isinstance(explicit, dict) else getattr(spec, "control", None) or {})
+
+
 def available(role: str) -> list[str]:
     return PROVIDERS[role].names() if role in PROVIDERS else []
 
@@ -72,16 +80,33 @@ def describe(spec: DutSpec) -> dict[str, Any]:
 
 
 def services_from_fields(spec: DutSpec, **fields: Any) -> dict[str, Any] | None:
-    """Turn `dut set --console-provider …` style fields into the record's `services:` block."""
+    """Turn `dut set --console-provider …` style fields into the record's `services:` block.
+
+    A role that is named keeps the values it has today — including the ones a record written the old way states
+    under `console:`, `fastboot:` or `control:` — so naming a provider never drops the alias, the pins or the USB
+    port the role is configured with.
+    """
     block = dict(spec.raw.get("services") or {})
     changed = False
     for role in DEFAULTS:
         value = fields.get(f"{role}_provider")
         if not value:
             continue
-        current = block.get(role)
-        current = {"provider": current} if isinstance(current, str) else dict(current or {})
+        current = dict(bindings(spec).get(role) or {})
         current["provider"] = value
         block[role] = current
         changed = True
     return block if changed else None
+
+
+def unknown_providers(block: dict[str, Any]) -> dict[str, str]:
+    """Each role of a `services:` block that names a provider no one registered: role -> the name given."""
+    return {role: cfg["provider"] for role, cfg in block.items()
+            if isinstance(cfg, dict) and cfg.get("provider") and cfg["provider"] not in available(role)}
+
+
+def unknown_message(bad: dict[str, str]) -> str:
+    parts = [f"{role} provider {name!r}" + (f" (known: {', '.join(available(role)) or 'none'})"
+                                           if available(role) else " (none is registered on this host)")
+             for role, name in bad.items()]
+    return "; ".join(parts)

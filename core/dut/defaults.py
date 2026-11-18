@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from core.dut.contracts import ConsoleProvider, DebugProvider, FlashProvider
+from core.dut.contracts import ConsoleProvider, ControlBackend, DebugProvider, DownloadPort, FlashProvider, Log, Ready
 from core.errors import InvalidRequest
 from core.providers import PROVIDERS
 
@@ -48,16 +48,21 @@ class NoneConsole(ConsoleProvider):
         return False
 
 
-class NoneDownload:
+class NoneDownload(DownloadPort):
     """No download port: the board is never on the bus, and nothing is staged or flashed through it."""
 
     provider_name = "none"
 
     def __init__(self, spec: Any, config: dict[str, Any] | None = None):
-        self.spec = spec
-        self.config = dict(config or {})
-        self.usb = ""
-        self.binary = ""
+        super().__init__(spec, config)
+
+    @property
+    def usb(self) -> str:
+        return ""
+
+    @property
+    def binary(self) -> str:
+        return ""
 
     def state(self) -> None:
         return None
@@ -95,6 +100,33 @@ class NoDebug(DebugProvider):
         return {"provider": "none", "kinds": []}
 
 
+class NoRelay(ControlBackend):
+    """A board nothing on this host can reset: it says so, rather than leaving the host unable to start.
+
+    A host without a GPIO header (a USB-only machine) has no relay provider at all, and a record it did not write
+    itself may still name the relay role. Like `NoneConsole`, it keeps the rest of the board usable.
+    """
+
+    provider_name = "none"
+
+    def _no(self) -> InvalidRequest:
+        return InvalidRequest(
+            f"{self.dut.id} has no relay: no provider on this host resets it",
+            hint=f"a host with a GPIO header serves the gpio-relay provider; "
+                 f"`boardctrl dut set {self.dut.id} --relay-provider <name>` chooses another (boardctrl status "
+                 "lists what this host has)",
+        )
+
+    def reset(self, log: Log, ready: Ready | None = None) -> None:
+        raise self._no()
+
+    def enter_fdl(self, log: Log, ready: Ready | None = None) -> None:
+        raise self._no()
+
+    def describe(self) -> dict[str, Any]:
+        return {"backend": "none", "error": self._no().message}
+
+
 class HookFlash(FlashProvider):
     """The built-in `hook` provider: the host's flash job, which runs `hooks/flash/<flasher>` on the package.
 
@@ -117,3 +149,6 @@ def register() -> None:
     PROVIDERS["download"].register("none", lambda ctx, spec, services: NoneDownload(spec, {"provider": "none"}))
     PROVIDERS["debug"].register("none", lambda ctx, spec, services: NoDebug(spec, {}, services))
     PROVIDERS["flash"].register("hook", lambda ctx, spec, services: HookFlash(spec, {"provider": "hook"}))
+    # No role is left without a way to say "this host does not fill it": a board whose record names a provider this
+    # host does not carry keeps the rest of its roles, instead of taking the host down with it.
+    PROVIDERS["relay"].register("none", lambda ctx, spec, services: NoRelay(spec, services, {}))

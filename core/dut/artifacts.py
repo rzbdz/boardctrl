@@ -18,6 +18,16 @@ Log = Callable[[str], None]
 SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
+def _run(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
+    """Run a local command for the cache; its failures are the host's, said as such."""
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise HardwareTimeout(f"`{' '.join(argv[:4])} ...` timed out after {timeout:g}s") from None
+    except FileNotFoundError:
+        raise HardwareError(f"{argv[0]} not found on this host", hint="install it or set its path in the host config") from None
+
+
 # ------------------------------------------------------------ artifacts --
 class ArtifactStore:
     """Content-addressed cache of build outputs pulled from build servers over SSH.

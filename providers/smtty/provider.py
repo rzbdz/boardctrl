@@ -26,6 +26,9 @@ class SerialMuxConsole(ConsoleProvider):
 
     provider_name = "serial-mux"
 
+    # A serial adapter is the host's slot: the slot table starts its daemon, not this provider.
+    served_by_slots = True
+
     @classmethod
     def fields(cls) -> list[Any]:
         from core.providers import Field
@@ -62,6 +65,10 @@ class SerialMuxConsole(ConsoleProvider):
 
     def mark(self) -> Any:
         return self.console.mark()
+
+    def retained_mark(self) -> Any:
+        """The start of today's log: what the console kept, however long ago it printed it."""
+        return self.console.retained_mark()
 
     def read_since(self, mark: Any) -> str:
         return self.console.read_since(mark) if mark is not None else ""

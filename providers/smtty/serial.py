@@ -44,6 +44,10 @@ class SerialConsole(ConsoleProvider):
         p = self._log_path()
         return p, (p.stat().st_size if p.exists() else 0)
 
+    def retained_mark(self) -> tuple[Path, int]:
+        """From the start of today's log: the console's history, as far back as the log goes."""
+        return self._log_path(), 0
+
     def read_since(self, mark: tuple[Path, int]) -> str:
         path, off = mark
         chunks = []

@@ -27,14 +27,26 @@ class ConsoleProvider(ABC):
     """
 
     provider_name = "abstract"
+    # Whether the host's slot table starts this board's console (every serial adapter on the machine is a slot),
+    # or the provider starts it itself (a trace channel over a debug adapter, a network console).
+    served_by_slots = False
+    # The console's name on this host — what a slot, a log and a hook request call it. None when it has none.
+    alias: str | None = None
 
     def __init__(self, spec: Any, config: dict[str, Any] | None = None):
         self.spec = spec
         self.config = dict(config or {})
+        self.alias = self.config.get("alias")
 
     # A marker for a mark() the provider cannot read back (a transient stream): reads since then are empty.
     def mark(self) -> Any:
         return None
+
+    def retained_mark(self) -> Any:
+        """A marker from which `read_since` gives what the console kept before now, as far back as it keeps it —
+        for a board that may already be where a step needs it before anything was done to it. The default is the
+        same empty read as `mark()`."""
+        return self.mark()
 
     def read_since(self, mark: Any) -> str:
         return ""
@@ -153,6 +165,45 @@ class DebugProvider(ABC):
         return getattr(getattr(dut, "spec", dut), "id")
 
 
+class DownloadPort(ABC):
+    """One board's way in: a USB download port that stages files into RAM, flashes a partition and reports itself.
+
+    `boot.py` (stage, flash, getvar, continue, oem), `identify` and probing talk to this interface only, so a board
+    can be reached by fastboot, a vendor's own downloader or a debug adapter's channel — nothing above the role
+    knows which. `cmd` takes the verbs the recipes name (`boot.py`'s steps and an SDK recipe's), so a provider that
+    is not fastboot implements the ones it can and says so for the rest.
+    """
+
+    provider_name = "abstract"
+
+    def __init__(self, spec: Any, config: dict[str, Any] | None = None):
+        self.spec = spec
+        self.config = dict(config or {})
+
+    @property
+    def usb(self) -> str:
+        """The board's path on this host's bus (`usb:2-1.4`), as `fastboot devices -l` shows it; "" when it has none."""
+        return str(self.config.get("usb") or "")
+
+    @property
+    def binary(self) -> str:
+        """The client a hook runs when it needs one itself, for its request (`hooks/probe/identify`); "" when the
+        provider speaks the protocol rather than running a tool."""
+        return ""
+
+    @abstractmethod
+    def state(self) -> dict[str, str] | None:
+        """This board's download device when it is on the bus (its product name decides download mode), else None."""
+
+    @abstractmethod
+    def cmd(self, *args: str, timeout: float = 120) -> str:
+        """One verb on the port (`stage <file>`, `flash <part> <file>`, `continue`, `oem <x>`, `getvar <name>`)."""
+
+    def getvar(self, name: str) -> str:
+        """A variable the board reports (`blk-size`, `product`, …), without the command's decoration."""
+        return self.cmd("getvar", name, timeout=15)
+
+
 class FlashProvider(ABC):
     """One board's flasher. `config` is the role's block of the DUT record (`{"provider": ..., ...}`)."""
 
@@ -185,6 +236,13 @@ class ControlBackend(ABC):
     """
 
     needs_human = False      # reset/enter_fdl block until a person acts (run them as jobs)
+
+    # How long a person has to act, when `needs_human`: a relay that asks one reports its own window.
+    human_timeout_s = 300.0
+
+    def human_timeout(self) -> float:
+        """Seconds a person has to do what `reset`/`enter_fdl` asked: `services.relay.human.timeout_s`, else 300."""
+        return float((self.cfg.get("human") or {}).get("timeout_s", self.human_timeout_s))
 
     def __init__(self, dut: Any, services: Callable[[str], Any], cfg: dict[str, Any] | None = None):
         self.dut = dut

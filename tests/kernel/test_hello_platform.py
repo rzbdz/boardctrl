@@ -78,3 +78,48 @@ def test_the_example_flasher_reports_success_without_touching_anything(client, t
     assert done["result"]["expect_version"] == "V1.2"
     assert done["result"]["runtime_verified"] is True
     assert "nothing was actually written" in done["result"]["message"]
+
+
+def test_the_example_console_implements_the_whole_contract(client):
+    """The example is the template a person copies: it has to take the keywords the kernel passes, or a copied
+    adapter fails on the first `send`/`wait`/`hook` step of a real recipe. `inspect` is what makes that a test rather
+    than a hope — the contract's own signatures, not this file's idea of them."""
+    import inspect
+
+    from core.dut.contracts import ConsoleProvider
+
+    board = client.app.state.hub.modules["dut"].board("hello-board")
+    console = board.console
+    assert isinstance(console, ConsoleProvider)
+    for name in ("send", "wait", "tail", "range", "run", "mark", "read_since", "retained_mark", "ensure", "socket",
+                 "attach", "up", "describe"):
+        assert callable(getattr(console, name, None)), f"the console contract's {name} is missing"
+    for name in ("send", "wait"):
+        want = [p for p in inspect.signature(getattr(ConsoleProvider, name)).parameters if p != "self"]
+        have = inspect.signature(getattr(console, name)).parameters
+        missing = [p for p in want if p not in have]
+        assert not missing, f"HelloConsole.{name} does not take the contract's {missing}"
+    # The alias a hook request and a log name it by is the record's, not the provider's idea of one.
+    assert console.alias is None or isinstance(console.alias, str)
+
+
+def test_a_hook_step_and_a_flash_hook_name_the_boards_console(client, tmp_path):
+    """`b.console.alias` is in every hook step's and every flash hook's request: a provider that is not the serial
+    one has to have it, or a recipe with a hook step (which is every SDK download recipe) fails on that board."""
+    board = client.app.state.hub.modules["dut"].board("hello-board")
+    assert hasattr(board.console, "alias")
+    assert board.console_alias == board.console.alias
+
+    from core.dut.boot import BootRunner
+
+    seen: list[dict] = []
+    runner = board.runner(client.app.state.hub.modules["dut"])
+
+    class Hooks:
+        def run(self, kind, name, req, timeout=0, log=None, progress=None):
+            seen.append(req)
+            return type("R", (), {"code": 0, "data": {}, "lines": [], "applicable": True})()
+
+    runner.hooks = Hooks()
+    runner.run_steps([{"do": "hook", "kind": "flash", "name": "whatever"}], lambda _l: None)
+    assert seen and "console" in seen[0]
