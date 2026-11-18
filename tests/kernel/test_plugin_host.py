@@ -430,6 +430,25 @@ def test_a_plugin_can_fill_the_relay_role(site, tmp_path, monkeypatch):
         assert board.control.resets == 1
 
 
+def test_a_host_file_written_with_the_old_sections_still_loads_them(site, tmp_path):
+    """`modules:` is the key sites wrote before providers, and `gpio_relay:` a service's name before GPIO had a role:
+    the same settings, under the names the host loads now, and the relay role works through them."""
+    from frontends.server.app import create_app
+    from frontends.server.config import HostConfig
+
+    host = tmp_path / "legacy-site" / "hosts" / "legacy.yaml"
+    host.parent.mkdir(parents=True)
+    for name in ("boards", "socs", "sdk", "duts"):
+        (host.parent.parent / name).symlink_to(site / name)
+    host.write_text("host: {id: legacy}\nserver: {state_dir: state, port: 8771}\n"
+                    "modules:\n  gpio_relay: {board: example-40pin, backend: mock, pinmux: false}\n  sdk: {}\n  dut: {}\n")
+    with TestClient(create_app(HostConfig.load(host))) as client:
+        status = client.post("/api/v1/tools/status", json={}).json()["result"]
+        assert "error" not in status["modules"]["gpio"]
+        assert "gpio-relay" in status["providers"]["relay"]["names"]
+        assert client.post("/api/v1/tools/gpio_list", json={}).json()["ok"]
+
+
 def test_the_built_in_roles_are_still_the_defaults_and_still_work(site, tmp_path, monkeypatch):
     """Filling the role table must not change what a record that names nothing gets."""
     from core.providers import build

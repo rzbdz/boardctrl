@@ -246,12 +246,20 @@ class _Managers:
 ROLE_PROVIDERS = {"smtty": ("smtty", "serial_mux", "serial_log_dir"),
                   "fastboot": ("fastboot",),
                   "human": ()}
+# Sections a host file may still call a provider by its old name: `gpio_relay:` was the service before GPIO had a role,
+# `serial` the console's; each is the same settings under the name that loads it now.
+PROVIDER_ALIASES = {"gpio_relay": "gpio", "serial": "smtty"}
 
 
 def _with_role_providers(config: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """A host's provider sections, with the boards' own providers added and the DUT's old keys folded in."""
     dut = config.get("dut") or {}
     out = dict(config)
+    for old, name in PROVIDER_ALIASES.items():
+        if old in out:
+            section = out.pop(old)
+            # An explicit `gpio:` is the same settings named the current way; it wins where both are written.
+            out.setdefault(name, section if isinstance(section, dict) else {})
     for name, old_keys in ROLE_PROVIDERS.items():
         section = dict(out.get(name) or {})
         for key in old_keys:

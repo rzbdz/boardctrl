@@ -84,7 +84,7 @@ env:                             # values hooks receive: see "Host environment" 
   BSP_SERIAL_LOG_DIR: /root/.serial-mux/logs
   BSP_SMTTY: smtty
 providers:                       # what this host loads, by name; `modules:` is the key sites wrote before
-  gpio:                         # dut drives reset lines through it (gpio_relay still works)
+  gpio:                         # dut drives reset lines through it (`gpio_relay:` and the role name still load it)
     board: example-40pin         # a boards/<id>.yaml from a platform or the site
     backend: sysfs               # sysfs | gpiod | mock
     hw_timeout_s: 3.0            # GPIO calls slower than this mark the backend degraded
