@@ -249,10 +249,16 @@ def op_build_start(req):
     with open(os.path.join(d, "meta.json"), "w") as f:
         json.dump(meta, f)
     runner = "bash {s} > {d}/log 2>&1; echo $? > {d}/rc".format(s=script, d=d)
+    # tmux keeps the build attachable, so it is tried first — but `new-session` exits 0 on a server it could not
+    # reach (a missing socket directory, a sandbox), which would leave a job that says "running" forever. The
+    # session has to be there afterwards, or the build is started on its own.
+    started = False
     if shutil.which("tmux"):
         sh(["tmux", "new-session", "-d", "-s", "bsp-{}".format(job_id), runner])
-        meta["attach"] = "tmux attach -t bsp-{}".format(job_id)
-    else:
+        started = sh(["tmux", "has-session", "-t", "bsp-{}".format(job_id)], check=False)[0] == 0
+        if started:
+            meta["attach"] = "tmux attach -t bsp-{}".format(job_id)
+    if not started:
         subprocess.Popen(["setsid", "bash", "-c", runner], stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return {"id": job_id, "log": os.path.join(d, "log"), "attach": meta.get("attach")}
