@@ -1,4 +1,4 @@
-"""SoC profiles (<layer>/socs/<soc>/soc.yaml, merged across layers: packs then site):
+"""SoC profiles (<layer>/socs/<soc>/soc.yaml, merged across profiles: the shipped ones, then the site):
 everything bsp knows about a SoC is data.
 
     soc: <id>

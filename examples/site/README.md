@@ -1,13 +1,18 @@
 # Example site
 
-A complete, **made-up** site configuration showing every file format bsp reads. Real
-sites live outside the bsp repo (`$BSP_SITE`, `~/.config/bsp/site` or `/etc/bsp/site`),
-usually in a private git repo of their own. Copy this directory and replace every value.
+A complete site showing every file format boardctrl reads. Real sites live outside the boardctrl
+repository (`$BOARDCTRL_SITE`, `~/.config/boardctrl/site` or `/etc/boardctrl/site`), usually in a
+private git repo of their own. Copy this directory and replace every value.
+
+A site is a **profile** like the ones shipped in `profiles/`: the same directories, read last so it
+overrides them. This one is made up except where it says otherwise — `modules/hello-platform` is a
+working example of a site plugin, and the board it serves is a real one from the shipped
+`profiles/spacemit` pack.
 Addresses use the documentation range 192.0.2.0/24. The test suite runs against it.
 
 | path | read by | what |
 |---|---|---|
-| `bsp.yaml` | all | site settings: which packs to use |
+| `boardctrl.yaml`/`bsp.yaml` | all | site settings: which shipped profiles to use |
 | `remotes.json` | CLI | board hosts: url, fallback urls, ssh target |
 | `hosts/<id>.yaml` | bsp-hostd | modules of one board host |
 | `deploy/<id>.env` | `deploy/deploy.sh <id>` | how to reach and install a host |
@@ -20,4 +25,5 @@ Addresses use the documentation range 192.0.2.0/24. The test suite runs against 
 | `duts/*.yaml` | hosts | static boards (probed ones live in the host state dir) |
 | `hooks/<kind>/<name>` | hosts | site hooks, e.g. a vendor flash tool wrapper |
 | `.bspignore` | `deploy.sh`, `install-client.sh` | tar exclude patterns: site files not to ship to hosts / clients |
+| `modules/<name>/module.py` | boardctrld | site plugins: providers, commands, routes |
 | `hints/*.md` | `bsp hints`, `bsp install` | free text for agents and people (credentials conventions, lab rules); added to generated SKILL.md files |

@@ -137,18 +137,18 @@ flowchart LR
 
 ## Configuration layers
 
-Configuration is merged from the core, the selected packs and the site, in that order
+Configuration is merged from the core, the shipped profiles and the site, in that order
 (`src/bsp/core/site.py`). Code never refers to a vendor or an installation; it asks for the
 merged view of a kind of data (`layered("socs")`, `layered("sdk")`, …). The layers and their file
 formats are described in [configuration.md](configuration.md).
 
 ```mermaid
 flowchart LR
-  core["Core<br/>this repository"] -- "overridden by" --> packs["Packs<br/>packs/NAME"] -- "overridden by" --> site["Site<br/>BOARDCTRL_SITE"]
+  core["Core<br/>this repository"] -- "overridden by" --> packs["Shipped profiles<br/>profiles/NAME"] -- "overridden by" --> site["Site<br/>BOARDCTRL_SITE"]
 ```
 
-The same mechanism allows further layers between packs and sites — for example a curated set of
-packs and recipe templates for one SoC family's upstream kernel work.
+The same mechanism allows further profiles between the shipped ones and the site — for example a curated set of
+profiles and recipe templates for one SoC family's upstream kernel work.
 
 ## Resources
 
@@ -158,7 +158,7 @@ packs and recipe templates for one SoC family's upstream kernel work.
 | Family | build style and artifact roles | `SITE/sdk/families/` | — |
 | Workspace | one checkout on one server | `SITE/sdk/workspaces/`, or implicit per target | Workspace lease, build lock, jobs in `TREE/.bsp/` |
 | SDK target | workspace + family + SoC + artifacts + boot recipes | `SITE/sdk/instances/` | Through its workspace |
-| SoC profile | SoC id | `socs/<soc>/soc.yaml` in packs and the site (deep-merged) | — |
+| SoC profile | SoC id | `socs/<soc>/soc.yaml` in the profiles and the site (deep-merged) | — |
 | Board host | host id | `SITE/hosts/`, `SITE/remotes.json` | — |
 | DUT | DUT id: host, SoC, control backend, USB path, console | Registered on the host (`probe`, `bind`, `add`) or `SITE/duts/` | DUT lease on its host |
 | Reset / download-mode line | aliases `<dut>/reset`, `<dut>/fdl` | Registered by the dut module with the gpio service | Through the DUT |
@@ -224,4 +224,4 @@ task and target. A target without `workspace:` owns an implicit workspace.
 
 Every failure has a `code`, a `message`, a `hint` naming the next step, and machine-readable
 `details`; see [cli.md](cli.md#output-and-errors). Hardware quirks are documented by the pack
-that knows the hardware (for example `packs/spacemit/README.md`).
+that knows the hardware (for example `profiles/spacemit/README.md`).

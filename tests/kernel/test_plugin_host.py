@@ -130,7 +130,7 @@ def site(tmp_path):
     (site / "hosts").mkdir()
     (site / "boards").mkdir()
     shutil.copy(ROOT / "examples" / "site" / "boards" / "example-40pin.yaml", site / "boards")
-    shutil.copytree(ROOT / "packs", site / "packs")
+    shutil.copytree(ROOT / "profiles", site / "profiles")
     return site
 
 

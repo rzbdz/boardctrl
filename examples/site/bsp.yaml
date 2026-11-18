@@ -1,4 +1,5 @@
 # Site settings (optional).
-# packs: hardware packs from the bsp repo's packs/ directory this site builds on.
-# Omit the key to use every pack; [] to use none.
-packs: [spacemit]
+# profiles: the profiles shipped in the boardctrl repo that this site builds on (profiles/<name>/).
+# Omit the key to use every shipped profile; [] to use none. The site itself is always read last,
+# and overrides whatever a shipped profile says.
+profiles: [spacemit]

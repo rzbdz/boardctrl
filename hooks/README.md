@@ -15,8 +15,8 @@ that is a JSON object with a percent, `{"progress": 42}` or `{"type": "progress"
 its log. On timeout a hook and what it started get SIGTERM, then SIGKILL 10 s later: let go of any
 device on SIGTERM.
 
-Search order: `$BOARDCTRL_HOOKS_PATH` (or the old `$BSP_HOOKS_PATH`) → host config `hook_dirs` → `<site>/hooks` → `packs/*/hooks`
-(later packs first) → `~/.config/bsp/hooks` → this directory. Generic hooks live here; hooks for a
+Search order: `$BOARDCTRL_HOOKS_PATH` (or the old `$BSP_HOOKS_PATH`) → host config `hook_dirs` → `<site>/hooks` → `profiles/*/hooks`
+(later profiles first) → `~/.config/bsp/hooks` → this directory. Generic hooks live here; hooks for a
 public vendor tool or format go in a pack; private procedures go in the site.
 Override a built-in by dropping a file with the same `<kind>/<name>` earlier in the path.
 Run one by hand: `echo '{"...": ...}' | hooks/probe/usb-devices`.
@@ -62,7 +62,7 @@ Missing values are omitted rather than sent as null. Hooks must not assume `netw
 `identify` is generic: it runs the profile's `identify.sequence` (stage an image, `continue`, wait for
 console / fastboot regexes), then extracts `identify.fields` from the console, drops
 `identify.placeholders` and builds the name from `identify.name`. Images are looked up in the layers
-(site before packs) and checked against their `sha256`.
+(site before profiles) and checked against their `sha256`.
 
 The orchestrator (`src/bsp/dut/probe.py`) owns the risky part — pulsing GPIOs and
 correlating reactions — and calls these hooks for everything hardware-specific.

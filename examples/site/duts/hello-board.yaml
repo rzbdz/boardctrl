@@ -1,6 +1,6 @@
 # A K1 board whose console and flash come from a site plugin, not from hardware drivers:
 # examples/site/modules/hello-platform. The board and SoC facts are the public ones from
-# packs/spacemit (SpacemiT K1 / Banana Pi BPI-F3); what is faked is only the two roles the plugin
+# profiles/spacemit (SpacemiT K1 / Banana Pi BPI-F3); what is faked is only the two roles the plugin
 # answers, which is where a real adapter puts its own tool's calls.
 #
 #   BSP_SITE=examples/site boardctrld -c examples/site/hosts/hello.yaml

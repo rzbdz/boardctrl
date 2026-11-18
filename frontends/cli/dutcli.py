@@ -801,7 +801,7 @@ def add_parsers(sub) -> None:
     bd.add_argument("dut", help="name for the slot, e.g. flash-slot-1")
     bd.add_argument("--console", required=True, help="serial-mux alias or tty (/dev/ttyUSB0)")
     bd.add_argument("--usb", required=True, help="fastboot USB selector, e.g. usb:1-1.2 (see `fastboot devices -l`)")
-    bd.add_argument("--soc", help="SoC id (packs/*/socs); enables download-mode auto-detection")
+    bd.add_argument("--soc", help="SoC id (profiles/*/socs); enables download-mode auto-detection")
     bd.add_argument("--board", default="", help="board model, free text")
     bd.add_argument("--description", default="")
     bd.add_argument("--sdks", default="", help="comma list (default: every SDK of its SoC)")

@@ -3,20 +3,26 @@
 boardctrl separates **mechanism** (this repository) from **knowledge about your installation**
 (configuration). This page describes where configuration is read from and every file format.
 
-## Layers
+## Profiles
 
-Configuration is merged from three layers, lowest priority first:
+Everything a host knows about hardware is a **profile**: a directory with the same shape, whoever
+wrote it. A host reads its shipped profiles first and the site last, so the site wins:
 
-| Layer | Contents | Location |
+| Profile | Contents | Location |
 |---|---|---|
-| Core | Generic hooks (`hooks/`), example site | this repository |
-| Packs | Public hardware knowledge: SoC profiles, header pin maps, hooks for public tool formats | `packs/<name>/` in this repository |
-| Site | Your hosts, build servers, SDK trees, boot and flash recipes, probe images, boards, hints | first existing of `$BOARDCTRL_SITE`, `~/.config/boardctrl/site`, `/etc/boardctrl/site` |
+| Shipped | Public hardware knowledge: SoC profiles, board header pin maps, hooks for public tool formats | `profiles/<name>/` in this repository |
+| Site | Your hosts, build servers, SDK trees, boot and flash recipes, probe images, boards, hints, site plugins | first existing of `$BOARDCTRL_SITE`, `~/.config/boardctrl/site`, `/etc/boardctrl/site` |
+| Core | Generic fallbacks a host always has (the `hooks/` directory) | this repository |
 
-Each pack and the site can contribute the same kinds of directories: `boards/`, `socs/`,
-`hooks/`, `sdk/{families,servers,workspaces,instances}/`, `duts/` and `hints/`. A file in a later
-layer replaces the file with the same name in an earlier one; SoC profiles are deep-merged key
-by key, so a site can add probe images to a pack's profile.
+It is one mechanism, not three: each profile contributes the same kinds of directories —
+`boards/`, `socs/`, `hooks/`, `sdk/{families,servers,workspaces,instances}/`, `duts/`, `hints/` and
+`modules/` (site plugins) — and a file in a later profile replaces the file with the same name in an
+earlier one. SoC profiles are deep-merged key by key, so a site can add probe images to a shipped
+profile without copying it. `profiles:` in the site's `boardctrl.yaml` narrows which shipped
+profiles this host uses (the older key `packs:` is still read).
+
+The shipped profiles are complete enough to run a board on their own; `examples/site/` is a complete
+site showing every file a private one has.
 
 A rule of thumb for contributors: if anyone who buys the hardware sees the same thing — boot-ROM
 output, a header pinout, a vendor's documented image format — it can go in a pack. Anything about
@@ -26,7 +32,7 @@ your machines, accounts, trees or procedures belongs in the site.
 
 ```text
 site/
-├── bsp.yaml                 # optional: which packs to use
+├── boardctrl.yaml           # optional: which shipped profiles to use
 ├── .bspignore               # optional: files deploy/install scripts do not ship
 ├── remotes.json             # board hosts the CLI talks to
 ├── hosts/<host>.yaml        # configuration of each boardctrld
@@ -50,7 +56,7 @@ site/
 ### bsp.yaml
 
 ```yaml
-packs: [spacemit]     # omit to use every pack in the repository; [] for none
+profiles: [spacemit]  # omit to use every shipped profile; [] for none
 ```
 
 ### .bspignore
@@ -167,7 +173,7 @@ address); `board_subnet` has no default because bsp does not run the boards' DHC
 ### Site images
 
 Images a host stages (probe images, images a `media_boot` stages) are often not yours to publish. Keep them
-out of packs: put the file in `<site>/socs/<soc>/`, or list it in the site's `socs/<soc>/soc.yaml`
+out of the shipped profiles: put the file in `<site>/socs/<soc>/`, or list it in the site's `socs/<soc>/soc.yaml`
 with its hash and where it comes from, and keep the file out of git:
 
 ```yaml

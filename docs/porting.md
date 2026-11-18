@@ -60,7 +60,7 @@ Then write boot recipes for the SDKs of that SoC ([sdk.md](sdk.md)).
 Describe its GPIO header in `boards/<id>.yaml`: one entry per header with its pins — a GPIO pin
 gives its Linux GPIO number (`gpio: 83`), other pins a `kind` (`power`, `gnd`) and `label` —
 plus optional alternate-function labels and where the kernel's pin-mux information lives. See
-`examples/site/boards/example-40pin.yaml` and the files in `packs/spacemit/boards/`. Select it
+`examples/site/boards/example-40pin.yaml` and the files in `profiles/spacemit/boards/`. Select it
 with `modules.gpio.board` in the host configuration.
 
 GPIO access goes through a backend: `sysfs`, `gpiod` (installed automatically by `deploy.sh`) or `mock`. A new
@@ -109,19 +109,19 @@ fails says so in `boardctrl status` and never takes the host down.
     <site>/modules/<name>/module.py      def setup(ctx, api, config)
     <site>/modules/<name>/…              whatever it ships (bundles, data files)
 
-Code belongs in the site, not in the packs a public distribution ships: a pack carries public knowledge, a site
+Code belongs in the site, not in a shipped profile: a profile carries public knowledge, a site
 carries what belongs to one lab.
 
 ## Hooks
 
 Procedures that do not fit recipe steps — a vendor flash tool, a different way to list consoles
-— are hooks: executables with a JSON-in, JSON-out contract, searched in the site, then the packs,
+— are hooks: executables with a JSON-in, JSON-out contract, searched in the site, then the shipped profiles,
 then the core. See [hooks/README.md](../hooks/README.md).
 
-## Packs
+## Profiles
 
-A pack is a directory under `packs/` with a `pack.yaml` and any of `socs/`, `boards/`,
-`hooks/` and `hints/`:
+A shipped profile is a directory under `profiles/` with a `profile.yaml` and any of `socs/`,
+`boards/`, `hooks/` and `hints/`:
 
 ```yaml
 name: acme
@@ -131,6 +131,6 @@ provides:
   boards: [acme-a1-evb]
 ```
 
-Packs contain only public knowledge: anything a person who buys the hardware can observe or
-download. Sites choose packs with `packs:` in `bsp.yaml`. Contributions of new packs are welcome;
+Shipped profiles contain only public knowledge: anything a person who buys the hardware can
+observe or download. A site chooses them with `profiles:` in `boardctrl.yaml`. Contributions of new profiles are welcome;
 see [CONTRIBUTING.md](../CONTRIBUTING.md).

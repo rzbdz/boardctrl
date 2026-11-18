@@ -168,7 +168,7 @@ whether the daemon is up as `console_up`.
 | `boardctrl remote list\|show\|add\|remove\|use` | Manage personal host entries |
 | `boardctrl watch [--registry]` | Stream live events from the host(s), or with `--registry` from the registry (hosts announcing themselves, `registry.ports` when a host's cables change); `--json` prints one event per line for programs |
 | `boardctrl tools` | Print the host's AI tool schemas in Anthropic format (OpenAI format: `GET /api/v1/tools?format=openai`) |
-| `boardctrl hints` | Hints from the configuration layers (packs, site) |
+| `boardctrl hints` | Hints from every profile (the shipped ones, then the site) |
 | `boardctrl images [list\|sync]` | Images hosts stage (probe images, media-boot helpers): where each comes from and whether the site has it; `sync` fetches the missing ones once into `<site>/.blobs/` (deploy does this) |
 | `boardctrl install [--dir DIR] [--offline]` | Write `SKILL.md` for agents working in an SDK tree (see [agents.md](agents.md)) |
 

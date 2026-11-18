@@ -143,7 +143,8 @@ class DutModule(Module):
         # The site's catalog, under the registry's copy when this host follows one (see server/catalog_follow.py).
         self._sdk_roots = layered("sdk", site)
         self._catalog_layer = ctx.state_dir / "catalog"
-        # SoC profiles and hooks: packs, the site, then the registry's shared files above them (catalog_follow.py)
+        # SoC profiles and hooks: the shipped profiles, the site, then the registry's shared files above
+        # them (catalog_follow.py)
         self._site = site
         self._files_layer = ctx.state_dir / "catalog-files"
         self.sdks = self._load_catalog()

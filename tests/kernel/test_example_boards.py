@@ -1,6 +1,6 @@
 """The public board profiles, read the way a host reads them.
 
-`packs/spacemit` is public hardware knowledge: the pin maps of boards anyone can buy. A profile that
+`profiles/spacemit` is public hardware knowledge: the pin maps of boards anyone can buy. A profile that
 stopped parsing, or that named a pin nothing resolves, would only show up on a board host at runtime,
 so the example boards are checked here.
 """
@@ -39,3 +39,26 @@ def test_the_example_board_is_a_real_k1_board():
     catalog = BoardCatalog(layered("boards", SITE))
     board = catalog.get("spacemit-bananapi-f3")
     assert board.id.startswith("spacemit-") and board.pinctrl.get("debugfs")
+
+
+def test_a_site_overrides_a_shipped_profile_and_the_rest_still_applies(tmp_path):
+    """One mechanism, two sources: the site is the last profile, so it wins file by file.
+
+    A site that pins its own copy of one board profile must still see the shipped SoCs and the other
+    boards — that is what makes the shipped profiles usable without copying them into the site.
+    """
+    import shutil
+
+    from core.site import layered, layers
+
+    site = tmp_path / "site"
+    (site / "boards").mkdir(parents=True)
+    # The site replaces one board with a two-pin stub of its own.
+    (site / "boards" / "spacemit-bananapi-f3.yaml").write_text(
+        "id: spacemit-bananapi-f3\nname: local pin map\nheaders:\n  - {id: J1, layout: single-row, pin_count: 2, "
+        "pins: {1: {kind: power, label: 3.3V}, 2: {kind: gnd, label: GND}}}\n")
+    # Lowest first: every shipped profile, then the site.
+    assert layers(site)[-1] == site
+    catalog = BoardCatalog(layered("boards", site))
+    assert len(catalog.get("spacemit-bananapi-f3").headers[0].pins) == 2     # the site's copy won
+    assert catalog.get("spacemit-k3-com260") is not None                     # the shipped ones still apply

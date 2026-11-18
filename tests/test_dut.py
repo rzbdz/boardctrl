@@ -293,7 +293,7 @@ def test_a_site_overlay_adds_media_boot_and_images_to_a_pack_profile(tmp_path):
         "media_boot:\n"
         "  name: media-handoff\n"
         "  steps: [{do: check, serial: 'sys: 0x'}, {do: stage, image: handoff}, {do: continue}]\n")
-    p = SocProfiles([ROOT / "packs" / "spacemit" / "socs", tmp_path / "socs"])
+    p = SocProfiles([ROOT / "profiles" / "spacemit" / "socs", tmp_path / "socs"])
     prof = p.get("k3")
     # the pack's facts survive
     assert prof["download_mode"]["fastboot"] == "DFU download"
@@ -599,7 +599,7 @@ case "$3 $4" in
 esac
 """)
     fb.chmod(0o755)
-    hook = ROOT / "packs" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
+    hook = ROOT / "profiles" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
     req = {"usb": "usb:2-1.1", "fastboot": str(fb), "artifacts": {"flash-zip": str(pkg)}}
     r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stdout
@@ -643,7 +643,7 @@ case "$3 $4" in
 esac
 """)
     fb.chmod(0o755)
-    hook = ROOT / "packs" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
+    hook = ROOT / "profiles" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
     req = {"usb": "usb:2-1.1", "fastboot": str(fb), "package_dir": str(pkg), "artifacts": {}, "args": {"port_timeout": 5}}
     r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stdout + r.stderr
@@ -685,7 +685,7 @@ case "$3 $4" in
 esac
 """)
     fb.chmod(0o755)
-    hook = ROOT / "packs" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
+    hook = ROOT / "profiles" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
     req = {"usb": "usb:2-1.1", "fastboot": str(fb), "package_dir": str(pkg), "artifacts": {}}
     r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stdout + r.stderr
@@ -728,7 +728,7 @@ esac
 exit 0
 """)
     fb.chmod(0o755)
-    hook = ROOT / "packs" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
+    hook = ROOT / "profiles" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
     req = {"usb": "usb:2-1.2", "fastboot": str(fb), "artifacts": {"flash-zip": str(pkg)},
            "args": {"media": ["mtd", "gpt"], "skip": ["rootfs"]}}
     r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)

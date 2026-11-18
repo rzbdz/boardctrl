@@ -4,7 +4,7 @@ An agent starts from the boardlab skill (the DUT: locking, reset, console, boot,
 belongs to the *hardware*: which SoC profile a board has, the notes that SoC's site carries, and the skill of the
 SDK it is building. That knowledge changes with the site, so it is not in the client; it is asked for:
 
-    bsp hints                         everything the configuration layers say (packs, then the site)
+    bsp hints                         everything the profiles say (the shipped ones, then the site)
     bsp hints --soc <soc>             one SoC's notes, and its profile paths
     bsp hints --sdk <sdk>             an SDK's skill and its catalog entry
     bsp hints --dut <dut>             what applies to one board: its SoC's notes, its SDKs' skills
@@ -16,7 +16,7 @@ Levels, lowest to highest priority (a later layer's file with the same name wins
     <layer>/socs/<soc>/*.md           one SoC's notes (beside its soc.yaml)
     <layer>/skills/<id>.md            one SDK's skill (beside its catalog entry)
 
-Only the configuration layers are read: the repository's packs and the site. Nothing here reaches a board, so an
+Only the profiles are read: the repository's shipped profiles and the site. Nothing here reaches a board, so an
 agent can ask any time, and the answer is the same one every host has.
 """
 

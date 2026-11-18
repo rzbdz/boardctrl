@@ -10,7 +10,7 @@ commands and routes — the kernel-style loadable module of a board host:
 
 The host config selects them (``modules: {ec: {enabled: true}}``, or ``plugins: [ec]``); a plugin that fails to
 load is reported as degraded and never takes the host with it. Code lives only in the site layers, never in this
-repository: public packs carry public knowledge, private procedures stay in the site.
+repository: shipped profiles carry public knowledge, private procedures stay in the site.
 """
 
 from __future__ import annotations

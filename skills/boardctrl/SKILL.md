@@ -168,7 +168,7 @@ fastboot by hand while bsp holds the board.
 
 boardctrl is mechanism only. What is specific to this installation lives in the **site** directory
 (`$BSP_SITE`, else `~/.config/bsp/site`, else `/etc/bsp/site`; `examples/site/` in the bsp repo
-shows every format). Public hardware knowledge lives in **packs** (`<bsp repo>/packs/<vendor>/`).
+shows every format). Public hardware knowledge lives in **shipped profiles** (`<boardctrl repo>/profiles/<vendor>/`).
 When the user asks you to bring up something bsp cannot do yet, add it there instead of working
 around it:
 

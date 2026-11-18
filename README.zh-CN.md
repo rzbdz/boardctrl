@@ -129,7 +129,7 @@ flowchart TB
 | 组件 | 支持范围 | 说明 |
 |---|---|---|
 | 开发板（DUT） | BootROM 提供可用 `fastboot` 访问的 USB 下载模式的 SoC | 启动步骤是配置，其他流程无需写代码即可描述 |
-| 自带的 SoC 配置 | SpacemiT K1、SpacemiT K3（`packs/spacemit`） | 已验证的被测板：K1-x MUSE Card（K1）、K3 deb1（K3） |
+| 自带的 SoC 配置 | SpacemiT K1、SpacemiT K3（`profiles/spacemit`） | 已验证的被测板：K1-x MUSE Card（K1）、K3 deb1（K3） |
 | 板控主机 | 带 GPIO 排针（sysfs 或 libgpiod）、USB 主机口和 systemd 的 Linux | 自带两款用作板控主机的 SpacemiT 板卡的排针定义：K3 Com260 和 K1-x deb1；其他主机加一个 YAML 文件即可 |
 | 复位控制 | GPIO 开漏按键或继电器；由 bsp 提示人工操作（`human`） | Home Assistant 后端尚为占位实现 |
 | 控制台 | 任意 USB 转串口，经由 serial-mux | |
@@ -221,7 +221,7 @@ Web 控制台目前覆盖 GPIO 排针（引脚图、引脚详情、事件、API 
 | 层 | 内容 | 位置 |
 |---|---|---|
 | 核心 | 机制、通用 hook、示例 | 本仓库 |
-| Pack | 公开的硬件知识：SoC 配置、板卡引脚定义、公开格式的 hook | 本仓库 `packs/` |
+| 自带 profile | 公开的硬件知识：SoC 配置、板卡引脚定义、公开格式的 hook | 本仓库 `profiles/`（site 会覆盖它们） |
 | Site | 你的主机、编译服务器、SDK 源码树、启动与烧写配方、板子、提示 | `$BOARDCTRL_SITE`、`~/.config/boardctrl/site` 或 `/etc/boardctrl/site` |
 
 后面的层按文件覆盖前面的层。从 `examples/site/` 开始；所有格式见 [docs/configuration.md](docs/configuration.md)

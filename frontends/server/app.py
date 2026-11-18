@@ -92,7 +92,7 @@ class Hub:
         self.plugin_commands = self.plugins.load(wanted, ctx, plugin_config) if wanted or named else []
         for name in wanted:
             if name not in available and name not in self.plugins.errors:
-                self.plugins.errors[name] = "no modules/%s/module.py in the site or its packs" % name
+                self.plugins.errors[name] = "no modules/%s/module.py in the site or the shipped profiles" % name
         self.modules: dict[str, Module] = {}
         for name, mcfg in config.modules.items():
             if name in wanted or not mcfg.get("enabled", True):
