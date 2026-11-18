@@ -714,7 +714,7 @@ def add_parsers(sub) -> None:
     d = sub.add_parser("dut", help="boards: list/status, lease, reset, boot an SDK, serial console")
     ds = d.add_subparsers(dest="dut_cmd", metavar="<action>")
     dl = ds.add_parser("list", help="all DUTs on all reachable hosts")
-    dl.add_argument("--soc", help="only this SoC (as named in the SoC profiles)")
+    dl.add_argument("--soc", help="only this SoC (as named in the shipped platforms)")
     dl.add_argument("--sdk", help="only DUTs that can run this SDK")
     dl.add_argument("--free", action="store_true", help="only DUTs nobody leases")
     ex = ds.add_parser("export", help="registered DUT specs as YAML; --dir writes one <site>/duts/<id>.yaml per board")
@@ -836,8 +836,8 @@ def add_parsers(sub) -> None:
     fl.add_argument("dut")
     fl.add_argument("--package", required=True, metavar="PATH|URL")
     fl.add_argument("--sha256", help="expected sha256 of the package (checked by the host after a download)")
-    fl.add_argument("--flasher", help="flash hook to use (default: the board's flash.flasher, its SoC's, then "
-                                      "spacemit-pkg)")
+    fl.add_argument("--flasher", help="flash hook to use (default: the board's flash.flasher, its SoC's, the "
+                                      "host's, then spacemit-pkg)")
     fl.add_argument("--lease")
     fl.add_argument("--timeout", type=float, default=3600, help="seconds the flasher may take (default 3600)")
     fl.add_argument("--no-reset", action="store_true", help="the board is already in download mode")

@@ -15,7 +15,7 @@ git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-lo
 cd bsp-dev-loop
 ```
 
-The `third_party/serial-mux` submodule provides the serial consoles. If you cloned without
+The `providers/smtty/serial-mux` submodule provides the serial consoles. If you cloned without
 `--recurse-submodules`, run `git submodule update --init`; a host deployed without it has no
 console support (the installer warns about this).
 

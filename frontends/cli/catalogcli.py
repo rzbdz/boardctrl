@@ -55,7 +55,7 @@ def registry_layer() -> Path | None:
 
 
 def registry_files(sync: bool = True) -> Path | None:
-    """The registry's shared SoC profiles and hooks as a local layer (socs/, hooks/), fetched when they changed; the
+    """The registry's shared SoC facts and hooks as a local layer (socs/, hooks/), fetched when they changed; the
     last copy when the registry cannot be reached; None without a registry or without a copy."""
     from core.hostregistry.files import layer_digest, materialize as write_files
 
@@ -139,7 +139,7 @@ def add_parser(sub) -> None:
     ex = cs.add_parser("export", help="write the registry's documents as site files (backup), with removed.json")
     ex.add_argument("--dir", required=True)
     cs.add_parser("status", help="the catalog revision, the revision each host has, and site edits it overrides")
-    cs.add_parser("sync", help="fetch the registry's catalog, SoC profiles and hooks to this machine now")
+    cs.add_parser("sync", help="fetch the registry's catalog, SoC facts and hooks to this machine now")
     cs.add_parser("refresh", help="clear this machine's cached catalog and have every host fetch it again now")
 
 
@@ -213,7 +213,7 @@ def run(args, store: RemoteStore, token: str | None) -> tuple[Any, str]:
         res = {"rev": layer_rev(sdk) if sdk else None, "sdk": str(sdk) if sdk else None,
                "files": str(files) if files else None, "files_digest": layer_digest(files) if files else None}
         return res, (f"catalog revision {res['rev']} in {sdk}" if sdk else "no SDK catalog from the registry") + "\n" + (
-            f"SoC profiles and hooks {res['files_digest'][:12]} in {files}" if files else "no shared files from the registry")
+            f"SoC facts and hooks {res['files_digest'][:12]} in {files}" if files else "no shared files from the registry")
     if c == "refresh":
         import shutil
 

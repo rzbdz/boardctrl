@@ -97,11 +97,14 @@ services:
 
 | Role | Contract | Commands | Providers |
 |---|---|---|---|
-| `relay` | `dut/contracts.py: ControlBackend` | `boardctrl dut reset`, `relay`, `button` | `gpio-relay` (providers/gpio), `human` (providers/human) |
+| `relay` | `dut/contracts.py: ControlBackend` | `boardctrl dut reset`, `relay`, `button` | `gpio-relay` (providers/gpio), `human` (providers/human), `none` (kernel) |
 | `console` | `dut/contracts.py: ConsoleProvider` | `boardctrl dut console`, `pipe`, `log` | `serial-mux` (providers/smtty), `none` (kernel) |
-| `download` | `dut/boot.py` over the provider | `boardctrl dut stage`, `present`, `boot` | `fastboot` (providers/fastboot), `none` (kernel) |
+| `download` | `dut/contracts.py: DownloadPort` | `boardctrl dut stage`, `present`, `boot` | `fastboot` (providers/fastboot), `none` (kernel) |
 | `flash` | `dut/contracts.py: FlashProvider` | `boardctrl dut flash` | `hook` (kernel: `hooks/flash/*`); a site adds writers |
 | `debug` | `dut/contracts.py: DebugProvider` | `boardctrl debug …` | `none` (kernel); a site adds the real ones |
+
+Every role has the kernel's own `none`: a board whose record names a provider this host does not carry keeps the
+roles it does have and says at use time which one is missing, instead of stopping the host at start.
 
 A provider says what it offers (`debug` reports `halt`, `run`, `step`, `regs`, `trace`, `gdb`) and describes its own
 settings, so the API, the CLI and the page offer exactly that. A provider whose server outlives one command — a
@@ -207,14 +210,14 @@ overrides it with `control.fdl.expect`.
 | A board | `boardctrl probe`, `boardctrl dut bind`, or a file in `SITE/duts/` | DUT spec |
 | A SoC | `socs/<soc>/soc.yaml` in a shipped platform; probe images in the site | SoC facts |
 | A probe mechanism | Replace `hooks/probe/{consoles,usb-devices,identify}` | JSON hook contract |
-| A reset mechanism | Subclass `ControlBackend`, register with `@CONTROL_BACKENDS.register` | `reset(log, ready)`, `enter_fdl(log, ready)`, `setup()` |
+| A reset mechanism | Subclass `ControlBackend` and `api.provider("relay", "<name>", …)` in a provider's setup | `reset(log, ready)`, `enter_fdl(log, ready)`, `setup()` |
 | A boot or flash procedure | Recipe steps in the SDK target; `hook` steps call `hooks/flash/<name>` | [Step reference](sdk.md#boot-recipe-steps) |
 | An SDK | `SITE/sdk/instances/<id>.yaml`, plus a family for a new build style | YAML |
 | A build style | A runner in `Instance.build_command` (`make`, `envsetup`, `script` exist) | Runner |
 | GPIO hardware | A `GpioBackend` (sysfs, gpiod and mock exist), wrapped by `GuardedBackend` | `set_output`, `set_input`, `status`, `free` |
 | A transport to hosts | A transport in the remote's chain (`HttpTransport`, `SshTransport` exist) | `request()`, `stream()` |
 | Agent knowledge | `hints/*.md` in a platform or the site | Free text |
-| A host feature | A `Module` that publishes `CommandSpec`s: REST, CLI, AI tools and web console follow | `core/module.py` |
+| A host feature | A provider (`providers/<name>/provider.py`) whose `setup` adds `Command`s: REST, CLI, AI tools and web console follow | `core/loader.py` |
 
 Long operations (boots, probes, human-assisted resets) run as background jobs
 (`core/jobs.py`) that report progress lines; changes are published on an event bus that feeds

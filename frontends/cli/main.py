@@ -324,7 +324,7 @@ def _images(args) -> tuple[Any, str]:
         raise RemoteError("no site directory", code="invalid_request", hint="set BOARDCTRL_SITE or create ~/.config/boardctrl/site")
     from frontends.cli.catalogcli import registry_files
 
-    shared = registry_files(sync=False)        # the registry's SoC profiles (`bsp catalog sync`), above the site
+    shared = registry_files(sync=False)        # the registry's SoC facts (`bsp catalog sync`), above the site
     profiles = SocFacts(layered("socs", site) + ([shared / "socs"] if shared and (shared / "socs").is_dir() else []))
     if args.images_cmd == "sync":
         lines: list[str] = []

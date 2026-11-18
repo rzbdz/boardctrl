@@ -78,7 +78,7 @@ your site. A record selects it with `services.relay.provider` (or the older `con
 
 A DUT's roles are filled by providers (`core/providers.py` holds the table; the record says which, under
 `services:`). A provider of any role is a class with the role's interface — `ConsoleProvider`,
-`DebugProvider`, `FlashProvider`, `ControlBackend` (`core/dut/contracts.py`), or the download shape — and a
+`DebugProvider`, `FlashProvider`, `DownloadPort`, `ControlBackend` (`core/dut/contracts.py`) — and a
 factory `(ctx, spec, services) -> instance` registered as `PROVIDERS["<role>"].register("<name>", factory)`
 from your provider's `setup()`. Say what it
 offers (`DebugProvider.kinds`) and describe its own settings with `Field`s, so `boardctrl dut set` and the page offer

@@ -134,8 +134,10 @@ mode (skip with `--no-reset`) and runs the flash hook `flash/<flasher>` on the d
 [hooks/README.md](../hooks/README.md)).
 
 The flasher is `--flasher`, else the board's `flash.flasher`, else its SoC's
-`flash.flasher`, else `spacemit-pkg` (a package with `fastboot.yaml` and `partition_*.json`
-layouts, or a flash zip). The flash runs as a background job of kind `flash` under your lease;
+`flash.flasher`, else the host's (`providers.dut.flash.flasher`), else `spacemit-pkg` (the SpacemiT
+package: `fastboot.yaml` and `partition_*.json` layouts, or a flash zip). A board whose SoC facts
+name their flasher uses that one, so a site on another vendor's hardware sets it once per SoC. The
+flash runs as a background job of kind `flash` under your lease;
 when the flasher reports progress the job has a percent (`boardctrl job get`, `boardctrl job list`) and the
 CLI prints it as it comes. With `--json` the result is `{"job", "lines", "elapsed_s", "flasher",
 "flashed"}`. `--timeout` (default 3600 s) bounds the flasher; when it runs out the flasher gets

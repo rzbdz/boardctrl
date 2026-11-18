@@ -1,4 +1,4 @@
-"""Keep this host's copy of the registry's SDK catalog, SoC profiles and hooks current.
+"""Keep this host's copy of the registry's SDK catalog, SoC facts and hooks current.
 
 SDK documents go to <state>/catalog; the shared files (SoC profiles, hooks and the images they
 stage, see registry/files.py) to <state>/catalog-files, a layer above the host's own site.

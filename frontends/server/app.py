@@ -149,6 +149,9 @@ class Hub:
             "version": __version__,
             "uptime_s": round(time.time() - self.started, 1),
             "auth": bool(self.config.auth_token),
+            # What this host runs, by name: the kernel's DUT manager and every provider it loaded. The key is
+            # `modules` because that is what the page, `boardctrl hosts` and the fleet view have read since before
+            # providers were called providers; it is not a directory of modules.
             "modules": {"dut": {"title": self.dut.title, **self.dut.health()}} | self.providers.view(),
             "providers": _providers_summary(),
             "sessions": [s.to_dict() for s in self.sessions.list()],

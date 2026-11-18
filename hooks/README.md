@@ -83,4 +83,4 @@ many seconds the hook has before it gets SIGTERM (a flasher with a time limit of
 stop a little earlier, cleanly). The board is already in download mode on `usb` unless the
 caller asked for `--no-reset`. A flasher reports progress with `{"progress": N}` lines and fails
 by exiting non-zero or with an `"error"` (and `"hint"`) in its result. The flasher a board uses
-is its `flash.flasher`, else its SoC profile's `flash.flasher`, else `spacemit-pkg`.
+is its `flash.flasher`, else its SoC's `flash.flasher`, else the host's, else `spacemit-pkg`.
