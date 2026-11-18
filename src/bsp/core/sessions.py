@@ -87,6 +87,20 @@ class Sessions:
             return False
         return True
 
+    def _records(self, dut: str | None = None) -> list[Session]:
+        """Every record on disk, live or not: what `reap` acts on, so it can report what it stopped."""
+        import json
+
+        out = []
+        for p in sorted(self.dir.glob("*.json")):
+            try:
+                s = Session.from_dict(json.loads(p.read_text()))
+            except (OSError, ValueError, TypeError):
+                continue
+            if dut is None or s.dut == dut:
+                out.append(s)
+        return out
+
     def get(self, dut: str, role: str) -> Session | None:
         path = self._path(dut, role)
         if not path.exists():
@@ -100,19 +114,7 @@ class Sessions:
         return s if self._live(s) else None
 
     def list(self, dut: str | None = None) -> list[Session]:
-        out = []
-        for p in sorted(self.dir.glob("*.json")):
-            try:
-                import json
-
-                s = Session.from_dict(json.loads(p.read_text()))
-            except (OSError, ValueError, TypeError):
-                continue
-            if dut is not None and s.dut != dut:
-                continue
-            if self._live(s):
-                out.append(s)
-        return out
+        return [s for s in self._records(dut) if self._live(s)]
 
     def _save(self, s: Session) -> Session:
         import json
@@ -177,9 +179,13 @@ class Sessions:
         return {"dut": dut, "role": role, "stopped": True, "unit": s.unit}
 
     def reap(self, dut: str, role: str | None = None) -> list[str]:
-        """Stop the sessions of a DUT (all roles when ``role`` is None); used when its lease ends."""
+        """Stop the sessions of a DUT (all roles when ``role`` is None); used when its lease ends.
+
+        Reads the records as they are, not through :meth:`list`: after a lease ends, that filter stops and forgets
+        a session on its own, so going through it would report nothing stopped right after stopping everything.
+        """
         stopped = []
-        for s in self.list(dut):
+        for s in self._records(dut):
             if role and s.role != role:
                 continue
             self.systemd.stop(s.unit)
@@ -190,16 +196,9 @@ class Sessions:
     def reap_stale(self) -> list[str]:
         """Forget records whose unit and process are both gone (a crash, a reboot)."""
         gone = []
-        for p in sorted(self.dir.glob("*.json")):
-            try:
-                import json
-
-                s = Session.from_dict(json.loads(p.read_text()))
-            except (OSError, ValueError, TypeError):
-                p.unlink(missing_ok=True)
-                continue
+        for s in self._records():
             if not self.systemd.active(s.unit) and not self._alive(s.pid):
-                p.unlink(missing_ok=True)
+                self._path(s.dut, s.role).unlink(missing_ok=True)
                 gone.append(s.unit)
         return gone
 

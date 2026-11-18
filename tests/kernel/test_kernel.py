@@ -159,6 +159,31 @@ def test_a_session_outliving_its_lease_is_reaped_rather_than_handed_on(tmp_path)
     assert sessions.list() == []
 
 
+def test_reaping_after_the_lease_ended_still_reports_what_it_stopped(tmp_path):
+    """
+    The lease is released and the sessions are reaped right after — the order the DUT module uses. The release has
+    already made the lease dead, so reading the records through the usual filter stops and forgets the session
+    before `reap` sees it: `dut release` would then answer "nothing was stopped" although the server was taken down,
+    and the caller (a page, an agent) would have no idea the debugger went with the board.
+    """
+    live = {"tok-a": True}
+
+    class Stopped(FakeSystemd):
+        stops: list[str] = []
+
+        def stop(self, unit):
+            self.stops.append(unit)
+            super().stop(unit)
+
+    systemd = Stopped()
+    sessions = Sessions(tmp_path / "sessions", systemd, held=lambda token: bool(token) and live.get(token, False))
+    sessions.start("k1-a", "debug", "fake", ["serve"], endpoint="127.0.0.1:3334", lease="tok-a")
+    live["tok-a"] = False                                        # the lease is released...
+    assert sessions.reap("k1-a") == ["debug"]                    # ...and the release reaps its sessions
+    assert systemd.stops == [unit_name("k1-a", "debug")]         # once, not twice
+    assert sessions.list() == []
+
+
 def test_stop_needs_the_lease_that_started_it(tmp_path):
     sessions = Sessions(tmp_path, FakeSystemd())
     sessions.start("k1-a", "debug", "fake", ["s"], endpoint="e", lease="mine")
