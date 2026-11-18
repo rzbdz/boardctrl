@@ -36,6 +36,10 @@ class HostConfig:
     def config_dir(self) -> Path:
         return self.path.parent
 
+    # The key a host's provider map may be written under: `providers:` now, `modules:` in a host installed before the
+    # name changed. One map is one map however it is spelled.
+    PROVIDER_KEYS = ("providers", "modules")
+
     @classmethod
     def load(cls, path: str | Path) -> "HostConfig":
         import yaml
@@ -46,6 +50,13 @@ class HostConfig:
         # Any string written as `env:NAME` takes the value boardctrld runs with (top level, server,
         # modules, ...); an unset variable refuses to start with a message naming it.
         raw = resolve_refs(raw, f"host config {p}")
+        # `plugins:` was the key before providers had a section map, and a file that still says it would load nothing
+        # without a word: it is the same list of names, so it is read (a section under `providers:` wins).
+        if isinstance(raw.get("plugins"), list):
+            folded = dict(raw.get("modules") or {})
+            for name in raw["plugins"]:
+                folded.setdefault(str(name), {})
+            raw["modules"] = folded
         host = raw.get("host") or {}
         srv = raw.get("server") or {}
         env = raw.get("env") or {}
@@ -63,7 +74,10 @@ class HostConfig:
             port=int(naming.get("BOARDCTRL_PORT") or srv.get("port", 8765)),
             state_dir=state_dir,
             auth_token=naming.get("BOARDCTRL_TOKEN") or srv.get("auth_token") or None,
-            providers={k: (v or {}) for k, v in (raw.get("providers") or raw.get("modules") or {}).items()},
+            # `providers:` is the key now; a host written before it may have both, and then both load (the new name's
+            # section wins for a name in both), rather than one map being dropped without a word.
+            providers={**{k: (v or {}) for k, v in (raw.get("modules") or {}).items()},
+                       **{k: (v or {}) for k, v in (raw.get("providers") or {}).items()}},
             announce=_announce(srv.get("announce")),
             env={str(k): ("" if v is None else str(v)) for k, v in env.items()},
         )

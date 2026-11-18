@@ -82,3 +82,23 @@ def test_site_reload_takes_the_boards_the_site_declares(tmp_path, monkeypatch):
         (site / "duts" / "board-2.yaml").unlink()
         c.post("/api/v1/tools/site_reload", json={})
         assert sorted(_duts(c)) == ["board-1", "board-3"]
+
+
+def test_site_reload_is_refused_while_the_host_is_busy(tmp_path, monkeypatch):
+    """A reload rebuilds the boards on the site's new records and replaces the SoC facts and hooks a running job is
+    using: it waits until the host is free, rather than pulling them out from under the job."""
+    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    site = tmp_path / "site"
+    p = site / "hosts" / "h.yaml"
+    p.parent.mkdir(parents=True)
+    p.write_text("host: {id: h}\nserver: {state_dir: ../state}\nmodules:\n  sdk: {}\n"
+                 "  dut: {probe: {pulse_ms: 200}, slots: {auto_console: false}}\n")
+    with TestClient(create_app(HostConfig.load(p))) as c:
+        hub = c.app.state.hub
+        dut = hub.modules["dut"]
+        dut._busy["board-1"] = "flash pkg"                 # what a job body sets
+        r = c.post("/api/v1/tools/site_reload", json={})
+        assert r.status_code == 409
+        assert "board-1" in r.json()["error"]["message"] and "job list" in r.json()["error"]["hint"]
+        dut._busy.clear()
+        assert c.post("/api/v1/tools/site_reload", json={}).json()["ok"]

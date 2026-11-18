@@ -524,3 +524,31 @@ def test_rediscover_keeps_boards_in_use_and_redoes_only_what_moved(host, monkeyp
     used_pins, in_use_line, freed_line = seen[0]
     assert in_use_line in used_pins and freed_line not in used_pins   # the line in use is taken, the moved one free
     _call(host, "dut_release", dut="k3-used", lease=token)
+
+
+def test_a_rebuild_does_not_leave_the_boards_it_forgot_marked_busy(host, monkeypatch):
+    """The rebuild job holds the boards it forgets busy so nothing else touches them while it runs. Once it ends they
+    are free — the ones it forgot are gone, and any the probe registered again is a board someone may reset."""
+    from core.dut import probe as probe_mod
+
+    mod = host.app.state.hub.modules["dut"]
+    consoles = [{"id": "uart-a", "kind": "serial-mux", "alias": "uart-a", "device": "/dev/ttyUSB0", "usb_port": "p-a", "busy": True}]
+    monkeypatch.setattr(mod.slots, "_list", lambda: consoles)
+    monkeypatch.setattr(mod.consoles, "stop", lambda alias: None)
+    added = {"id": "k3-a", "board": "k3_deb1", "soc": "soc-b", "console": {"alias": "uart-a"}, "fastboot": {"usb": "usb:0-5"},
+             "control": {"backend": "gpio-relay", "reset": {"pin": "P16", "mode": "button", "pulse_ms": 50},
+                         "fdl": {"strategy": "strapped"}}}
+    _call(host, "dut_add", spec=json.dumps(added))
+    mod.refresh_slots()
+
+    def fake_run(self, log):
+        # The board it forgot is no longer held: the name is free for the probe to register again.
+        assert "k3-a" not in mod._busy
+        log("k3-a found again")
+        return {"registered": ["k3-a"], "proposals": [], "reasons": []}
+
+    monkeypatch.setattr(probe_mod.Prober, "run", fake_run)
+    job = _call(host, "job_get", id=_call(host, "dut_rebuild", identify=False)["job"], wait=10)
+    assert job["status"] == "succeeded", job
+    # Nothing the rebuild held is still held once it is over: a board someone may reset now is not "busy: rebuild".
+    assert "rebuild" not in mod._busy.values()

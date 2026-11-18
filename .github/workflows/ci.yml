@@ -35,6 +35,6 @@ jobs:
       - run: python -m pip install pyyaml
       - name: CLI smoke test
         run: |
-          BSP_SITE=examples/site bin/bsp sdk list
-          BSP_SITE=examples/site bin/bsp sdk plan bsp-a --boot load
+          BSP_SITE=tests/fixtures/site bin/bsp sdk list
+          BSP_SITE=tests/fixtures/site bin/bsp sdk plan bsp-a --boot load
           bin/bsp --help

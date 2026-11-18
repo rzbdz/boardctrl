@@ -434,3 +434,23 @@ def test_every_role_has_a_contract_the_shipped_providers_implement():
     assert isinstance(defaults.NoRelay(spec, lambda _n: None, {}), ControlBackend)
     assert isinstance(defaults.HookFlash(spec), FlashProvider)
 
+
+def test_a_site_cannot_ship_code_under_a_kernel_services_name(tmp_path):
+    """`dut`, `sdk` and `registry` are the kernel's own services, configured — not provided — by a host's map. A site
+    directory with one of those names must be reported, not silently skipped while someone wonders why it never
+    ran."""
+    from core.loader import Providers
+
+    class Ctx:
+        services: dict = {}
+
+    d = tmp_path / "providers" / "sdk"
+    d.mkdir(parents=True)
+    (d / "provider.py").write_text("def setup(ctx, api, config):\n    raise AssertionError('must not run')\n")
+    plugins = Providers([tmp_path / "providers"])
+    plugins.load(Ctx(), {"sdk": {}})
+    assert "kernel's own" in plugins.errors["sdk"] and "no provider" not in plugins.errors["sdk"]
+    # Its section still configures the kernel's service: no error when no code is shipped under the name.
+    plain = Providers([tmp_path / "nowhere"])
+    plain.load(Ctx(), {"sdk": {}, "registry": {}, "dut": {}})
+    assert plain.errors == {}

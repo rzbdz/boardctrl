@@ -490,6 +490,25 @@ def test_identify_builds_its_request_with_the_hosts_fastboot_client():
         assert seen["fastboot"] == (dut.config.get("fastboot") or "fastboot")
 
 
+def test_a_host_written_with_plugins_and_modules_loads_all_of_them(site, tmp_path, monkeypatch):
+    """`plugins: [name]` was how a host named a plugin before providers had a section map. A file that still says it
+    (with or without `modules:`) loads those plugins, and a name under `providers:` wins over the same name there."""
+    from fastapi.testclient import TestClient
+
+    from frontends.server.app import create_app
+    from frontends.server.config import HostConfig
+
+    host = tmp_path / "plugins-site" / "hosts" / "plugins.yaml"
+    host.parent.mkdir(parents=True)
+    for name in ("boards", "socs", "sdk", "duts", "modules"):
+        (host.parent.parent / name).symlink_to(site / name)
+    host.write_text("host: {id: plugins}\nserver: {state_dir: state, port: 8772}\n"
+                    "plugins: [fake]\n")
+    with TestClient(create_app(HostConfig.load(host))) as client:
+        status = client.post("/api/v1/tools/status", json={}).json()["result"]
+        assert "error" not in status["modules"].get("fake", {"error": "not loaded"}), status["modules"]
+
+
 def test_the_artifact_cache_can_pull_from_a_build_server(tmp_path):
     """The cache's pull runs local commands (`ssh`/`scp`) through one helper. A store that lost it raises
     `NameError` on the host after a boot recipe has started, before the board is touched: a pull that cannot reach

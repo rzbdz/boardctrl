@@ -290,8 +290,12 @@ class DutManager:
         """Read the site again after it changed on disk (a tool that manages it shipped a new copy): its SDK catalog,
         SoC profiles, hooks and the DUT records it declares; the sdk module follows (`site.updated`). A part that does
         not load refuses the whole site — an error like a bad catalog, the running one kept — so a host never takes
-        half a site."""
-        
+        half a site.
+
+        Refused while a board is busy: the boards are rebuilt on the new records, and the job running on one is using
+        the SoC facts and hooks this would replace under it. A lease is not in the way (a lock lives outside the
+        host's memory)."""
+        self._free_to_reload()
         from core.site import layered
 
         roots = layered("sdk", self._site)
@@ -437,6 +441,17 @@ class DutManager:
     def _guard_busy(self, dut: str) -> None:
         if dut in self._busy:
             raise Conflict(f"{dut} is busy: {self._busy[dut]}", hint="wait for the running job (`bsp job list`)")
+
+    def _free_to_reload(self) -> None:
+        """Refuse a site reload while this host is doing something the reload would pull out from under it."""
+        busy = sorted(f"{d}: {what}" for d, what in self._busy.items())
+        running = [j for j in self.ctx.jobs.list() if j.status == "running"]
+        if not busy and not running:
+            return
+        said = busy + [f"job {j.id}: {j.title}" for j in running]
+        raise Conflict(f"{self.ctx.host_id} is busy ({'; '.join(said)}); the site was not reloaded",
+                       hint="a reload rebuilds the boards on the site's new records and replaces the SoC facts and "
+                            "hooks a running job uses: wait for it (`bsp job list`), then reload")
 
     def _start_job(self, dut: str, what: str, body, **meta):
         self._busy[dut] = what
@@ -1168,6 +1183,7 @@ class DutManager:
                 self._drop_aliases(dut)
                 self.slots.note(s.console_alias, "removed", dut=s.id, board=s.board or None)
                 log(f"forgot {dut} (was on console {s.console_alias})")
+                self._busy.pop(dut, None)     # a forgotten name is not busy: the host no longer knows it
             if keep_used and used:
                 log(f"kept in use: {', '.join(sorted(used))}")
             self._rebuild()
@@ -1187,14 +1203,25 @@ class DutManager:
             result = prober.run(log)
             return {**result, "forgot": forget, "kept": sorted(used)}
 
+        def run_body(log) -> dict[str, Any]:
+            try:
+                return body(log)
+            finally:
+                # The boards this job held busy are free once it ends, whether it finished or stopped: a forgotten
+                # board the prober registered again is a board someone may reset the moment this job is over.
+                for d in forget:
+                    if self._busy.get(d) == "rebuild":
+                        self._busy.pop(d, None)
+
         for d in forget:
             self._busy[d] = "rebuild"
         try:
-            job = self.ctx.jobs.start("probe", f"{self.ctx.host_id}: {'rediscover' if keep_used else 'rebuild'}", body,
-                                      host=self.ctx.host_id)
-        finally:
+            job = self.ctx.jobs.start("probe", f"{self.ctx.host_id}: {'rediscover' if keep_used else 'rebuild'}",
+                                      run_body, host=self.ctx.host_id)
+        except BaseException:
             for d in forget:
                 self._busy.pop(d, None)
+            raise
         return {"job": job.id, **plan}
 
     def refresh(self, dut: str, lease: str | None, name: str | None = None, rename: bool = False,

@@ -29,6 +29,10 @@ from typing import Any, Callable
 
 log = logging.getLogger(__name__)
 
+# The names the kernel itself answers to in a host's provider map: their sections configure a service the host sets
+# up (the DUT manager, the SDK catalogue, the host registry), not a provider directory.
+KERNEL_SERVICES = ("dut", "sdk", "registry")
+
 
 class ProviderApi:
     """What a provider may do: register providers and services, add commands and routes, and say how to start it."""
@@ -158,16 +162,23 @@ class Providers:
         """Set up the providers the host names, in layer order (a site's copy of a name replaces the shipped one).
 
         Each provider gets its own section of the host's `providers:` map as its settings; `enabled: false` turns
-        one off however else it would be loaded. A name with no provider directory is reported, not fatal.
+        one off however else it would be loaded. A name with no provider directory is reported, not fatal; a site
+        directory named after a kernel service (`dut`, `sdk`, `registry`) is that service's section, and a site that
+        ships code under one of those names is told so rather than silently skipped.
         """
         available = self.available()
         config = config or {}
         off = {name for name, cfg in config.items() if isinstance(cfg, dict) and cfg.get("enabled", True) is False}
         for name in [n for n in config if n not in off]:
-            if name in ("dut", "sdk", "registry") and name not in available:
+            if name in KERNEL_SERVICES and name not in available:
                 continue                 # the kernel's own services: their sections configure them, not a provider
             if name not in available:
                 self.errors[name] = f"no provider directory with provider.py (looked in {', '.join(map(str, self.roots))})"
+                continue
+            if name in KERNEL_SERVICES:
+                self.errors[name] = (f"a site cannot ship code as {name!r}: that name is one of the kernel's own "
+                                     f"services ({', '.join(sorted(KERNEL_SERVICES))}), which the host sets up itself")
+                log.warning("provider %s is not loaded: %s", name, self.errors[name])
                 continue
             self.setup(name, available[name], ctx, config.get(name) or {})
 

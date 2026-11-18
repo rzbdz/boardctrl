@@ -1,12 +1,12 @@
-# Local development host: mock GPIO backend, state under ../../../var (gitignored).
-#   BSP_SITE=examples/site bsp-hostd -c examples/site/hosts/dev-mock.yaml
+# Local development host: mock GPIO backend, state under the repository's gitignored var/.
+#   BSP_SITE=tests/fixtures/site bin/boardctrld -c tests/fixtures/site/hosts/dev-mock.yaml
 host:
   id: dev-mock
   description: Local development instance with the in-memory mock GPIO backend
 server:
   bind: 127.0.0.1
   port: 8765
-  state_dir: ../../../var/dev-mock
+  state_dir: ../../../../var/dev-mock
 providers:
   gpio:
     board: example-40pin
