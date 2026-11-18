@@ -201,7 +201,7 @@ boardctrl 的设计目标是让 agent 只靠 CLI 就能完成全部工作：
   "details"}}`；`--stateless` 配合显式的租约令牌可让多个 agent 并行工作。
 - 每台板控主机提供 `/llms.txt`，并在 `/api/v1/tools` 提供 Anthropic 和 OpenAI 格式的 tool 定义。
 
-`e2e-material/` 是验收测试：一个只拿到 skill 的全新 agent 会话，必须修改内核、编译、在空闲板子上启动，
+`tests/e2e-material/` 是验收测试：一个只拿到 skill 的全新 agent 会话，必须修改内核、编译、在空闲板子上启动，
 并通过 `dmesg` 证明修改生效。详见 [docs/agents.md](docs/agents.md)。
 
 ## 接口

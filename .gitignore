@@ -8,4 +8,4 @@ dist/
 # local runtime state when running the server on a dev machine
 /var/
 # e2e run records (host names, console logs): keep them in the site repo
-e2e-material/results/
+tests/e2e-material/results/

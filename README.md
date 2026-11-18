@@ -218,7 +218,7 @@ boardctrl is designed so an agent needs nothing but the CLI:
 - Each board host serves `/llms.txt` and tool schemas in Anthropic and OpenAI formats at
   `/api/v1/tools`.
 
-`e2e-material/` contains the acceptance test: a fresh agent session with only the skill must
+`tests/e2e-material/` contains the acceptance test: a fresh agent session with only the skill must
 change a kernel, build it, boot it on a free board and prove the change from `dmesg`. See
 [docs/agents.md](docs/agents.md).
 

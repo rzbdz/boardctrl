@@ -56,8 +56,8 @@ agents use the CLI for them. An MCP server is planned.
 
 ## Acceptance test
 
-`e2e-material/` checks that the skill is sufficient on its own. `run-e2e.sh` starts a fresh agent
+`tests/e2e-material/` checks that the skill is sufficient on its own. `run-e2e.sh` starts a fresh agent
 session (Claude Code, isolated from user settings, memory and other skills) in an empty
 directory that contains only the skill, and asks it to add a kernel log line, build, boot a free
 board, prove the line appears in `dmesg`, commit and release everything. `verify.sh` then checks
-the outcome independently. See [e2e-material/README.md](../e2e-material/README.md).
+the outcome independently. See [tests/e2e-material/README.md](../tests/e2e-material/README.md).

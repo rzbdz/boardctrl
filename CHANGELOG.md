@@ -93,7 +93,7 @@ First public beta.
   on request and resumed with `bsp dut confirm` or automatic download-mode detection.
 - Console logins: `ssh bsp-<dut>@<host>` opens a board's console (opt-in).
 - Multi-host CLI over HTTP or ssh tunnels, `--json` output and stateless mode for agents.
-- Agent skills, `bsp install` and `bsp hints`; the end-to-end acceptance test in `e2e-material/`.
+- Agent skills, `bsp install` and `bsp hints`; the end-to-end acceptance test in `tests/e2e-material/`.
 - Configuration layers: core, hardware packs (`packs/spacemit` for SpacemiT K1 and K3) and an
   external site directory; `examples/site/` documents every format.
 
