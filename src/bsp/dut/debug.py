@@ -52,12 +52,18 @@ class DebugProvider(ABC):
         raise NotImplementedError(f"{self.provider_name} has no action {name!r}")
 
     # --------------------------------------------------------------- views
+    # `title` and `about` are the words a page shows for this path; a provider inherits the ones it registered with.
+    title: str = ""
+    about: str = ""
+
     def shelf(self) -> dict[str, Any]:
         """What a board's page shows: provider, kinds, and the live state if it can tell."""
-        return {"provider": self.provider_name, "kinds": list(self.kinds)}
+        return {"provider": self.provider_name, "kinds": list(self.kinds),
+                **({"title": self.title} if self.title else {}), **({"about": self.about} if self.about else {})}
 
     def info(self) -> dict[str, Any]:
-        return {"provider": self.provider_name, "kinds": list(self.kinds), "available": bool(self.kinds)}
+        return {"provider": self.provider_name, "kinds": list(self.kinds), "available": bool(self.kinds),
+                **({"title": self.title} if self.title else {}), **({"about": self.about} if self.about else {})}
 
 
 class SessionDebug(DebugProvider):

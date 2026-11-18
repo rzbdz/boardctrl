@@ -64,11 +64,19 @@ def provider(role: str, name: str):
 
 
 def build(role: str, name: str, ctx: Any, spec: Any, services: Callable[[str], Any]) -> Any:
-    """Instantiate ``<role>/<name>`` for one DUT."""
+    """Instantiate ``<role>/<name>`` for one DUT, carrying the title and explanation it was registered with.
+
+    A provider says what it is once, where it registers (`api.provider(..., title=..., about=...)`); the instance
+    is what the API, the CLI and the page read, so it gets them too rather than every caller looking up the factory.
+    """
     if role not in PROVIDERS:
         raise ValueError(f"unknown service role {role!r}; roles are {', '.join(ROLES)}")
     factory = PROVIDERS[role].get(name)
-    return factory(ctx, spec, services)
+    made = factory(ctx, spec, services)
+    for field in ("title", "about"):
+        if not getattr(made, field, "") and getattr(factory, field, ""):
+            setattr(made, field, getattr(factory, field))
+    return made
 
 
 def describe() -> dict[str, dict[str, Any]]:

@@ -555,13 +555,23 @@ class DutModule(Module):
                 state = b.debug.state() if hasattr(b.debug, "state") else {}
             except BspError as e:
                 state = {"error": e.message}
-            out.append({"dut": dut, "host": self.ctx.host_id, **b.debug.shelf(), **({"state": state} if state else {})})
+            out.append({"dut": dut, "host": self.ctx.host_id, **self._debug_words(b.debug), **b.debug.shelf(),
+                        **({"state": state} if state else {})})
         return out
 
     def debug_status(self, dut: str) -> dict[str, Any]:
         b = self.board(dut)
-        return {"dut": dut, "host": self.ctx.host_id, **b.debug.info(),
+        return {"dut": dut, "host": self.ctx.host_id, **self._debug_words(b.debug), **b.debug.info(),
                 **({"state": b.debug.state()} if hasattr(b.debug, "state") else {})}
+
+    @staticmethod
+    def _debug_words(provider: Any) -> dict[str, Any]:
+        """How a page names a debug path: the provider's title and explanation, whichever views it answers with.
+
+        A provider gets them from where it registered (`api.provider(..., title=...)`); they are reported here so a
+        provider's own `info()` never has to repeat them, and a page never falls back to the registered name.
+        """
+        return {key: getattr(provider, key) for key in ("title", "about") if getattr(provider, key, "")}
 
     def debug_start(self, dut: str, lease: str | None) -> dict[str, Any]:
         """Bring a board's debug path up (a session under the board's lease)."""

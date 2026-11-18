@@ -309,3 +309,15 @@ def test_a_session_stream_carries_bytes_both_ways(client, tmp_path):
     while time.time() < deadline and not any(received):
         time.sleep(0.05)
     assert any(b"help\r" in item for item in received if item)
+
+
+def test_a_provider_carries_the_title_and_explanation_it_registered_with(client):
+    """What the page shows for a path is the provider's own words, not its registered name."""
+    status = client.post("/api/v1/tools/dut_status", json={"dut": "k1-site"}).json()["result"]
+    shelf = client.post("/api/v1/tools/debug_status", json={"dut": "k1-site"}).json()["result"]
+    # The path reports its own words, though the plugin's `info()` names neither.
+    assert shelf["title"] == "fake SWD" and shelf["provider"] == "fake-swd"
+    listed = client.post("/api/v1/tools/debug_list", json={}).json()["result"]
+    assert listed[0]["title"] == "fake SWD"
+    # and a board's record still shows which provider fills the role, by name
+    assert status["services"]["debug"]["provider"] == "fake-swd"
