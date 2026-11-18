@@ -20,7 +20,7 @@ from bsp.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from tests.kernel.test_kernel import FakeSystemd  # noqa: E402
+from test_kernel import FakeSystemd  # noqa: E402
 
 PLUGIN = '''
 from bsp.dut.debug import DebugProvider
