@@ -1,6 +1,6 @@
 # boardctrl
 
-[![CI](https://github.com/rzbdz/bsp-remote-dev-workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/rzbdz/bsp-remote-dev-workflow/actions/workflows/ci.yml)
+[![CI](https://github.com/rzbdz/boardctrl/actions/workflows/ci.yml/badge.svg)](https://github.com/rzbdz/boardctrl/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.10%2B%20host%20%7C%203.8%2B%20client-blue)
 ![Status: beta](https://img.shields.io/badge/status-beta-orange)
@@ -156,7 +156,7 @@ The repository ships a fictional site (`examples/site/`) and a mock GPIO backend
 explore the CLI, the HTTP API and the web console on any Linux machine:
 
 ```bash
-git clone --recurse-submodules https://github.com/rzbdz/bsp-remote-dev-workflow.git bsp-dev-loop
+git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-loop
 cd bsp-dev-loop
 python3 -m venv .venv && .venv/bin/pip install -e '.[server]'
 
@@ -187,7 +187,7 @@ with `boardctrl dut reset mock-board --no-fdl`; download mode and booting need r
 Clone with submodules (serial-mux, which provides the consoles, is a submodule):
 
 ```bash
-git clone --recurse-submodules https://github.com/rzbdz/bsp-remote-dev-workflow.git bsp-dev-loop
+git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-loop
 ```
 
 Then, in short:

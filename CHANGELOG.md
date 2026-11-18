@@ -97,5 +97,5 @@ First public beta.
 - Configuration layers: core, hardware packs (`packs/spacemit` for SpacemiT K1 and K3) and an
   external site directory; `examples/site/` documents every format.
 
-[Unreleased]: https://github.com/rzbdz/bsp-remote-dev-workflow/compare/v0.1.0b0...HEAD
-[0.1.0b0]: https://github.com/rzbdz/bsp-remote-dev-workflow/releases/tag/v0.1.0b0
+[Unreleased]: https://github.com/rzbdz/boardctrl/compare/v0.1.0b0...HEAD
+[0.1.0b0]: https://github.com/rzbdz/boardctrl/releases/tag/v0.1.0b0

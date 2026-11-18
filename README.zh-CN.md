@@ -1,6 +1,6 @@
 # boardctrl
 
-[![CI](https://github.com/rzbdz/bsp-remote-dev-workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/rzbdz/bsp-remote-dev-workflow/actions/workflows/ci.yml)
+[![CI](https://github.com/rzbdz/boardctrl/actions/workflows/ci.yml/badge.svg)](https://github.com/rzbdz/boardctrl/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.10%2B%20host%20%7C%203.8%2B%20client-blue)
 ![Status: beta](https://img.shields.io/badge/status-beta-orange)
@@ -142,7 +142,7 @@ flowchart TB
 和 Web 控制台：
 
 ```bash
-git clone --recurse-submodules https://github.com/rzbdz/bsp-remote-dev-workflow.git bsp-dev-loop
+git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-loop
 cd bsp-dev-loop
 python3 -m venv .venv && .venv/bin/pip install -e '.[server]'
 
@@ -173,7 +173,7 @@ bin/bsp sdk plan bsp-a --boot load    # bsp-a 内存启动会执行的步骤
 带子模块克隆（提供串口控制台的 serial-mux 是子模块）：
 
 ```bash
-git clone --recurse-submodules https://github.com/rzbdz/bsp-remote-dev-workflow.git bsp-dev-loop
+git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-loop
 ```
 
 接下来简要步骤如下：

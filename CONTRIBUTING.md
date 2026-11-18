@@ -6,7 +6,7 @@ contributions are all welcome.
 ## Development setup
 
 ```bash
-git clone --recurse-submodules https://github.com/rzbdz/bsp-remote-dev-workflow.git bsp-dev-loop
+git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-loop
 cd bsp-dev-loop
 python3 -m venv .venv
 .venv/bin/pip install -e '.[server,dev]'

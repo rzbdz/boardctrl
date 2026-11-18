@@ -26,8 +26,8 @@ classifiers = [
 dependencies = ["pyyaml>=5.1"]
 
 [project.urls]
-Homepage = "https://github.com/rzbdz/bsp-remote-dev-workflow"
-Issues = "https://github.com/rzbdz/bsp-remote-dev-workflow/issues"
+Homepage = "https://github.com/rzbdz/boardctrl"
+Issues = "https://github.com/rzbdz/boardctrl/issues"
 
 [project.optional-dependencies]
 server = ["fastapi>=0.110", "uvicorn>=0.29"]

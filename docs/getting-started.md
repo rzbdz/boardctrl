@@ -11,7 +11,7 @@ instead.
 ## 1. Clone
 
 ```bash
-git clone --recurse-submodules https://github.com/rzbdz/bsp-remote-dev-workflow.git bsp-dev-loop
+git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-loop
 cd bsp-dev-loop
 ```
 

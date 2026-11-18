@@ -22,6 +22,6 @@ people and agents; they are not an access-control mechanism.
 ## Reporting a vulnerability
 
 Please report vulnerabilities privately through GitHub's
-[private vulnerability reporting](https://github.com/rzbdz/bsp-remote-dev-workflow/security/advisories/new)
+[private vulnerability reporting](https://github.com/rzbdz/boardctrl/security/advisories/new)
 rather than in a public issue. Include the affected version or commit, the configuration needed to
 reproduce, and the impact. We aim to acknowledge reports within a week.
