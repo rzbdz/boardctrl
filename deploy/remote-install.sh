@@ -27,11 +27,11 @@ EXTRAS=server
 # the gpiod backend needs the gpiod Python package (and the libgpiod system library)
 grep -Eq '^\s*backend:\s*gpiod' "site/hosts/$HOST_ID.yaml" && EXTRAS=server,gpiod
 venv/bin/pip install -q --disable-pip-version-check -e "$INSTALL_DIR/app[$EXTRAS]"
-if [[ -f app/modules/smtty/serial-mux/pyproject.toml ]]; then
+if [[ -f app/providers/smtty/serial-mux/pyproject.toml ]]; then
   echo "--> serial-mux (submodule) into the bsp venv"
-  venv/bin/pip install -q --disable-pip-version-check -e app/modules/smtty/serial-mux
+  venv/bin/pip install -q --disable-pip-version-check -e app/providers/smtty/serial-mux
 elif ! command -v serial-mux >/dev/null; then
-  echo "WARNING: modules/smtty/serial-mux is empty and serial-mux is not installed on this host:" >&2
+  echo "WARNING: providers/smtty/serial-mux is empty and serial-mux is not installed on this host:" >&2
   echo "         serial consoles will not work. Clone bsp with --recurse-submodules and redeploy." >&2
 fi
 ln -sf "$INSTALL_DIR/venv/bin/bsp" /usr/local/bin/bsp

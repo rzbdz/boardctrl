@@ -11,15 +11,15 @@ Every method below returns a made-up answer. Nothing here opens a port, takes a 
 process or looks at a pin: the point is the *shape* a platform fills, so a person can copy this
 directory, rename it, and replace each `hello …` with their tool's own call.
 
-A plugin is loaded by a board host from `<site>/modules/<name>/module.py`, and only when the host's
-config names it (`modules: {hello-platform: {}}` or `plugins: [hello-platform]`). Its DUT record
+A provider is loaded by a board host from `<site>/providers/<name>/provider.py`, and only when the host's
+config names it (`providers: {hello-platform: {}}`). Its DUT record
 then binds the providers it registers:
 
     services:
       console: {provider: hello-console, greeting: holá}
       flash:   {provider: hello-flash, expect_version: "V1.2"}
 
-`setup(ctx, api, config)` receives the host config's `modules.hello-platform` section as `config`.
+`setup(ctx, api, config)` receives the host config's `providers.hello-platform` section as `config`.
 """
 
 from __future__ import annotations
@@ -110,7 +110,7 @@ class HelloFlash:
 
 # ------------------------------------------------------------------- setup --
 def setup(ctx, api, config):
-    """Register this plugin's providers; `config` is the host config's `modules.hello-platform` section."""
+    """Register this provider's roles; `config` is the host config's `providers.hello-platform` section."""
     api.provider("console", "hello-console", lambda c, spec, services: HelloConsole(spec, {**config, **(spec.raw.get("services") or {}).get("console", {})}),
                  title="hello console", about="a console that greets and echoes, with no hardware behind it")
     api.provider("flash", "hello-flash", lambda c, spec, services: HelloFlash(spec, {**config, **(spec.raw.get("services") or {}).get("flash", {})}),

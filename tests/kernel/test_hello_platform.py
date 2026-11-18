@@ -1,6 +1,6 @@
-"""The hello-platform example, loaded as a site plugin by a real host.
+"""The hello-platform example, loaded as a site provider by a real host.
 
-The example in `tests/fixtures/site/modules/hello-platform` is the template a person copies to adapt a real
+The example in `tests/fixtures/site/providers/hello-platform` is the template a person copies to adapt a real
 platform. A template that has rotted is worse than none, so this loads it exactly as a host does — through
 the plugin loader, bound by a DUT record — and asks each role for its answer over the API.
 """
@@ -61,7 +61,7 @@ def test_a_board_bound_to_the_plugin_answers_through_it(client):
 
 def test_the_example_flasher_reports_success_without_touching_anything(client, tmp_path):
     # A record without the version is refused: the example teaches that a flasher proves what it wrote.
-    assert (SITE / "modules" / "hello-platform" / "module.py").is_file()
+    assert (SITE / "providers" / "hello-platform" / "provider.py").is_file()
     image = tmp_path / "hello.hex"
     image.write_text(":00000001FF\n")
     import hashlib

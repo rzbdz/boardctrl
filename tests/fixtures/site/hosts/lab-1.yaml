@@ -12,7 +12,7 @@ env:                           # values hooks receive as req["env"], in their pr
   BSP_SDK_OUTPUT: /srv/sdk-output
   BSP_SERIAL_LOG_DIR: /root/.serial-mux/logs
   BSP_SMTTY: smtty
-modules:
+providers:
   gpio:                  # before dut: dut drives the reset/FDL lines through it
     board: example-40pin       # boards/<id>.yaml
     backend: sysfs             # sysfs | gpiod | mock

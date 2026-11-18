@@ -11,7 +11,7 @@ yours; nothing here reaches a real board.
     sdk/         families, servers, workspaces, instances: the SDK catalog
     hooks/       executables a host runs for probe and flash steps
     hints/       notes a person or an agent reads
-    modules/     a site plugin: `modules/<name>/module.py` with `setup(ctx, api, config)`
+    providers/   a site provider: `providers/<name>/provider.py` with `setup(ctx, api, config)`
 
 A site has the same shape as each directory under `platforms/` in this repository, and later layers override
 earlier ones file by file. The test suite runs against this site, so every format here is one that works.
