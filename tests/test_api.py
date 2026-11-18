@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from bsp.server.app import create_app
-from bsp.server.config import HostConfig
+from frontends.server.app import create_app
+from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[1]
 

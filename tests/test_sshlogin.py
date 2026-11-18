@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from bsp.dut.sshlogin import ATTACH, MAP, SSHD, SUDOERS, ConsoleLogins, login_name
+from modules.dut.sshlogin import ATTACH, MAP, SSHD, SUDOERS, ConsoleLogins, login_name
 
 
 class FakeSystem:

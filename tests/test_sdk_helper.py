@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-HELPER = Path(__file__).resolve().parents[1] / "src" / "bsp" / "sdk" / "helper.py"
+HELPER = Path(__file__).resolve().parents[1] / "modules" / "sdk" / "helper.py"
 
 
 def call(req):

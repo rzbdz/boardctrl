@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from bsp.core import guidance
-from bsp.core.site import layers
+from core import guidance
+from core.site import layers
 
 
 @pytest.fixture
@@ -58,6 +58,6 @@ def test_the_site_wins_over_a_pack_for_the_same_file(tmp_path, monkeypatch):
     site = tmp_path / "site"
     (site / "socs" / "soc-b").mkdir(parents=True)
     (site / "socs" / "soc-b" / "notes.md").write_text("site note")
-    monkeypatch.setattr("bsp.core.guidance.layers", lambda s=None: [pack, site])
+    monkeypatch.setattr("core.guidance.layers", lambda s=None: [pack, site])
     blocks, text = guidance.resolve(type("A", (), {"soc": "soc-b", "sdk": None, "hints_cmd": None})(), site)
     assert "site note" in text and "pack note" not in text

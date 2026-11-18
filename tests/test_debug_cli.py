@@ -17,14 +17,14 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
-from bsp.core.sessions import Session, Sessions
-from bsp.server.app import create_app
-from bsp.server.config import HostConfig
+from core.sessions import Session, Sessions
+from frontends.server.app import create_app
+from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[1]
 
 PLUGIN = '''
-from bsp.dut.debug import SessionDebug
+from modules.dut.debug import SessionDebug
 
 
 class FakeDebug(SessionDebug):
@@ -204,7 +204,7 @@ def _live(host_config, tmp_path):
 
 
 def test_the_client_asks_the_host_for_the_debug_path(site, tmp_path, monkeypatch, capsys):
-    from bsp.cli.main import main
+    from frontends.cli.main import main
 
     monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
     cfg, _ = _host_config(site, tmp_path)
@@ -243,7 +243,7 @@ def test_debug_pipe_is_the_session_stream_for_programs(site, tmp_path, monkeypat
     import subprocess
     import sys
 
-    from bsp.cli.main import main
+    from frontends.cli.main import main
 
     monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
     cfg, _ = _host_config(site, tmp_path)
@@ -255,8 +255,8 @@ def test_debug_pipe_is_the_session_stream_for_programs(site, tmp_path, monkeypat
         assert main([*url, "--json", "debug", "start", "dbg-a", "--lease", token]) == 0
         capsys.readouterr()
         # A trace console comes up with the session: `dut status` reports the socket the pipe bridges to.
-        env = {**__import__("os").environ, "PYTHONPATH": str(ROOT / "src")}
-        out = subprocess.run([sys.executable, "-m", "bsp.cli.main", *url, "debug", "pipe", "dbg-a"],
+        env = {**__import__("os").environ, "PYTHONPATH": str(ROOT)}
+        out = subprocess.run([sys.executable, "-m", "frontends.cli.main", *url, "debug", "pipe", "dbg-a"],
                              capture_output=True, timeout=60, env=env)
         assert b"pc 0x1000" in out.stdout, out
     finally:
@@ -266,7 +266,7 @@ def test_debug_pipe_is_the_session_stream_for_programs(site, tmp_path, monkeypat
 
 def test_a_session_that_is_not_up_says_so_instead_of_piping_nothing(site, tmp_path, monkeypatch, capsys):
     """`debug pipe` before a session exists is an error with the next step, not an empty stream."""
-    from bsp.cli.main import main
+    from frontends.cli.main import main
 
     monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
     cfg, _ = _host_config(site, tmp_path)
@@ -283,7 +283,7 @@ def test_a_session_that_is_not_up_says_so_instead_of_piping_nothing(site, tmp_pa
 
 def test_the_debug_group_exists_before_any_host_is_reached():
     """The group is the client's own: `--help` works with no host, and names every action."""
-    from bsp.cli import debugcli
+    from frontends.cli import debugcli
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -298,7 +298,7 @@ def test_a_stream_nobody_types_into_is_still_read(tmp_path):
     """`pipe` holds a trace open after its input ends; the old bridge returned as soon as stdin hit EOF."""
     import os
 
-    from bsp.cli import pipe
+    from frontends.cli import pipe
 
     sock_path = str(tmp_path / "trace.sock")
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

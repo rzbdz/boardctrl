@@ -10,12 +10,12 @@ from typing import Iterable
 
 import pytest
 
-from bsp.core.errors import Conflict, Forbidden, InvalidRequest, NotFound
-from bsp.core.plugins import Plugins
-from bsp.core.providers import PROVIDERS, describe
-from bsp.core.sessions import Session, Sessions, unit_name
-from bsp.dut import services as bindings
-from bsp.dut.catalog import spec_from_dict
+from core.errors import Conflict, Forbidden, InvalidRequest, NotFound
+from core.plugins import Plugins
+from core.providers import PROVIDERS, describe
+from core.sessions import Session, Sessions, unit_name
+from modules.dut import services as bindings
+from modules.dut.catalog import spec_from_dict
 
 
 # ----------------------------------------------------------------- gpio claims
@@ -231,7 +231,7 @@ def test_a_site_plugin_registers_a_provider_and_takes_its_config(tmp_path):
 
 
 def test_providers_report_their_roles():
-    from bsp.dut import console_providers, debug_providers  # noqa: F401 - register the built-ins
+    from modules.dut import console_providers, debug_providers  # noqa: F401 - register the built-ins
 
     described = describe()
     assert set(described) == {"relay", "console", "download", "flash", "debug"}
@@ -273,9 +273,9 @@ def test_dut_set_fields_become_the_services_block():
 def test_a_guarded_backend_still_says_where_a_line_is():
     """The timeout guard wraps every call a service makes; a site plugin that drives a line itself needs the chip and
     offset behind it, and asked the guard, which used to forward only the driving methods."""
-    from bsp.core.errors import HardwareError
-    from bsp.gpio.backends.base import GpioBackend, LineStatus
-    from bsp.gpio.backends.guarded import GuardedBackend
+    from core.errors import HardwareError
+    from modules.gpio.backends.base import GpioBackend, LineStatus
+    from modules.gpio.backends.guarded import GuardedBackend
 
     class Located(GpioBackend):
         name = "located"
@@ -310,7 +310,7 @@ class _Busy:
     consumer = "bsp"
 
     def __init__(self, free: Iterable[int] = ()):
-        from bsp.gpio.backends.mock import MockBackend
+        from modules.gpio.backends.mock import MockBackend
 
         self.inner = MockBackend()
         self.free = set(free)
@@ -319,7 +319,7 @@ class _Busy:
         return getattr(self.inner, item)
 
     def status(self, gpio):
-        from bsp.gpio.backends.base import LineStatus
+        from modules.gpio.backends.base import LineStatus
 
         if gpio in self.free:
             return self.inner.status(gpio)
@@ -328,7 +328,7 @@ class _Busy:
 
 def test_a_claim_refuses_a_line_someone_else_holds(make_service):
     """A stale export is found when the claim is taken, not later as an EBUSY inside the feature's server."""
-    from bsp.gpio.backends.mock import MockBackend
+    from modules.gpio.backends.mock import MockBackend
 
     svc = make_service()
     svc.backend = _Busy(free=[62])
@@ -341,7 +341,7 @@ def test_a_claim_refuses_a_line_someone_else_holds(make_service):
 
 def test_two_boards_with_no_download_port_and_no_console_do_not_clash():
     """A board can have neither (a bare debug link on header pins): "no usb, no console" is not a port two boards share."""
-    from bsp.dut.catalog import shared_console, shared_usb
+    from modules.dut.catalog import shared_console, shared_usb
 
     @dataclass
     class Board:

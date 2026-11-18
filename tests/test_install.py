@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from bsp.cli import install
-from bsp.sdk.catalog import SdkCatalog
+from frontends.cli import install
+from modules.sdk.catalog import SdkCatalog
 
 ROOT = Path(__file__).resolve().parents[1]
 DUTS = [{"id": "board-1", "host": "lab-1", "board": "board-y", "soc": "soc-a", "sdks": ["bsp-a"]},
@@ -55,7 +55,7 @@ def test_unconfigured_directory(tmp_path):
 
 
 def test_hints_come_from_configuration(tmp_path):
-    from bsp.core.site import hints
+    from core.site import hints
 
     found = hints(ROOT / "examples" / "site")
     assert ("site/ssh", (ROOT / "examples/site/hints/ssh.md").read_text().strip()) in found

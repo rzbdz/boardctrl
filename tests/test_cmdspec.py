@@ -1,8 +1,8 @@
 import pytest
 
-from bsp.core.cmdspec import CapturingParser, CliExit, CommandSpec, Param, build_parser, parse_tokens
-from bsp.core.commands import Command, CommandRegistry
-from bsp.core.errors import InvalidRequest
+from core.cmdspec import CapturingParser, CliExit, CommandSpec, Param, build_parser, parse_tokens
+from core.commands import Command, CommandRegistry
+from core.errors import InvalidRequest
 
 SPEC = CommandSpec(
     "gpio.pulse",

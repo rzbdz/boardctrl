@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from bsp.server.app import create_app
-from bsp.server.config import HostConfig
+from frontends.server.app import create_app
+from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -81,7 +81,7 @@ def _serve(app):
 
 
 def test_host_announces_itself_and_the_cli_finds_it(tmp_path, monkeypatch, capsys):
-    from bsp.cli.main import main
+    from frontends.cli.main import main
 
     reg_server, reg_url = _serve(create_app(_config(tmp_path, REGISTRY)))
     monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "mock-state"))
@@ -98,7 +98,7 @@ def test_host_announces_itself_and_the_cli_finds_it(tmp_path, monkeypatch, capsy
                                                 log_level="error"))
     threading.Thread(target=host_server.run, daemon=True).start()
     try:
-        from bsp.cli.transport import HttpTransport
+        from frontends.cli.transport import HttpTransport
 
         reg = HttpTransport(reg_url)
         for _ in range(100):
@@ -114,7 +114,7 @@ def test_host_announces_itself_and_the_cli_finds_it(tmp_path, monkeypatch, capsy
         monkeypatch.setenv("BSP_REGISTRY", reg_url)
         monkeypatch.delenv("BSP_REMOTE", raising=False)
         monkeypatch.delenv("BSP_URL", raising=False)
-        from bsp.cli.remotes import RemoteStore
+        from frontends.cli.remotes import RemoteStore
 
         store = RemoteStore(stateless=True, builtin_path=tmp_path / "none.json")
         r = store.remotes()["dev-mock"]
@@ -128,7 +128,7 @@ def test_host_announces_itself_and_the_cli_finds_it(tmp_path, monkeypatch, capsy
 
 
 def test_announcer_body_and_status(tmp_path):
-    from bsp.server.announce import Announcer
+    from frontends.server.announce import Announcer
 
     a = Announcer({"url": "http://192.0.2.1:9/", "addresses": ["192.0.2.5"], "ssh_user": "root"},
                   lambda: {"host": "h", "port": 8765, "duts": ["x"]})
@@ -140,7 +140,7 @@ def test_announcer_body_and_status(tmp_path):
 
 
 def test_port_watcher_reports_cables_coming_and_going(tmp_path):
-    from bsp.dut.ports import PortWatcher, snapshot
+    from modules.dut.ports import PortWatcher, snapshot
 
     dev, usb = tmp_path / "dev", tmp_path / "usb"
     dev.mkdir()
@@ -165,7 +165,7 @@ def test_port_watcher_reports_cables_coming_and_going(tmp_path):
 
 def test_dut_ports_cli_uses_the_host_snapshot_without_a_dut_name(monkeypatch):
     """Every read-only host command must also be accepted by the client parser, not only the server registry."""
-    from bsp.cli.main import main
+    from frontends.cli.main import main
 
     called = []
 
@@ -176,7 +176,7 @@ def test_dut_ports_cli_uses_the_host_snapshot_without_a_dut_name(monkeypatch):
             called.append((tool, args))
             return {"ok": True, "result": [{"usb": "usb:1-2", "vid": "361c", "pid": "1001"}]}
 
-    monkeypatch.setattr("bsp.cli.fleet.Fleet.require", lambda self: [Host()])
+    monkeypatch.setattr("frontends.cli.fleet.Fleet.require", lambda self: [Host()])
     assert main(["--json", "--stateless", "-r", "test-host", "dut", "ports"]) == 0
     assert called == [("dut_ports", {})]
 
@@ -186,7 +186,7 @@ def test_the_client_parser_builds_once_per_action():
     build runs on every command, so a doubled one takes the whole CLI down on the host that has the newer Python."""
     import argparse
 
-    from bsp.cli import dutcli
+    from frontends.cli import dutcli
 
     root = argparse.ArgumentParser()
     sub = root.add_subparsers()
@@ -197,7 +197,7 @@ def test_the_client_parser_builds_once_per_action():
 
 
 def test_download_port_choices_use_the_watchers_snapshot_not_a_discovery_plan():
-    from bsp.dut.module import DutModule
+    from modules.dut.module import DutModule
 
     mod = object.__new__(DutModule)
     mod.probe_cfg, mod.socs, mod.port_watcher = {}, types.SimpleNamespace(usb_vids=lambda: ["361c"]), types.SimpleNamespace(
@@ -222,8 +222,8 @@ def test_registry_publishes_port_changes(registry):
 def test_announcer_is_poked_by_port_changes():
     import threading
 
-    from bsp.core.events import EventBus
-    from bsp.server.announce import Announcer
+    from core.events import EventBus
+    from frontends.server.announce import Announcer
 
     sent = threading.Event()
     a = Announcer({"url": "http://192.0.2.1:9", "interval_s": 3600}, lambda: {"host": "h"})
@@ -241,8 +241,8 @@ def test_announcer_is_poked_by_port_changes():
 def test_an_ssh_url_reaches_bspd_through_ssh(monkeypatch):
     """`--url ssh://user@host:port` is bspd on that machine's loopback port, reached through ssh, with the ssh options a
     program driving bsp adds (BSP_SSH_OPTIONS: boardlab's own key)."""
-    from bsp.cli.remotes import RemoteStore
-    from bsp.cli.transport import SshTransport, _ssh_base
+    from frontends.cli.remotes import RemoteStore
+    from frontends.cli.transport import SshTransport, _ssh_base
 
     r = RemoteStore(stateless=True).select(url="ssh://root@lab-1:8766")[0]
     [t] = r.transports()

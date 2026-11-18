@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from bsp.cli.remotes import RemoteError, RemoteStore
+from frontends.cli.remotes import RemoteError, RemoteStore
 
 
 @pytest.fixture
@@ -77,8 +77,8 @@ def test_stateless_ignores_user_file_and_default(tmp_path, builtin):
 
 
 def test_transport_chain_http_then_ssh(tmp_path, builtin, monkeypatch):
-    from bsp.cli import fleet as fl
-    from bsp.cli.transport import HttpTransport, SshTransport, Unreachable
+    from frontends.cli import fleet as fl
+    from frontends.cli.transport import HttpTransport, SshTransport, Unreachable
 
     s = store(tmp_path, builtin)
     r = s.add("dual", "http://dead:1", fallback_urls=["http://alive:2/"], ssh="root@host")

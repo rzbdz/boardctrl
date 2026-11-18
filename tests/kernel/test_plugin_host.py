@@ -13,17 +13,17 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from bsp.core.providers import PROVIDERS
-from bsp.core.sessions import Session, Sessions
-from bsp.server.app import create_app
-from bsp.server.config import HostConfig
+from core.providers import PROVIDERS
+from core.sessions import Session, Sessions
+from frontends.server.app import create_app
+from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[2]
 
 from test_kernel import FakeSystemd  # noqa: E402
 
 PLUGIN = '''
-from bsp.dut.debug import DebugProvider
+from modules.dut.debug import DebugProvider
 
 class FakeDebug(DebugProvider):
     provider_name = "fake-swd"
@@ -111,8 +111,8 @@ def setup(ctx, api, config):
     api.provider("console", "fake-rtt", lambda c, s, sv: FakeConsole(s, config), title="fake trace console")
     api.provider("flash", "fake-writer", lambda c, s, sv: FakeFlash(s, config), title="fake image writer")
 
-    from bsp.core.cmdspec import CommandSpec, Param
-    from bsp.core.commands import Command
+    from core.cmdspec import CommandSpec, Param
+    from core.commands import Command
 
     def hello(name: str):
         return {"hello": name, "config": config}
@@ -431,8 +431,8 @@ def test_a_plugin_can_fill_the_relay_role(site, tmp_path, monkeypatch):
 
 def test_the_built_in_roles_are_still_the_defaults_and_still_work(site, tmp_path, monkeypatch):
     """Filling the role table must not change what a record that names nothing gets."""
-    from bsp.dut.control import build_download, build_relay
-    from bsp.dut.catalog import spec_from_dict
+    from modules.dut.control import build_download, build_relay
+    from modules.dut.catalog import spec_from_dict
 
     spec = spec_from_dict({"id": "plain", "host": "h1", "services": {"download": {"provider": "fastboot", "usb": "usb:1-1"}}})
     control = build_relay("gpio-relay", spec, lambda name: None)

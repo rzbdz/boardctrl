@@ -1,7 +1,7 @@
 """Reading a console's log over a time range, with a search: what export and search in front ends are built on."""
 from pathlib import Path
 
-from bsp.dut.hostio import SerialConsole
+from modules.dut.hostio import SerialConsole
 
 
 def console(tmp_path: Path) -> SerialConsole:
@@ -46,8 +46,8 @@ def test_hosts_serve_a_dut_s_log_range(tmp_path, monkeypatch):
 
     from fastapi.testclient import TestClient
 
-    from bsp.server.app import create_app
-    from bsp.server.config import HostConfig
+    from frontends.server.app import create_app
+    from frontends.server.config import HostConfig
 
     root = Path(__file__).resolve().parents[1]
     hosts = tmp_path / "site" / "hosts"

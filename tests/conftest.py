@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from bsp.core.events import EventBus
-from bsp.gpio.backends import create_backend
-from bsp.gpio.board import BoardCatalog
-from bsp.gpio.service import ConfigStore, GpioService
+from core.events import EventBus
+from modules.gpio.backends import create_backend
+from modules.gpio.board import BoardCatalog
+from modules.gpio.service import ConfigStore, GpioService
 
 ROOT = Path(__file__).resolve().parents[1]
 

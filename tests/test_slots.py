@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from bsp.core.errors import Conflict, InvalidRequest, NotFound
-from bsp.dut import probe as probe_mod
-from bsp.dut.slots import SlotTable, is_slot_ref
+from core.errors import Conflict, InvalidRequest, NotFound
+from modules.dut import probe as probe_mod
+from modules.dut.slots import SlotTable, is_slot_ref
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -86,7 +86,7 @@ class FakeGpio:
 
 
 def fake_host(tmp_path, monkeypatch, wiring, aliases=("s1", "s2"), **probe_cfg):
-    from bsp.dut.socs import SocProfiles
+    from modules.dut.socs import SocProfiles
 
     logs = {a: tmp_path / "logs" / a for a in aliases}
     for d in logs.values():

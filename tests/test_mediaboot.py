@@ -5,9 +5,9 @@ import types
 
 import pytest
 
-from bsp.core.errors import HardwareTimeout, InvalidRequest
-from bsp.dut.boot import BootRunner
-from bsp.dut.mediaboot import MediaBoot
+from core.errors import HardwareTimeout, InvalidRequest
+from modules.dut.boot import BootRunner
+from modules.dut.mediaboot import MediaBoot
 
 IMAGE = b"\x00a small image for one boot ROM\n"
 SHA = hashlib.sha256(IMAGE).hexdigest()
@@ -90,7 +90,7 @@ def image(tmp_path, data=IMAGE):
 
 
 def test_an_already_waiting_download_port_uses_its_existing_rom_evidence_without_a_reset(tmp_path):
-    from bsp.dut.hostio import SerialConsole
+    from modules.dut.hostio import SerialConsole
 
     # Exercise the production marker: a retained ROM banner read through SerialConsole, not an integer offset.
     con = SerialConsole("board-a", log_dir=str(tmp_path))

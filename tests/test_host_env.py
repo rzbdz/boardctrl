@@ -7,13 +7,13 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from bsp.core.env import expand, resolve_refs
-from bsp.core.errors import InvalidRequest
-from bsp.core.hooks import HookRunner
-from bsp.dut.boot import BootRunner
-from bsp.dut.module import resolve_network
-from bsp.server.app import create_app
-from bsp.server.config import HostConfig
+from core.env import expand, resolve_refs
+from core.errors import InvalidRequest
+from core.hooks import HookRunner
+from modules.dut.boot import BootRunner
+from modules.dut.module import resolve_network
+from frontends.server.app import create_app
+from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[1]
 MOCK = ROOT / "examples" / "site" / "hosts" / "dev-mock.yaml"

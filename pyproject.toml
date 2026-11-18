@@ -3,9 +3,9 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "bsp-dev-loop"
+name = "boardctrl"
 version = "0.1.0b0"
-description = "Lease a board, build on a remote server, boot over fastboot and check the serial console: one CLI and HTTP API for embedded BSP developers and AI agents"
+description = "A board host: two pins in, a leased board out — one CLI and HTTP API for embedded BSP developers and AI agents"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
@@ -21,7 +21,7 @@ classifiers = [
   "Topic :: System :: Hardware",
 ]
 # The board-host daemon needs Python >= 3.10. The client also runs from a clone
-# (bin/bsp) on Python >= 3.8; host commands are stdlib-only, SDK and site commands
+# (bin/boardctrl) on Python >= 3.8; host commands are stdlib-only, SDK and site commands
 # need PyYAML.
 dependencies = ["pyyaml>=5.1"]
 
@@ -35,17 +35,21 @@ gpiod = ["gpiod>=2.1"]
 dev = ["pytest>=7", "httpx>=0.27"]
 
 [project.scripts]
-boardctrl = "bsp.cli.main:cli"
-boardctrld = "bsp.server.__main__:main"
+boardctrl = "frontends.cli.main:cli"
+boardctrld = "frontends.server.__main__:main"
 # The names before boardctrl; kept working for scripts, units and sites written then.
-bsp = "bsp.cli.main:cli"
-bsp-hostd = "bsp.server.__main__:main"
+bsp = "frontends.cli.main:cli"
+bsp-hostd = "frontends.server.__main__:main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+# Three top-level packages, flat in the repository: the kernel, the modules, the frontends.
+# Every module is `modules/<name>/` with a `module.py`; a site carries more of the same under
+# `<site>/modules/<name>/`, and the host loads both the same way.
+[tool.setuptools]
+packages = ["core", "modules", "modules.gpio", "modules.gpio.backends", "modules.dut",
+            "modules.sdk", "modules.registry", "frontends", "frontends.cli", "frontends.server"]
 
 [tool.setuptools.package-data]
-"bsp.server" = ["web/*"]
+"frontends.server" = ["web/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

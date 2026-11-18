@@ -11,11 +11,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from bsp.core.errors import Forbidden, InvalidRequest
-from bsp.dut.hostio import ArtifactStore
-from bsp.dut.leases import LeaseManager
-from bsp.server.app import create_app
-from bsp.server.config import HostConfig
+from core.errors import Forbidden, InvalidRequest
+from modules.dut.hostio import ArtifactStore
+from modules.dut.leases import LeaseManager
+from frontends.server.app import create_app
+from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[1]
 MOCK = ROOT / "examples" / "site" / "hosts" / "dev-mock.yaml"
@@ -63,7 +63,7 @@ def test_ssh_transport_copies_a_file_with_scp_not_an_http_body(tmp_path, monkeyp
     """The registry's bsp CLI scps to the ticket path; only ticket/adopt are small JSON calls."""
     import subprocess
 
-    from bsp.cli.transport import SshTransport
+    from frontends.cli.transport import SshTransport
 
     src = tmp_path / "Image.itb"
     src.write_bytes(b"kernel FIT" * 1000)
@@ -146,7 +146,7 @@ def test_ssh_transport_copies_a_file_with_scp_not_an_http_body(tmp_path, monkeyp
     """The registry's bsp CLI scps to the ticket path; only ticket/adopt are small JSON calls."""
     import subprocess
 
-    from bsp.cli.transport import SshTransport
+    from frontends.cli.transport import SshTransport
 
     src = tmp_path / "Image.itb"
     src.write_bytes(b"kernel FIT" * 1000)
@@ -224,7 +224,7 @@ def test_lease_renew_keeps_holder_and_token(tmp_path):
 
 
 def test_bridge_copies_both_ways_until_a_side_closes(tmp_path):
-    from bsp.cli.pipe import bridge, remote_command
+    from frontends.cli.pipe import bridge, remote_command
 
     path = str(tmp_path / "con.sock")
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -365,7 +365,7 @@ def test_cli_stage_uploads_once_over_http(tmp_path, monkeypatch, capsys):
     """End to end through the real CLI and an HTTP server (streamed upload, then stage)."""
     import uvicorn
 
-    from bsp.cli.main import main
+    from frontends.cli.main import main
 
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -407,7 +407,7 @@ def test_cli_stage_uploads_once_over_http(tmp_path, monkeypatch, capsys):
 
 def test_slots_name_boards_and_refresh_reads_the_board_swapped_into_one(host, monkeypatch):
     """A slot reference works wherever a DUT name does; refresh re-reads the board after a swap."""
-    from bsp.dut import probe as probe_mod
+    from modules.dut import probe as probe_mod
 
     mod = host.app.state.hub.modules["dut"]
     spec = {"id": "k3-deb1-32g", "board": "k3_deb1", "soc": "soc-b", "console": {"alias": "uart-a"},
@@ -449,7 +449,7 @@ def test_slots_name_boards_and_refresh_reads_the_board_swapped_into_one(host, mo
 
 def test_rebuild_forgets_probed_boards_and_slots_and_rediscovers_them(host, monkeypatch):
     """After re-cabling: a rebuild starts the host's wiring over, and is refused while a board is leased."""
-    from bsp.dut import probe as probe_mod
+    from modules.dut import probe as probe_mod
 
     mod = host.app.state.hub.modules["dut"]
     consoles = [{"id": "uart-a", "kind": "serial-mux", "alias": "uart-a", "device": "/dev/ttyUSB0", "usb_port": "p-a", "busy": True}]
@@ -484,7 +484,7 @@ def test_rebuild_forgets_probed_boards_and_slots_and_rediscovers_them(host, monk
 def test_rediscover_keeps_boards_in_use_and_redoes_only_what_moved(host, monkeypatch):
     """keep_used: a leased board keeps its slot and wiring; a free board whose console is gone is forgotten with its
     slot; a new adapter gets a slot; the probe runs while the leased board is held."""
-    from bsp.dut import probe as probe_mod
+    from modules.dut import probe as probe_mod
 
     mod = host.app.state.hub.modules["dut"]
     consoles = [{"id": "uart-a", "kind": "serial-mux", "alias": "uart-a", "device": "/dev/ttyUSB0", "usb_port": "p-a", "busy": True},

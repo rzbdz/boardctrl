@@ -8,12 +8,12 @@ from pathlib import Path
 import time
 import pytest
 
-from bsp.core.errors import Conflict, Forbidden, HardwareError, HardwareTimeout, InvalidRequest, NotFound
-from bsp.core.hooks import HookRunner
-from bsp.dut.boot import BootRunner
-from bsp.dut.catalog import DutRegistry
-from bsp.dut.leases import LeaseManager
-from bsp.sdk.catalog import SdkCatalog
+from core.errors import Conflict, Forbidden, HardwareError, HardwareTimeout, InvalidRequest, NotFound
+from core.hooks import HookRunner
+from modules.dut.boot import BootRunner
+from modules.dut.catalog import DutRegistry
+from modules.dut.leases import LeaseManager
+from modules.sdk.catalog import SdkCatalog
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = {"id": "b1", "board": "board-x", "soc": "soc-b", "console": {"alias": "board1"},
@@ -164,14 +164,14 @@ def test_boot_runner_send_step_types_one_line_and_waits(tmp_path):
 
 # ------------------------------------------------------ serial send (echo) --
 def _console(tmp_path):
-    from bsp.dut import hostio
+    from modules.dut import hostio
 
     (tmp_path / "b1").mkdir(exist_ok=True)
     return hostio.SerialConsole("b1", log_dir=str(tmp_path))
 
 
 def _fake_smtty(monkeypatch, log, *chunks):
-    from bsp.dut import hostio
+    from modules.dut import hostio
 
     def fake_run(argv, timeout):
         with open(log, "a") as f:
@@ -261,7 +261,7 @@ def test_registry_update_and_rename(tmp_path):
 
 
 def test_soc_profiles_detect_and_layer_merge(tmp_path):
-    from bsp.dut.socs import SocProfiles
+    from modules.dut.socs import SocProfiles
 
     site = ROOT / "examples" / "site" / "socs"
     p = SocProfiles([site])
@@ -282,8 +282,8 @@ def test_soc_profiles_detect_and_layer_merge(tmp_path):
 
 def test_a_site_overlay_adds_media_boot_and_images_to_a_pack_profile(tmp_path):
     """A site is an overlay: it writes only what it adds, the public pack supplies everything else."""
-    from bsp.dut import images
-    from bsp.dut.socs import SocProfiles
+    from modules.dut import images
+    from modules.dut.socs import SocProfiles
 
     site = tmp_path / "socs" / "k3"
     site.mkdir(parents=True)
@@ -307,7 +307,7 @@ def test_a_site_overlay_adds_media_boot_and_images_to_a_pack_profile(tmp_path):
 
 
 def test_common_boot_banners_count_as_a_boot_and_shell_chatter_does_not():
-    from bsp.dut.socs import SocProfiles
+    from modules.dut.socs import SocProfiles
 
     p = SocProfiles(None)
     for banner in ("NOTICE:  BL2: v2.7(release):v2.7-dirty", "NOTICE:  BL31: Built : 10:15:02, Jan 10 2026",
@@ -323,7 +323,7 @@ def test_common_boot_banners_count_as_a_boot_and_shell_chatter_does_not():
 
 def test_console_wait_nudges_a_quiet_prompt(tmp_path, monkeypatch):
     """A prompt without a newline only reaches the line-based log after Enter."""
-    from bsp.dut import hostio
+    from modules.dut import hostio
 
     con = hostio.SerialConsole("b1", log_dir=str(tmp_path))
     (tmp_path / "b1").mkdir()
@@ -345,8 +345,8 @@ def test_console_wait_nudges_a_quiet_prompt(tmp_path, monkeypatch):
 def _human(cfg=None):
     import threading
 
-    from bsp.dut.catalog import spec_from_dict as parse_spec
-    from bsp.dut.control import Attention, make_control
+    from modules.dut.catalog import spec_from_dict as parse_spec
+    from modules.dut.control import Attention, make_control
 
     att = Attention()
     spec = parse_spec({"id": "slot-1", "host": "h", "board": "b", "console": {"alias": "slot-1"},
@@ -391,9 +391,9 @@ def test_human_probe_pairs_the_console_that_speaks_with_the_usb_port_that_appear
     port that appear together are paired."""
     import types
 
-    from bsp.core.hooks import HookRunner as _H  # noqa: F401 - the real hooks are replaced below
-    from bsp.dut import probe as probe_mod
-    from bsp.dut.socs import SocProfiles
+    from core.hooks import HookRunner as _H  # noqa: F401 - the real hooks are replaced below
+    from modules.dut import probe as probe_mod
+    from modules.dut.socs import SocProfiles
 
     logs = {a: tmp_path / a for a in ("con-a", "con-b")}
     for d in logs.values():
@@ -462,8 +462,8 @@ def test_human_probe_starts_from_a_running_board_not_one_already_in_download_mod
     """A board left in download mode would match at once; the first step asks for a normal boot instead."""
     import types
 
-    from bsp.dut import probe as probe_mod
-    from bsp.dut.socs import SocProfiles
+    from modules.dut import probe as probe_mod
+    from modules.dut.socs import SocProfiles
 
     logdir = tmp_path / "logs" / "con-a"
     logdir.mkdir(parents=True)
@@ -537,7 +537,7 @@ def test_enter_fdl_accepts_a_board_already_in_download_mode(tmp_path):
 def test_a_person_gets_the_whole_window_to_put_a_board_in_download_mode(tmp_path, monkeypatch):
     """A person confirms, then presses a moment later: the board is waited for past a relay's 30 seconds, within the
     person's window; if it never shows, the error says a person confirmed and the board did not follow."""
-    import bsp.dut.boot as boot_mod
+    import modules.dut.boot as boot_mod
 
     con = FakeConsole(tmp_path)
     fb = FakeFastboot(con)
@@ -757,9 +757,9 @@ exit 0
 def test_a_board_whose_fdl_is_not_known_says_what_to_set():
     import pytest
 
-    from bsp.core.errors import InvalidRequest
-    from bsp.dut.catalog import spec_from_dict as parse_spec
-    from bsp.dut.control import make_control
+    from core.errors import InvalidRequest
+    from modules.dut.catalog import spec_from_dict as parse_spec
+    from modules.dut.control import make_control
 
     spec = parse_spec({"id": "k3-s1", "host": "h", "board": "b", "console": {"alias": "s1"}, "fastboot": {"usb": "usb:1-1"},
                        "control": {"backend": "gpio-relay", "reset": {"pin": "P33"}, "fdl": {"strategy": "unset"}}})
@@ -827,7 +827,7 @@ def test_an_sdk_recipes_hook_step_gets_the_boards_soc_images(tmp_path):
 
 def test_preferred_gpio_numbers_are_read_however_they_are_typed():
     """`--prefer` takes what people actually write: spaces, Chinese commas, 、, ;, GPIO12, gpio_13, P15, 引脚16."""
-    from bsp.dut.probe import pin_numbers
+    from modules.dut.probe import pin_numbers
 
     for typed in ("12, 13", "12，13", "12、13", "12;13", "12 13", "GPIO12 gpio_13 P15 pin 16 引脚17",
                   "GPIO 18、GPIO_19\n20"):
@@ -844,8 +844,8 @@ def test_confirm_names_the_request_and_a_repeat_is_idempotent():
     answered, so the click is not an error and the page can say it was already confirmed."""
     import threading
 
-    from bsp.dut.catalog import spec_from_dict as parse_spec
-    from bsp.dut.control import Attention, make_control
+    from modules.dut.catalog import spec_from_dict as parse_spec
+    from modules.dut.control import Attention, make_control
 
     att = Attention()
     spec = parse_spec({"id": "slot-1", "host": "h", "board": "b", "console": {"alias": "slot-1"},
@@ -878,8 +878,8 @@ def test_confirm_names_the_request_and_a_repeat_is_idempotent():
 def test_confirm_without_a_request_answers_what_is_waiting_now():
     import threading
 
-    from bsp.dut.catalog import spec_from_dict as parse_spec
-    from bsp.dut.control import Attention, make_control
+    from modules.dut.catalog import spec_from_dict as parse_spec
+    from modules.dut.control import Attention, make_control
 
     att = Attention()
     spec = parse_spec({"id": "slot-1", "host": "h", "board": "b", "console": {"alias": "slot-1"},
@@ -900,7 +900,7 @@ def test_confirm_without_a_request_answers_what_is_waiting_now():
 def test_a_repeated_ask_supersedes_the_older_one_and_a_click_on_it_is_answered():
     """bsp asks again before a person answered (a second reset): a click on the first page button resolves to
     'superseded', not to an error, and the newer request carries its own id."""
-    from bsp.dut.control import Attention
+    from modules.dut.control import Attention
 
     att = Attention()
     first = att.request("slot-1", "reset", "press RESET")

@@ -7,11 +7,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from bsp.core.errors import Conflict, InvalidRequest, NotFound
-from bsp.registry.catalog import CatalogStore, layer_rev, materialize
-from bsp.sdk.catalog import SdkCatalog
-from bsp.server.app import create_app
-from bsp.server.config import HostConfig
+from core.errors import Conflict, InvalidRequest, NotFound
+from modules.registry.catalog import CatalogStore, layer_rev, materialize
+from modules.sdk.catalog import SdkCatalog
+from frontends.server.app import create_app
+from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[1]
 SEED = [ROOT / "examples" / "site" / "sdk"]
@@ -139,8 +139,8 @@ def test_writes_need_no_token_and_hosts_pick_the_catalog_up(tmp_path, monkeypatc
 
 
 def test_cli_edit_round_trip_uses_the_revision_in_the_file(tmp_path, monkeypatch, capsys):
-    from bsp.cli import catalogcli
-    from bsp.cli.main import main
+    from frontends.cli import catalogcli
+    from frontends.cli.main import main
 
     reg_app = _app(tmp_path, "reg", "host: {id: reg}\nserver: {state_dir: state}\nmodules: {registry: {}}\n")
     with TestClient(reg_app) as reg:
@@ -148,7 +148,7 @@ def test_cli_edit_round_trip_uses_the_revision_in_the_file(tmp_path, monkeypatch
             kind, label = "http", "test"
             def request(self, method, path, body=None, timeout=0):
                 return (reg.get(path) if method == "GET" else reg.post(path, json=body)).json()
-        monkeypatch.setattr("bsp.cli.fleet.connect", lambda remote, quick=2.0: type("H", (), {"call": lambda self, tool, args, timeout=0: T().request("POST", f"/api/v1/tools/{tool}", args), "id": "reg"})())
+        monkeypatch.setattr("frontends.cli.fleet.connect", lambda remote, quick=2.0: type("H", (), {"call": lambda self, tool, args, timeout=0: T().request("POST", f"/api/v1/tools/{tool}", args), "id": "reg"})())
         monkeypatch.setenv("BSP_REGISTRY", "http://registry.invalid")
         monkeypatch.setenv("BSP_HOLDER", "claude:cli")
         f = tmp_path / "bsp-a.yaml"
@@ -166,8 +166,8 @@ def test_a_host_reports_site_edits_the_registry_overrides(tmp_path, store):
     """Editing the site file on a host does nothing once the registry has the document: say so, loudly."""
     import shutil
 
-    from bsp.core.events import EventBus
-    from bsp.server.catalog_follow import CatalogFollower
+    from core.events import EventBus
+    from frontends.server.catalog_follow import CatalogFollower
 
     site = tmp_path / "site-sdk"
     shutil.copytree(SEED[0], site)
@@ -187,8 +187,8 @@ def test_git_registry_commits_writes_and_takes_in_pushed_commits(tmp_path):
     import shutil
     import subprocess
 
-    from bsp.core.events import EventBus
-    from bsp.registry.gitsync import GitMirror
+    from core.events import EventBus
+    from modules.registry.gitsync import GitMirror
 
     def git(cwd, *args):
         return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True).stdout.strip()
@@ -251,7 +251,7 @@ def test_hosts_and_clis_share_the_registrys_soc_profiles_hooks_and_images(tmp_pa
 
     import uvicorn
 
-    from bsp.registry.files import SharedFiles, layer_digest
+    from modules.registry.files import SharedFiles, layer_digest
 
     image = b"\x00handoff image\n"
     sha = hashlib.sha256(image).hexdigest()
@@ -307,7 +307,7 @@ def test_hosts_and_clis_share_the_registrys_soc_profiles_hooks_and_images(tmp_pa
         # a compile machine's CLI gets the same files with `bsp catalog sync`
         monkeypatch.setenv("BSP_REGISTRY", url)
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-        from bsp.cli.catalogcli import registry_files
+        from frontends.cli.catalogcli import registry_files
 
         layer = registry_files()
         assert layer and layer_digest(layer) == shared.digest()

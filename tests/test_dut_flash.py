@@ -16,11 +16,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from bsp.core.errors import InvalidRequest
-from bsp.dut import flashpkg
-from bsp.dut.hostio import ArtifactStore
-from bsp.server.app import create_app
-from bsp.server.config import HostConfig
+from core.errors import InvalidRequest
+from modules.dut import flashpkg
+from modules.dut.hostio import ArtifactStore
+from frontends.server.app import create_app
+from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[1]
 MOCK = ROOT / "examples" / "site" / "hosts" / "dev-mock.yaml"
@@ -245,7 +245,7 @@ def test_flash_downloads_a_url_and_reports_the_hooks_error(host, web, monkeypatc
 def test_cli_flash_sends_a_directory_and_prints_progress(tmp_path, monkeypatch, capsys):
     import uvicorn
 
-    from bsp.cli.main import main
+    from frontends.cli.main import main
 
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -302,8 +302,8 @@ def test_a_running_job_can_be_cancelled(host):
     """`dut cancel` asks the running job to stop: it ends before its next step, with status cancelled."""
     import time
 
-    from bsp.core.jobs import JobManager
-    from bsp.core.events import EventBus
+    from core.jobs import JobManager
+    from core.events import EventBus
 
     bus = EventBus()
     jobs = JobManager(bus)
