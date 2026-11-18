@@ -77,11 +77,19 @@ class Hub:
 
         self.plugins = Plugins([layer / "modules" for layer in layers((config.config_dir / "..").resolve())])
         available = self.plugins.available()
-        wanted = list(config.plugins) or [name for name in config.modules if name in available and name not in MODULES]
+        # `enabled: false` turns a plugin off however it was selected: a site that carries a plugin's code may still
+        # want it off on one host (it drives pins, it needs a tool that host does not have), and a config key that
+        # reads like a switch must not be ignored.
+        off = {name for name, cfg in config.modules.items() if cfg.get("enabled", True) is False}
+        named = list(config.plugins or [])
+        wanted = [name for name in (named or [
+            name for name in config.modules if name in available and name not in MODULES]) if name not in off]
         wanted += [name for name in config.modules
-                   if name not in MODULES and name not in wanted and config.modules[name].get("enabled", True)]
+                   if name not in MODULES and name not in wanted and name not in off]
         plugin_config = {name: config.modules.get(name) or {} for name in wanted}
-        self.plugin_commands = self.plugins.load(wanted, ctx, plugin_config)
+        # `Plugins.load` reads an empty list as "everything available": a host that names no plugin loads none, so
+        # the selection is passed explicitly even when it is empty.
+        self.plugin_commands = self.plugins.load(wanted, ctx, plugin_config) if wanted or named else []
         for name in wanted:
             if name not in available and name not in self.plugins.errors:
                 self.plugins.errors[name] = "no modules/%s/module.py in the site or its packs" % name

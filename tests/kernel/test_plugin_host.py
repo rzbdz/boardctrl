@@ -321,3 +321,46 @@ def test_a_provider_carries_the_title_and_explanation_it_registered_with(client)
     assert listed[0]["title"] == "fake SWD"
     # and a board's record still shows which provider fills the role, by name
     assert status["services"]["debug"]["provider"] == "fake-swd"
+
+
+def test_a_plugin_switched_off_in_the_host_config_is_not_loaded(site, tmp_path, monkeypatch):
+    """`enabled: false` is a switch, however the plugin would otherwise be selected.
+
+    A site carries the code, and one host may still need it off — it drives pins, it needs a tool that host does not
+    have. Reading the key as a comment and loading the plugin anyway is how a host starts doing something its
+    operator says it should not.
+    """
+    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BSP_SITE", str(site))
+    import yaml
+
+    (site / "hosts" / "off.yaml").write_text(yaml.safe_dump({
+        "host": {"id": "off"},
+        "server": {"bind": "127.0.0.1", "port": 8766, "state_dir": str(tmp_path / "state2")},
+        "modules": {"gpio": {"board": "example-40pin", "backend": "mock", "pinmux": False},
+                    "sdk": {}, "dut": {}, "fake": {"enabled": False}},
+    }))
+    app = create_app(HostConfig.load(site / "hosts" / "off.yaml"))
+    with TestClient(app) as client:
+        status = client.get("/api/v1/status").json()
+        assert "fake" not in (status.get("plugins") or {}).get("loaded", {})
+        assert "fake.hello" not in {tool["name"] for tool in client.get("/api/v1/tools").json()["tools"]}
+
+
+def test_a_plugin_named_in_plugins_and_switched_off_is_not_loaded(site, tmp_path, monkeypatch):
+    """The other selection route: an explicit `plugins: [fake]` does not override `enabled: false`."""
+    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BSP_SITE", str(site))
+    import yaml
+
+    (site / "hosts" / "named.yaml").write_text(yaml.safe_dump({
+        "host": {"id": "named"},
+        "server": {"bind": "127.0.0.1", "port": 8767, "state_dir": str(tmp_path / "state3")},
+        "modules": {"gpio": {"board": "example-40pin", "backend": "mock", "pinmux": False},
+                    "sdk": {}, "dut": {}, "fake": {"enabled": False}},
+        "plugins": ["fake"],
+    }))
+    app = create_app(HostConfig.load(site / "hosts" / "named.yaml"))
+    with TestClient(app) as client:
+        status = client.get("/api/v1/status").json()
+        assert "fake" not in (status.get("plugins") or {}).get("loaded", {})
