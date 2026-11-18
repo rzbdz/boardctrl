@@ -1,8 +1,10 @@
-# A host that carries one site plugin and nothing else hardware-specific: the smallest complete
-# example of "a platform adapter is a directory of code, loaded by name".
+# A host that carries one site plugin: the smallest complete example of "a platform adapter is a
+# directory of code, loaded by name". The board it serves is a real K1 board (see
+# packs/spacemit/boards/spacemit-bananapi-f3.yaml); the plugin supplies the console and flash roles.
+#
 #   BSP_SITE=examples/site boardctrld -c examples/site/hosts/hello.yaml
 host: {id: hello, description: example host with the hello-platform site plugin}
 server: {bind: 127.0.0.1, port: 8770, state_dir: ../../../var/hello}
 modules:
-  dut: {}
-  hello-platform: {}       # the plugin in modules/hello-platform; a name here selects it
+  dut: {}                    # the hello-board DUT record, bound to the plugin's two providers
+  hello-platform: {}         # the plugin in modules/hello-platform; naming it selects it
