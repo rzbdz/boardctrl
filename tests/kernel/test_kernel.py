@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import json
 from pathlib import Path
 from typing import Iterable
@@ -311,3 +313,20 @@ def test_a_claim_refuses_a_line_someone_else_holds(make_service):
     assert svc.claims() == []                    # nothing half-taken
     svc.backend = MockBackend()                  # the export released: the same claim now succeeds
     assert svc.claim("swd", {"swclk": "J40:11", "swdio": "J40:13"}).usage == "swd"
+
+def test_two_boards_with_no_download_port_and_no_console_do_not_clash():
+    """A board can have neither (a bare debug link on header pins): "no usb, no console" is not a port two boards share."""
+    from bsp.dut.catalog import shared_console, shared_usb
+
+    @dataclass
+    class Board:
+        id: str
+        usb: str | None = None
+        console_alias: str | None = None
+
+    bare, other = Board("ec"), Board("ec2")
+    assert not shared_usb(bare, other) and not shared_console(bare, other)
+    # A port that is there is still one board's alone.
+    assert shared_usb(Board("a", usb="usb:2-1.4"), Board("b", usb="usb:2-1.4"))
+    assert shared_console(Board("a", console_alias="s1"), Board("b", console_alias="s1"))
+

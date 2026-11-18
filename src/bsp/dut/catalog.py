@@ -17,6 +17,16 @@ from typing import Any
 from ..core.errors import InvalidRequest, NotFound
 
 
+def shared_usb(a: "DutSpec", b: "DutSpec") -> bool:
+    """Two boards may not use one download port — but a board with none uses nothing, so two of those do not clash."""
+    return bool(a.usb) and a.usb == b.usb
+
+
+def shared_console(a: "DutSpec", b: "DutSpec") -> bool:
+    """Two boards may not use one console alias — but a board with none uses nothing, so two of those do not clash."""
+    return bool(a.console_alias) and a.console_alias == b.console_alias
+
+
 @dataclass
 class DutSpec:
     id: str
@@ -131,7 +141,7 @@ class DutRegistry:
         if spec.id in self.all() and not replace:
             raise Conflict(f"DUT {spec.id} already exists on {self.host_id}", hint="pick another name or pass replace=true")
         for other in self.all().values():
-            if other.id != spec.id and (other.usb == spec.usb or other.console_alias == spec.console_alias):
+            if other.id != spec.id and (shared_usb(other, spec) or shared_console(other, spec)):
                 raise Conflict(f"{other.id} already uses usb {other.usb} / console {other.console_alias}",
                                hint=f"remove it first (`bsp dut remove {other.id}`) or replace it")
         self.dynamic[spec.id] = spec
@@ -150,7 +160,7 @@ class DutRegistry:
         if spec.id != dut_id and spec.id in self.all():
             raise Conflict(f"DUT {spec.id} already exists on {self.host_id}")
         for other in self.all().values():
-            if other.id not in (dut_id, spec.id) and (other.usb == spec.usb or other.console_alias == spec.console_alias):
+            if other.id not in (dut_id, spec.id) and (shared_usb(other, spec) or shared_console(other, spec)):
                 raise Conflict(f"{other.id} already uses usb {other.usb} / console {other.console_alias}")
         del self.dynamic[dut_id]
         self.dynamic[spec.id] = spec
