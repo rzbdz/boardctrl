@@ -22,9 +22,13 @@ class HostConfig:
     port: int = 8765
     state_dir: Path = Path("/var/lib/bsp")
     auth_token: str | None = None
-    modules: dict[str, dict[str, Any]] = field(default_factory=dict)
-    # Site plugins to load (`modules: {<name>: {...}}` selects them too); empty loads every plugin the site has.
-    plugins: list[str] = field(default_factory=list)
+    # The providers the host loads, by name: `modules:` (the key sites have always written) or `providers:`.
+    providers: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    @property
+    def modules(self) -> dict[str, dict[str, Any]]:
+        """The same map under the name sites have always written (`modules:` in the host YAML)."""
+        return self.providers
     announce: dict[str, Any] | None = None   # registry this host announces itself to
     env: dict[str, str] = field(default_factory=dict)   # values hooks receive (top-level `env:`)
 
@@ -59,8 +63,7 @@ class HostConfig:
             port=int(naming.get("BOARDCTRL_PORT") or srv.get("port", 8765)),
             state_dir=state_dir,
             auth_token=naming.get("BOARDCTRL_TOKEN") or srv.get("auth_token") or None,
-            modules={k: (v or {}) for k, v in (raw.get("modules") or {}).items()},
-            plugins=[str(x) for x in (raw.get("plugins") or [])],
+            providers={k: (v or {}) for k, v in (raw.get("providers") or raw.get("modules") or {}).items()},
             announce=_announce(srv.get("announce")),
             env={str(k): ("" if v is None else str(v)) for k, v in env.items()},
         )

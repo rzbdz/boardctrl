@@ -19,7 +19,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from modules.registry.catalog import layer_rev, materialize
+from core.hostregistry.catalog import layer_rev, materialize
 
 log = logging.getLogger(__name__)
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -35,7 +35,7 @@ class CatalogFollower:
         self.token = token
         self.site_roots = [Path(r) for r in (site_roots or [])]
         self.rev = layer_rev(self.layer)
-        from modules.registry.files import layer_digest
+        from core.hostregistry.files import layer_digest
 
         self.files_digest = layer_digest(self.files_layer)
         self.last: dict[str, Any] = {}
@@ -47,8 +47,8 @@ class CatalogFollower:
         the registry's catalog overrides, so they have no effect until someone puts them into the registry."""
         import yaml
 
-        from modules.registry.catalog import ref_of
-        from modules.sdk.catalog import CATALOG_KINDS
+        from core.hostregistry.catalog import ref_of
+        from core.sdk.catalog import CATALOG_KINDS
 
         out = []
         if not self.layer.is_dir():
@@ -105,7 +105,7 @@ class CatalogFollower:
 
     def sync_files(self, reset: bool = False) -> dict[str, Any]:
         """Fetch the registry's SoC profiles and hooks when they changed (a registry without them: nothing)."""
-        from modules.registry.files import materialize as write_files
+        from core.hostregistry.files import materialize as write_files
 
         try:
             manifest = json.loads(self._get("/api/v1/registry/files"))["result"]

@@ -41,12 +41,12 @@ boardctrld = "frontends.server.__main__:main"
 bsp = "frontends.cli.main:cli"
 bsp-hostd = "frontends.server.__main__:main"
 
-# Three top-level packages, flat in the repository: the kernel (`core`), the components (`modules`), the
-# frontends. Every component is `modules/<name>/` with a `module.py`; a site carries more of the same under
-# `<site>/modules/<name>/`, and the host loads both the same way. Sub-packages are found, so adding a
-# component (or a backend under one) is adding a directory.
+# Three top-level packages, flat in the repository: the kernel (`core`), the providers (`providers`), the
+# frontends. Every provider is `providers/<name>/` with a `provider.py`; a site carries more of the same under
+# `<site>/providers/<name>/` (or `<site>/modules/<name>/`, the name sites have always used), and the host loads
+# both the same way. Sub-packages are found, so adding one is adding a directory.
 [tool.setuptools.packages.find]
-include = ["core*", "modules*", "frontends*"]
+include = ["core*", "providers*", "frontends*"]
 exclude = ["tests*"]
 
 [tool.setuptools.package-data]

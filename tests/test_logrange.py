@@ -1,7 +1,7 @@
 """Reading a console's log over a time range, with a search: what export and search in front ends are built on."""
 from pathlib import Path
 
-from modules.smtty.serial import SerialConsole
+from providers.smtty.serial import SerialConsole
 
 
 def console(tmp_path: Path) -> SerialConsole:

@@ -3,9 +3,9 @@ from pathlib import Path
 import pytest
 
 from core.events import EventBus
-from modules.gpio.backends import create_backend
-from modules.gpio.board import BoardCatalog
-from modules.gpio.service import ConfigStore, GpioService
+from providers.gpio.backends import create_backend
+from providers.gpio.board import BoardCatalog
+from providers.gpio.service import ConfigStore, GpioService
 
 ROOT = Path(__file__).resolve().parents[1]
 # The site every test runs against: a complete, made-up site — hosts, DUT records, board maps, SoC facts, an SDK

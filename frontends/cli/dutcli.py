@@ -12,7 +12,7 @@ import time
 from typing import Any
 
 from core.errors import InvalidRequest, BspError
-from modules.dut.slots import render_slots
+from core.dut.slots import render_slots
 from frontends.cli.fleet import Fleet, HostHandle, LeaseBook, config_dir
 from frontends.cli.remotes import RemoteError
 
@@ -475,7 +475,7 @@ def logins(fleet: Fleet, args) -> tuple[Any, str]:
             rows.append({"host": h.id, "dut": x["dut"], "ssh": f"ssh {x['login']}@{addr}"})
     lines = [f"{x['dut']:<20} {x['ssh']}" for x in rows]
     if off:
-        lines.append(f"(console logins are off on: {', '.join(off)}; enable modules.dut.ssh_console in the host config)")
+        lines.append(f"(console logins are off on: {', '.join(off)}; enable core.dut.ssh_console in the host config)")
     return rows, "\n".join(lines) or "no console logins"
 
 

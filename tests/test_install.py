@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from frontends.cli import install
-from modules.sdk.catalog import SdkCatalog
+from core.sdk.catalog import SdkCatalog
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "tests" / "fixtures" / "site"

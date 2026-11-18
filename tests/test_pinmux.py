@@ -1,6 +1,6 @@
 import threading
 
-from modules.gpio.pinmux import PinmuxInspector, parse_gpio_ranges, parse_pinmux_pins
+from providers.gpio.pinmux import PinmuxInspector, parse_gpio_ranges, parse_pinmux_pins
 
 # sample debugfs pinmux output (format from a real kernel; names neutralised)
 RANGES = """GPIO ranges handled:

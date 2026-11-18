@@ -1,4 +1,4 @@
 [submodule "modules/smtty/serial-mux"]
-	path = modules/smtty/serial-mux
+	path = providers/smtty/serial-mux
 	url = https://github.com/rzbdz/serial-mux.git
 	branch = bsp/usb-port-reconnect

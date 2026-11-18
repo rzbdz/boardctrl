@@ -8,8 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.errors import Conflict, InvalidRequest, NotFound
-from modules.registry.catalog import CatalogStore, layer_rev, materialize
-from modules.sdk.catalog import SdkCatalog
+from core.hostregistry.catalog import CatalogStore, layer_rev, materialize
+from core.sdk.catalog import SdkCatalog
 from frontends.server.app import create_app
 from frontends.server.config import HostConfig
 
@@ -189,7 +189,7 @@ def test_git_registry_commits_writes_and_takes_in_pushed_commits(tmp_path):
     import subprocess
 
     from core.events import EventBus
-    from modules.registry.gitsync import GitMirror
+    from core.hostregistry.gitsync import GitMirror
 
     def git(cwd, *args):
         return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True).stdout.strip()
@@ -252,7 +252,7 @@ def test_hosts_and_clis_share_the_registrys_soc_profiles_hooks_and_images(tmp_pa
 
     import uvicorn
 
-    from modules.registry.files import SharedFiles, layer_digest
+    from core.hostregistry.files import SharedFiles, layer_digest
 
     image = b"\x00handoff image\n"
     sha = hashlib.sha256(image).hexdigest()

@@ -1,6 +1,6 @@
 """`bsp sdk ...` — SDK instances on build servers (client side, no service needed).
 
-Everything runs on the build server through bsp/sdk/helper.py: piped over ssh,
+Everything runs on the build server through core/sdk/helper.py: piped over ssh,
 or executed locally when the CLI already runs on that server.
 """
 
@@ -21,9 +21,9 @@ from pathlib import Path
 from typing import Any
 
 from core.errors import InvalidRequest, NotFound, BspError
-from modules.sdk.catalog import SdkCatalog, sharing
+from core.sdk.catalog import SdkCatalog, sharing
 
-HELPER = Path(__file__).resolve().parents[2] / "modules" / "sdk" / "helper.py"
+HELPER = Path(__file__).resolve().parents[2] / "core" / "sdk" / "helper.py"
 
 # default (non -v) view: problems and milestones only; a heartbeat shows progress
 HIGHLIGHT = re.compile(r"\berror\b|\bwarning:|\bfailed\b|\*\*\*|Image\.itb|\.itb\b.*(created|done)|"

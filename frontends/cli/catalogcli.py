@@ -37,7 +37,7 @@ def registry_url(store: RemoteStore | None = None) -> str | None:
 def registry_layer() -> Path | None:
     """The registry's catalog as a local catalog root, fetched when it changed; the last copy when the
     registry cannot be reached; None without a registry."""
-    from modules.registry.catalog import layer_rev, materialize
+    from core.hostregistry.catalog import layer_rev, materialize
 
     url = registry_url()
     if not url:
@@ -57,7 +57,7 @@ def registry_layer() -> Path | None:
 def registry_files(sync: bool = True) -> Path | None:
     """The registry's shared SoC profiles and hooks as a local layer (socs/, hooks/), fetched when they changed; the
     last copy when the registry cannot be reached; None without a registry or without a copy."""
-    from modules.registry.files import layer_digest, materialize as write_files
+    from core.hostregistry.files import layer_digest, materialize as write_files
 
     url = registry_url()
     if not url:
@@ -196,7 +196,7 @@ def run(args, store: RemoteStore, token: str | None) -> tuple[Any, str]:
     if c == "import":
         return call("catalog_import", author=_author(args), check=args.check)
     if c == "export":
-        from modules.registry.catalog import materialize
+        from core.hostregistry.catalog import materialize
 
         snap, _ = call("catalog_snapshot")
         dest = materialize(snap, Path(args.dir).expanduser().resolve())
@@ -205,10 +205,10 @@ def run(args, store: RemoteStore, token: str | None) -> tuple[Any, str]:
     if c == "status":
         return call("catalog_status")
     if c == "sync":
-        from modules.registry.files import layer_digest
+        from core.hostregistry.files import layer_digest
 
         sdk, files = registry_layer(), registry_files()
-        from modules.registry.catalog import layer_rev
+        from core.hostregistry.catalog import layer_rev
 
         res = {"rev": layer_rev(sdk) if sdk else None, "sdk": str(sdk) if sdk else None,
                "files": str(files) if files else None, "files_digest": layer_digest(files) if files else None}

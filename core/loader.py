@@ -1,20 +1,20 @@
 """The provider contract, and the loader that finds providers in the layers a host reads.
 
-A module is a directory with a `module.py`:
+A provider is a directory with a `provider.py`:
 
     <root>/<name>/
-        module.py    TITLE = "Serial console"            optional
+        provider.py  TITLE = "Serial console"            optional
                      def setup(ctx, api, config): ...    required; returns its manager object, if it has one
         ...          whatever else it ships (hooks, data files, an `external/` checkout)
 
-`setup` registers everything the module contributes through `api`: providers for a role, commands, a router, the
-services other modules read, and the callbacks the host calls as it starts, stops and reports. Every module's
-`setup` runs before any module's startup callback, so a module may build what it needs from another module's
-service when it starts — in any order, because nothing has to be there while another sets up.
+`setup` registers everything the provider contributes through `api`: implementations for a role, commands, a
+router, the services other providers read, and the callbacks the host calls as it starts, stops and reports.
+Every `setup` runs before any provider's startup callback, so one may build what it needs from another's service
+when it starts — in any order, because nothing has to be there while another sets up.
 
-The modules this repository ships (`modules/<name>/`) and a site's own (`<site>/modules/<name>/`) are loaded by
-the same loader, and a site's copy of a name replaces the shipped one. A module that fails to load is reported as
-degraded and never takes the host with it.
+The providers this repository ships (`providers/<name>/`) and a site's own (`<site>/providers/<name>/`) are
+loaded by the same loader, and a site's copy of a name replaces the shipped one. One that fails to load is
+reported as degraded and never takes the host with it.
 """
 
 from __future__ import annotations
@@ -63,14 +63,14 @@ class ProviderApi:
         self.commands.append(command)
 
     def add_commands(self, commands: list[Any]) -> None:
-        """Add several commands at once (a module that builds them as a list)."""
+        """Add several commands at once (a provider that builds them as a list)."""
         self.commands.extend(commands)
 
     def router(self, router: Any) -> None:
         self.routers.append(router)
 
     def service(self, name: str, obj: Any) -> None:
-        """Publish an object other modules read as `ctx.service(name)`."""
+        """Publish an object other providers read as `ctx.service(name)`."""
         self.ctx.services[name] = obj
         self.services.append(name)
 
@@ -80,14 +80,14 @@ class ProviderApi:
 
     # ------------------------------------------------------------- lifecycle
     def on_startup(self, fn: Callable[[], None]) -> None:
-        """Run once the host starts, after every module's setup."""
+        """Run once the host starts, after every provider's setup."""
         self._startup.append(fn)
 
     def on_shutdown(self, fn: Callable[[], None]) -> None:
         self._shutdown.append(fn)
 
     def status(self, fn: Callable[[], dict[str, Any]]) -> None:
-        """The module's health, merged into the host's `/api/v1/status` under its name."""
+        """The provider's health, merged into the host's `/api/v1/status` under its name."""
         self._status.append(fn)
 
 
@@ -99,7 +99,7 @@ class Loaded:
         self.path = path
         self.module = module
         self.api = api
-        # what the module's setup built for itself (its manager), for a helper or a test that drives it directly
+        # what the provider's setup built for itself (its manager), for a helper or a test that drives it directly
         self.manager = manager
         self.title = str(getattr(module, "TITLE", "") or "")
 
@@ -116,15 +116,23 @@ class Loaded:
         for fn in self.api._status:
             try:
                 out.update(fn() or {})
-            except Exception as e:  # noqa: BLE001 - one module's status never takes the page down
+            except Exception as e:  # noqa: BLE001 - one provider's status never takes the page down
                 out["error"] = f"{type(e).__name__}: {e}"
         return out
 
     def view(self) -> dict[str, Any]:
-        """What `/api/v1/status` says about this module: its title, what it registered, and its own health."""
+        """What `/api/v1/status` says about this provider: its title, what it registered, and its own health."""
         return {"title": self.title, "providers": list(self.api.providers),
                 "commands": [c.spec.name for c in self.api.commands], "services": list(self.api.services),
                 **self.status()}
+
+
+class _Builtin(Loaded):
+    """A provider the kernel carries itself: it has no directory, but registers like any other."""
+
+    def __init__(self, name: str, title: str, api: ProviderApi, manager: Any):
+        super().__init__(name, Path(), None, api, manager)
+        self.title = title
 
 
 class Providers:
@@ -136,46 +144,59 @@ class Providers:
         self.errors: dict[str, str] = {}
 
     def available(self) -> dict[str, Path]:
-        """Every module directory in the layers, the highest layer's copy winning."""
+        """Every provider directory in the layers, the highest layer's copy winning."""
         found: dict[str, Path] = {}
         for root in self.roots:                      # lowest first
             if not root.is_dir():
                 continue
             for p in sorted(root.iterdir()):
-                if (p / "module.py").is_file():
+                if (p / "provider.py").is_file() or (p / "module.py").is_file():
                     found[p.name] = p
         return found
 
     def load(self, ctx: Any, config: dict[str, dict[str, Any]] | None = None) -> None:
-        """Set up the modules the host names, in layer order (a site's copy of a name replaces the shipped one).
+        """Set up the providers the host names, in layer order (a site's copy of a name replaces the shipped one).
 
-        Each module gets its own section of the host's `modules:` map as its settings; `enabled: false` turns a
-        module off however else it would be loaded. A name with no module directory is reported, not fatal.
+        Each provider gets its own section of the host's `providers:` map as its settings; `enabled: false` turns
+        one off however else it would be loaded. A name with no provider directory is reported, not fatal.
         """
         available = self.available()
         config = config or {}
         off = {name for name, cfg in config.items() if isinstance(cfg, dict) and cfg.get("enabled", True) is False}
         for name in [n for n in config if n not in off]:
+            if name in ("dut", "sdk", "registry") and name not in available:
+                continue                 # the kernel's own services: their sections configure them, not a provider
             if name not in available:
-                self.errors[name] = f"no module directory with module.py (looked in {', '.join(map(str, self.roots))})"
+                self.errors[name] = f"no provider directory with provider.py (looked in {', '.join(map(str, self.roots))})"
                 continue
             self.setup(name, available[name], ctx, config.get(name) or {})
 
+    def add(self, name: str, setup: Any, ctx: Any, section: dict[str, Any], title: str = "") -> None:
+        """Set up a provider the kernel itself carries (no directory): `setup(ctx, api, config)` as for any other."""
+        try:
+            api = ProviderApi(name, ctx)
+            manager = setup(ctx, api, dict(section))
+            self.loaded[name] = _Builtin(name, title, api, manager)
+        except Exception as e:  # noqa: BLE001 - one provider must not take the host down
+            self.errors[name] = f"{type(e).__name__}: {e}"
+            log.warning("provider %s did not load: %s\n%s", name, e, traceback.format_exc())
+
     def setup(self, name: str, path: Path, ctx: Any, section: dict[str, Any]) -> None:
         try:
-            module = _import(name, path / "module.py")
+            entry = path / "provider.py" if (path / "provider.py").is_file() else path / "module.py"
+            module = _import(name, entry)
             setup = getattr(module, "setup", None)
             if not callable(setup):
-                raise ValueError("module.py has no setup(ctx, api, config)")
+                raise ValueError("provider.py has no setup(ctx, api, config)")
             api = ProviderApi(name, ctx)
             manager = setup(ctx, api, dict(section)) if _takes(setup, 3) else setup(ctx, api)
             self.loaded[name] = Loaded(name, path, module, api, manager)
-        except Exception as e:  # noqa: BLE001 - one module must not take the host down
+        except Exception as e:  # noqa: BLE001 - one provider must not take the host down
             self.errors[name] = f"{type(e).__name__}: {e}"
-            log.warning("module %s did not load: %s\n%s", name, e, traceback.format_exc())
+            log.warning("provider %s did not load: %s\n%s", name, e, traceback.format_exc())
 
     def __getitem__(self, name: str) -> Any:
-        """A loaded provider's manager object, by name (`host.modules["dut"]`)."""
+        """A loaded provider's manager object, by name."""
         try:
             return self.loaded[name].manager
         except KeyError:
@@ -206,13 +227,13 @@ class Providers:
             m.shutdown()
 
     def view(self) -> dict[str, Any]:
-        """The host's `modules:` status: one entry per module, loaded or failed."""
+        """The host's `providers:` status: one entry per provider, loaded or failed."""
         return {name: m.view() for name, m in self.loaded.items()} | {
             name: {"title": name, "error": why} for name, why in self.errors.items()}
 
 
 def _takes(fn: Any, count: int) -> bool:
-    """Whether `fn` accepts `count` positional arguments (a module written `setup(ctx, api)` takes two)."""
+    """Whether `fn` accepts `count` positional arguments (a provider written `setup(ctx, api)` takes two)."""
     import inspect
 
     try:
@@ -224,9 +245,9 @@ def _takes(fn: Any, count: int) -> bool:
 
 
 def _import(name: str, path: Path):
-    """Import a module's module.py under a name of its own (two modules may use the same file name)."""
+    """Import a provider's provider.py under a name of its own (two providers may use the same file name)."""
     digest = __import__("hashlib").sha1(str(path.resolve()).encode()).hexdigest()[:10]
-    modname = f"boardctrl_module_{name}_{digest}"      # the same site in two processes: one module; two sites: two
+    modname = f"boardctrl_provider_{name}_{digest}"      # the same site in two processes: one module; two sites: two
     if modname in sys.modules:
         return sys.modules[modname]
     spec = importlib.util.spec_from_file_location(modname, path)

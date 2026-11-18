@@ -141,7 +141,7 @@ def test_announcer_body_and_status(tmp_path):
 
 
 def test_port_watcher_reports_cables_coming_and_going(tmp_path):
-    from modules.dut.ports import PortWatcher, snapshot
+    from core.dut.ports import PortWatcher, snapshot
 
     dev, usb = tmp_path / "dev", tmp_path / "usb"
     dev.mkdir()
@@ -198,9 +198,9 @@ def test_the_client_parser_builds_once_per_action():
 
 
 def test_download_port_choices_use_the_watchers_snapshot_not_a_discovery_plan():
-    from modules.dut.module import DutModule
+    from core.dut.manager import DutManager
 
-    mod = object.__new__(DutModule)
+    mod = object.__new__(DutManager)
     mod.probe_cfg, mod.socs, mod.port_watcher = {}, types.SimpleNamespace(usb_vids=lambda: ["361c"]), types.SimpleNamespace(
         current={"tty": [], "usb": ["usb:2-1.3 361c:1001", "usb:2-1.4 05c6:9008"]})
     assert mod.download_ports() == [{"usb": "usb:2-1.3", "vid": "361c", "pid": "1001"}]

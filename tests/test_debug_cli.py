@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "tests" / "fixtures" / "site"
 
 PLUGIN = '''
-from modules.dut.debug import SessionDebug
+from core.dut.contracts import SessionDebug
 
 
 class FakeDebug(SessionDebug):

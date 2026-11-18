@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 from core.env import expand, resolve_refs
 from core.errors import InvalidRequest
 from core.hooks import HookRunner
-from modules.dut.boot import BootRunner
-from modules.dut.module import resolve_network
+from core.dut.boot import BootRunner
+from core.dut.manager import resolve_network
 from frontends.server.app import create_app
 from frontends.server.config import HostConfig
 

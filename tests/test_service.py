@@ -3,10 +3,10 @@ import time
 import pytest
 
 from core.errors import Conflict, Forbidden, HardwareTimeout, InvalidRequest, NotFound
-from modules.gpio.backends.guarded import GuardedBackend
-from modules.gpio.backends.mock import MockBackend
-from modules.gpio.backends.sysfs import SysfsBackend
-from modules.gpio.pinmux import PinmuxInspector
+from providers.gpio.backends.guarded import GuardedBackend
+from providers.gpio.backends.mock import MockBackend
+from providers.gpio.backends.sysfs import SysfsBackend
+from providers.gpio.pinmux import PinmuxInspector
 
 
 @pytest.mark.parametrize("ref", [33, "33", "P33", "p33", "pin33", "pin:33", "J40:33", "GPIO127", "gpio:127"])

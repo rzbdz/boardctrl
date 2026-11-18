@@ -24,7 +24,7 @@ SITE = ROOT / "tests" / "fixtures" / "site"
 from test_kernel import FakeSystemd  # noqa: E402
 
 PLUGIN = '''
-from core.roles import DebugProvider
+from core.dut.contracts import DebugProvider
 
 class FakeDebug(DebugProvider):
     provider_name = "fake-swd"
@@ -433,18 +433,18 @@ def test_a_plugin_can_fill_the_relay_role(site, tmp_path, monkeypatch):
 def test_the_built_in_roles_are_still_the_defaults_and_still_work(site, tmp_path, monkeypatch):
     """Filling the role table must not change what a record that names nothing gets."""
     from core.providers import build
-    from modules.dut.catalog import spec_from_dict
+    from core.dut.records import spec_from_dict
 
     spec = spec_from_dict({"id": "plain", "host": "h1", "services": {"download": {"provider": "fastboot", "usb": "usb:1-1"}}})
     # The relay and download providers come from the modules a host with DUTs carries (loaded by its Hub).
-    from frontends.server.app import ROLE_MODULES
+    from frontends.server.app import ROLE_PROVIDERS
     from core.loader import Providers
 
     class Ctx:
         services: dict = {}
 
-    Providers([Path(__file__).resolve().parents[2] / "modules"]).load(
-        Ctx(), {name: {} for name in ROLE_MODULES})
+    Providers([Path(__file__).resolve().parents[2] / "providers"]).load(
+        Ctx(), {name: {} for name in ROLE_PROVIDERS})
     ctx = Ctx()
     ctx.services = {"smtty": None}
     control = build("relay", "gpio-relay", ctx, spec, lambda name: None)

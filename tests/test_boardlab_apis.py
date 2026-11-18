@@ -12,8 +12,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.errors import Forbidden, InvalidRequest
-from modules.dut.artifacts import ArtifactStore
-from modules.dut.leases import LeaseManager
+from core.dut.artifacts import ArtifactStore
+from core.dut.leases import LeaseManager
 from frontends.server.app import create_app
 from frontends.server.config import HostConfig
 
@@ -408,7 +408,7 @@ def test_cli_stage_uploads_once_over_http(tmp_path, monkeypatch, capsys):
 
 def test_slots_name_boards_and_refresh_reads_the_board_swapped_into_one(host, monkeypatch):
     """A slot reference works wherever a DUT name does; refresh re-reads the board after a swap."""
-    from modules.dut import probe as probe_mod
+    from core.dut import probe as probe_mod
 
     mod = host.app.state.hub.modules["dut"]
     spec = {"id": "k3-deb1-32g", "board": "k3_deb1", "soc": "soc-b", "console": {"alias": "uart-a"},
@@ -450,7 +450,7 @@ def test_slots_name_boards_and_refresh_reads_the_board_swapped_into_one(host, mo
 
 def test_rebuild_forgets_probed_boards_and_slots_and_rediscovers_them(host, monkeypatch):
     """After re-cabling: a rebuild starts the host's wiring over, and is refused while a board is leased."""
-    from modules.dut import probe as probe_mod
+    from core.dut import probe as probe_mod
 
     mod = host.app.state.hub.modules["dut"]
     consoles = [{"id": "uart-a", "kind": "serial-mux", "alias": "uart-a", "device": "/dev/ttyUSB0", "usb_port": "p-a", "busy": True}]
@@ -485,7 +485,7 @@ def test_rebuild_forgets_probed_boards_and_slots_and_rediscovers_them(host, monk
 def test_rediscover_keeps_boards_in_use_and_redoes_only_what_moved(host, monkeypatch):
     """keep_used: a leased board keeps its slot and wiring; a free board whose console is gone is forgotten with its
     slot; a new adapter gets a slot; the probe runs while the leased board is held."""
-    from modules.dut import probe as probe_mod
+    from core.dut import probe as probe_mod
 
     mod = host.app.state.hub.modules["dut"]
     consoles = [{"id": "uart-a", "kind": "serial-mux", "alias": "uart-a", "device": "/dev/ttyUSB0", "usb_port": "p-a", "busy": True},

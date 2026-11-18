@@ -17,8 +17,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.errors import InvalidRequest
-from modules.dut import flashpkg
-from modules.dut.artifacts import ArtifactStore
+from core.dut import flashpkg
+from core.dut.artifacts import ArtifactStore
 from frontends.server.app import create_app
 from frontends.server.config import HostConfig
 

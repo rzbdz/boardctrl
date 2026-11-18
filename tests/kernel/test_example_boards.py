@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from core.site import layered
-from modules.gpio.board import BoardCatalog
+from providers.gpio.board import BoardCatalog
 
 ROOT = Path(__file__).resolve().parents[2]
 SITE = ROOT / "tests" / "fixtures" / "site"
@@ -67,7 +67,7 @@ def test_a_site_overrides_a_shipped_profile_and_the_rest_still_applies(tmp_path)
 def test_every_shipped_profile_is_read_and_its_socs_stay_distinct():
     """Each directory under `profiles/` is a profile; a host reads all of them unless its site narrows."""
     from core.site import shipped
-    from modules.dut.socs import SocProfiles
+    from core.dut.soc import SocProfiles
 
     for name in [p.name for p in (ROOT / "profiles").iterdir() if p.is_dir()]:
         assert (ROOT / "profiles" / name / "profile.yaml").is_file(), f"{name} has no profile.yaml"

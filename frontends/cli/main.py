@@ -316,8 +316,8 @@ def main(argv: list[str] | None = None) -> int:
 def _images(args) -> tuple[Any, str]:
     """`bsp images [list|sync]`: SoC images of this machine's site, fetched into <site>/.blobs by sync."""
     from core.site import layered, site_dir
-    from modules.dut import images
-    from modules.dut.socs import SocProfiles
+    from core.dut import images
+    from core.dut.soc import SocProfiles
 
     site = site_dir()
     if site is None:

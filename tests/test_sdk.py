@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from core.errors import InvalidRequest, NotFound
-from modules.sdk.catalog import SdkCatalog, sharing
+from core.sdk.catalog import SdkCatalog, sharing
 
 ROOT = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "site" / "sdk"
 
@@ -86,7 +86,7 @@ def test_workspaces_soc_and_layers(cat, tmp_path):
 
 
 def test_a_variant_swaps_steps_with_only_if_and_unless():
-    from modules.sdk.catalog import Instance  # noqa: F401 - the plan is built by the catalog below
+    from core.sdk.catalog import Instance  # noqa: F401 - the plan is built by the catalog below
     import yaml, tempfile, pathlib
 
     with tempfile.TemporaryDirectory() as d:

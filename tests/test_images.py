@@ -2,8 +2,8 @@
 import hashlib
 import subprocess
 
-from modules.dut import images
-from modules.dut.socs import SocProfiles
+from core.dut import images
+from core.dut.soc import SocProfiles
 
 HELPER = b"\x00helper for one boot ROM\n"
 SHA = hashlib.sha256(HELPER).hexdigest()

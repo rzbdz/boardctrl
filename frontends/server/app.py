@@ -47,7 +47,7 @@ class CliLine(BaseModel):
 
 
 class Hub:
-    """Runtime container: config, bus, loaded modules and the command registry."""
+    """Runtime container: config, bus, the DUT manager, the loaded providers and the command registry."""
 
     def __init__(self, config: HostConfig):
         self.config = config
@@ -56,8 +56,8 @@ class Hub:
         self.started = time.time()
         config.state_dir.mkdir(parents=True, exist_ok=True)
         ctx = HostContext(config.host_id, self.bus, config.state_dir, config.config_dir, jobs=self.jobs,
-                            port=config.port, auth_token=config.auth_token, env=dict(config.env),
-                            bind=config.bind, announce=config.announce)
+                          port=config.port, auth_token=config.auth_token, env=dict(config.env),
+                          bind=config.bind, announce=config.announce)
         self.ctx = ctx
         # Sessions (console, trace, debug servers) are transient units: the DUT manager starts them under a lease.
         from core.sessions import Sessions, Systemd
@@ -65,16 +65,33 @@ class Hub:
         self.sessions = Sessions(config.state_dir / "sessions", Systemd(),
                                  held=self._lease_held)
         ctx.services["sessions"] = self.sessions
-        # One loader, one contract: the components this repository ships (`modules/<name>/module.py`) and a site's
-        # own (`<site>/modules/<name>/module.py`), the site's copy of a name replacing the shipped one. A module the
-        # host names in `modules:` is set up with its section of that map; `enabled: false` turns it off. Every
-        # setup runs before any module's startup, so a module may read another's service when it starts, in any order.
+        # The DUT manager is the kernel's own: a host controls boards, always. It builds its boards when the host
+        # starts, which is after every provider's setup, so a record may bind any provider a host carries.
+        from core.dut.manager import DutManager
+
+        self.dut = DutManager(ctx, config.providers.get("dut") or {})
+        ctx.services["dut_manager"] = self.dut
+        # The SDK catalogue and the host registry are the kernel's services too (their commands and HTTP routes);
+        # their sections of the host config configure them.
+        from core.hostregistry.service import setup as registry_setup
+        from core.sdk.service import setup as sdk_setup
+        # One loader, one contract: the providers this repository ships (`providers/<name>/provider.py`) and a
+        # site's own (`<site>/providers/<name>/provider.py`), the site's copy of a name replacing the shipped one.
+        # A provider the host names is set up with its section of that map; `enabled: false` turns it off. Every
+        # setup runs before any startup, so a provider may read another's service when it starts, in any order.
         from core.site import REPO, layers
 
         self.follower = None
-        self.providers = Providers([REPO / "modules"]
-                               + [root / "modules" for root in layers((config.config_dir / "..").resolve())])
-        self.providers.load(ctx, _with_role_modules(config.modules))
+        site = (config.config_dir / "..").resolve()
+        self.providers = Providers([REPO / "providers"]
+                                   + [root / "providers" for root in layers(site)]
+                                   + [site / "modules"])
+        providers_cfg = _with_role_providers(config.providers)
+        self.providers.load(ctx, providers_cfg)
+        if "sdk" in providers_cfg:
+            self.providers.add("sdk", sdk_setup, ctx, providers_cfg["sdk"], title="SDK catalogue")
+        if "registry" in providers_cfg:
+            self.providers.add("registry", registry_setup, ctx, providers_cfg["registry"], title="Host registry")
         # A host announcing itself to a registry follows the registry's SDK catalog.
         if config.announce:
             from frontends.server.catalog_follow import CatalogFollower
@@ -91,22 +108,25 @@ class Hub:
             ctx.services["catalog_follower"] = self.follower
         self.registry = CommandRegistry()
         self.registry.extend(self._core_commands())
+        self.registry.extend(self.dut.commands())
         self.registry.extend(self.providers.commands())
 
     @property
-    def modules(self) -> Any:
-        """`hub.modules["dut"]` — the manager a module set up (the DUT manager, in practice)."""
-        return self.providers
+    def modules(self) -> "_Managers":
+        """The managers by name — the DUT's and every provider's — for a helper or a test that reaches one."""
+        return _Managers(self)
 
     def module(self, name: str) -> Any:
-        """The object a module set up for itself (its manager), for a test or a helper that drives it directly."""
+        """A manager by name — the DUT's, or a provider's — for a test or a helper that drives it directly."""
+        if name == "dut":
+            return self.dut
         loaded = self.providers.loaded.get(name)
         return getattr(loaded, "manager", None) if loaded else None
 
     announcer: Any = None
 
     def announcement(self) -> dict[str, Any]:
-        dut = self.module("dut")
+        dut = self.dut
         return {"host": self.config.host_id, "port": self.config.port, "description": self.config.description,
                 "version": __version__, "duts": sorted(getattr(dut, "boards", {}) or {}),
                 # compact, so a registry notices a slot coming online or a board registered into it
@@ -119,8 +139,7 @@ class Hub:
     def _lease_held(self, token: str) -> bool:
         """Whether a lease token is the live one on its board: asked of the DUT module, which owns the leases (and
         is built after this, so it is looked up when asked, not held)."""
-        dut = self.module("dut")
-        return bool(dut and getattr(dut, "lease_live", lambda _token: True)(token))
+        return self.dut.lease_live(token)
 
     def status(self) -> dict[str, Any]:
         return {
@@ -130,7 +149,7 @@ class Hub:
             "version": __version__,
             "uptime_s": round(time.time() - self.started, 1),
             "auth": bool(self.config.auth_token),
-            "modules": self.providers.view(),
+            "modules": {"dut": {"title": self.dut.title, **self.dut.health()}} | self.providers.view(),
             "providers": _providers_summary(),
             "sessions": [s.to_dict() for s in self.sessions.list()],
             **({"announce": {"url": self.announcer.url, **self.announcer.last}} if self.announcer else {}),
@@ -188,30 +207,57 @@ class Hub:
         ]
 
 
-# The modules a host carries when it runs DUTs: the tools a record's default roles are filled by. A host that names
-# `dut` gets them unless it names its own section for one (then that section is used, not this default).
-ROLE_MODULES = ("smtty", "fastboot", "human")
+class _Managers:
+    """The managers a host has, by name: the DUT manager and what each provider set up (a read-only view)."""
+
+    def __init__(self, hub: "Hub"):
+        self._hub = hub
+
+    def _all(self) -> dict[str, Any]:
+        return {"dut": self._hub.dut} | {n: m.manager for n, m in self._hub.providers.loaded.items()
+                                         if m.manager is not None}
+
+    def __getitem__(self, name: str) -> Any:
+        try:
+            return self._all()[name]
+        except KeyError:
+            raise KeyError(name) from None
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._all()
+
+    def __iter__(self):
+        return iter(self._all())
+
+    def keys(self):
+        return self._all().keys()
+
+    def values(self):
+        return self._all().values()
+
+    def items(self):
+        return self._all().items()
 
 
-def _with_role_modules(modules: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """A host's module sections, with the DUT roles' modules added when it runs the DUT manager.
+# The providers every host of boards carries: the tools a record's roles are filled by unless it names another.
+# A host's config lays its own settings per provider; the DUT manager's old `modules.dut.{smtty,serial_mux,
+# serial_log_dir,fastboot}` are read as each one's fallback, so a site written before the tools had providers of
+# their own keeps working.
+ROLE_PROVIDERS = {"smtty": ("smtty", "serial_mux", "serial_log_dir"),
+                  "fastboot": ("fastboot",),
+                  "human": ()}
 
-    Their settings are the old `modules.dut.{smtty,serial_mux,serial_log_dir,fastboot}` when the site wrote those
-    and did not name the module, so a site written before the tools had modules of their own keeps working.
-    """
-    if "dut" not in modules:
-        return modules
-    dut = modules.get("dut") or {}
-    out = dict(modules)
-    for name in ROLE_MODULES:
-        if name in out:
-            continue
-        section: dict[str, Any] = {}
-        if name == "smtty":
-            section = {k: dut[k] for k in ("smtty", "serial_mux", "serial_log_dir") if k in dut}
-        elif name == "fastboot":
-            section = {k: dut[k] for k in ("fastboot",) if k in dut}
-        out[name] = section
+
+def _with_role_providers(config: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """A host's provider sections, with the boards' own providers added and the DUT's old keys folded in."""
+    dut = config.get("dut") or {}
+    out = dict(config)
+    for name, old_keys in ROLE_PROVIDERS.items():
+        section = dict(out.get(name) or {})
+        for key in old_keys:
+            if key in dut and key not in section:
+                section[key] = dut[key]
+        out.setdefault(name, section)
     return out
 
 
@@ -239,6 +285,7 @@ def create_app(config: HostConfig) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        await run_in_threadpool(hub.dut.startup)
         await run_in_threadpool(hub.providers.startup)
         hub.bus.publish("service.started", version=__version__)
         announcer = None
@@ -261,6 +308,7 @@ def create_app(config: HostConfig) -> FastAPI:
         if announcer:
             announcer.stop()
         hub.providers.shutdown()
+        hub.dut.shutdown()
 
     app = FastAPI(
         title=f"boardctrld · {config.host_id}",
@@ -328,6 +376,13 @@ def create_app(config: HostConfig) -> FastAPI:
     _core_routes(app, hub)
     for spec in hub.registry.specs():
         _command_routes(app, hub, spec)
+    from frontends.server.routes.artifacts import artifact_router
+    from frontends.server.routes.registry import registry_router
+
+    app.include_router(artifact_router(hub.dut))
+    registry = hub.module("registry")
+    if registry is not None:
+        app.include_router(registry_router(registry))
     for r in hub.providers.routers():
         app.include_router(r)
     from frontends.server.streams import include_session_routes
