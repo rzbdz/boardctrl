@@ -24,8 +24,8 @@ ones file by file. The only difference between them is who wrote them and where 
                      $BOARDCTRL_SITE, ~/.config/boardctrl/site or /etc/boardctrl/site. A site is read
                      last, so it overrides a shipped profile rather than editing it.
 
-`examples/site/` in this repository is a complete site showing every file a real one has, and the
-shipped `profiles/` are complete enough to run a board on their own.
+The shipped profiles are their own examples, and `examples/site/` shows the files only a site has
+(hosts, DUT records, SDK trees, remotes, deploy targets, site plugins).
 """
 
 from __future__ import annotations

@@ -5,9 +5,11 @@ repository (`$BOARDCTRL_SITE`, `~/.config/boardctrl/site` or `/etc/boardctrl/sit
 private git repo of their own. Copy this directory and replace every value.
 
 A site is a **profile** like the ones shipped in `profiles/`: the same directories, read last so it
-overrides them. This one is made up except where it says otherwise — `modules/hello-platform` is a
-working example of a site plugin, and the board it serves is a real one from the shipped
-`profiles/spacemit` profile.
+overrides them. For the files a profile can carry, the shipped profiles are the examples
+(`profiles/spacemit/boards`, `socs`, `hooks`, `hints`); this directory shows the ones only a site has:
+`remotes.json`, `hosts/`, `deploy/`, `duts/`, `sdk/` and `modules/`. It is made up except where it says
+otherwise — `modules/hello-platform` is a working example of a site plugin, and the board it serves is a
+real one from the shipped `profiles/spacemit` profile.
 Addresses use the documentation range 192.0.2.0/24. The test suite runs against it.
 
 | path | read by | what |

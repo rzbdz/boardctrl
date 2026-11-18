@@ -21,8 +21,10 @@ earlier one. SoC profiles are deep-merged key by key, so a site can add probe im
 profile without copying it. `profiles:` in the site's `boardctrl.yaml` narrows which shipped
 profiles this host uses (the older key `packs:` is still read).
 
-The shipped profiles are complete enough to run a board on their own; `examples/site/` is a complete
-site showing every file a private one has.
+The shipped profiles are complete enough to run a board on their own, and each one is an example of the
+files a profile can carry: `profiles/spacemit/` for boards, SoCs, hooks and hints, `profiles/rockchip/`
+for what a partial SoC profile looks like. `examples/site/` shows the files only a site has — hosts, DUT
+records, SDK trees, remotes, deploy targets and site plugins — and is complete enough to copy.
 
 A rule of thumb for contributors: if anyone who buys the hardware sees the same thing — boot-ROM
 output, a header pinout, a vendor's documented image format — it can go in a shipped profile. Anything about
