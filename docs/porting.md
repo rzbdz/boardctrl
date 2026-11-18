@@ -100,7 +100,9 @@ serves a console and a trace.
 Hardware nobody bought a driver for is a site plugin: a directory `modules/<name>/` in the site (or a pack) with a
 `module.py` that defines `setup(ctx, api, config)`. The API registers providers
 (`api.provider("debug", "my-swd", factory, title=…, about=…)`), services for other modules, commands
-(`api.command(Command(CommandSpec(…), handler))`) and FastAPI routers. Select it in the host config by naming it
+(`api.command(Command(CommandSpec(…), handler))`) and FastAPI routers. The `title` and `about` a provider registers
+with are the words a page shows for it: the instance carries them, so `debug status` and the debug page name the
+path as the plugin does, never by its registered name. Select the plugin in the host config by naming it
 under `modules:` (its own section is passed as `config`), or in `plugins:`. It is loaded at host start; one that
 fails says so in `boardctrl status` and never takes the host down.
 
