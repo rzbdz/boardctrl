@@ -6,7 +6,7 @@
 #   BSP_SITE=examples/site boardctrld -c examples/site/hosts/hello.yaml
 id: hello-board
 host: hello
-board: spacemit-bananapi-f3
+board: spacemit-k1x-deb1
 soc: k1
 description: a K1 board served by the hello-platform example plugin
 services:

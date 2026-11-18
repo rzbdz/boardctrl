@@ -1,0 +1,5 @@
+# Rockchip RK3568. Boot-ROM fingerprint only; download mode not described here.
+soc: rk3568
+fingerprint:
+- 'DDR Version V1\.13 20220218[\s\S]{0,80}\bIN\b'
+download_mode: {}

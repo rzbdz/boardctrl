@@ -1,0 +1,4 @@
+name: rockchip
+description: Rockchip SoC profiles
+provides:
+  socs: [rk3568]

@@ -1,5 +1,7 @@
 # Board profile: SpacemiT K1-x deb1 (26-pin expansion header)
 #
+# The same board is sold as the Banana Pi BPI-F3; the 26-pin header is identical.
+#
 # 26-pin expansion header. Net names from the board schematic table; GPIO pins
 # use the Linux GPIO number (k1x-gpio, base 0). Note: on K1 the pinctrl pin
 # number is NOT the GPIO number (GPIO70 = pin 71, GPIO91 = pin 128); the
@@ -9,7 +11,7 @@
 # numbers are not confirmed. To use one as GPIO, change it to `{gpio: N}` once
 # the number is verified.
 id: spacemit-k1x-deb1
-name: SpacemiT K1-x deb1
+name: SpacemiT K1-x deb1 (Banana Pi BPI-F3)
 description: K1-x deb1 board, 26-pin expansion header (3.3 V I/O).
 
 headers:
