@@ -25,7 +25,7 @@ The shipped profiles are complete enough to run a board on their own; `examples/
 site showing every file a private one has.
 
 A rule of thumb for contributors: if anyone who buys the hardware sees the same thing — boot-ROM
-output, a header pinout, a vendor's documented image format — it can go in a pack. Anything about
+output, a header pinout, a vendor's documented image format — it can go in a shipped profile. Anything about
 your machines, accounts, trees or procedures belongs in the site.
 
 ## Site layout
@@ -37,7 +37,7 @@ site/
 ├── remotes.json             # board hosts the CLI talks to
 ├── hosts/<host>.yaml        # configuration of each boardctrld
 ├── deploy/<host>.env        # how deploy.sh reaches and installs each host
-├── boards/<board>.yaml      # GPIO header pin maps (if no pack has yours)
+├── boards/<board>.yaml      # GPIO header pin maps (if no shipped profile has yours)
 ├── socs/<soc>/              # SoC profile overrides and probe images
 ├── sdk/families/*.yaml      # build styles          ─┐
 ├── sdk/servers/*.yaml       # build servers           │ see sdk.md
@@ -53,7 +53,7 @@ site/
 
 `examples/site/` contains a working example of every file; the test suite runs against it.
 
-### bsp.yaml
+### boardctrl.yaml
 
 ```yaml
 profiles: [spacemit]  # omit to use every shipped profile; [] for none
@@ -89,7 +89,7 @@ env:                             # values hooks receive: see "Host environment" 
   BSP_SMTTY: smtty
 modules:
   gpio:                         # list it before dut: dut drives reset lines through it (gpio_relay still works)
-    board: example-40pin         # a boards/<id>.yaml from a pack or the site
+    board: example-40pin         # a boards/<id>.yaml from a profile or the site
     backend: sysfs               # sysfs | gpiod | mock
     hw_timeout_s: 3.0            # GPIO calls slower than this mark the backend degraded
     pinmux: true                 # read pinctrl state to flag pins muxed to other functions

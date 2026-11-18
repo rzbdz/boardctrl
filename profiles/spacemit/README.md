@@ -1,4 +1,4 @@
-# spacemit pack
+# spacemit profile
 
 Public hardware knowledge about SpacemiT K1 / K3 parts — what anyone who buys these boards
 can observe. No SDK layouts, build servers or flash procedures of a particular installation

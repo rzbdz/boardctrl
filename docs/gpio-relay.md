@@ -16,7 +16,7 @@ Every command takes a *target*, written as any of:
 | Alias | `board-1/reset` | A name registered for a pin |
 
 The header layout — pin numbers, power and ground pins, GPIO numbers, alternate functions — comes
-from a board map (`boards/<id>.yaml`) in a pack or the site, selected by
+from a board map (`boards/<id>.yaml`) in a profile or the site, selected by
 `modules.gpio.board`.
 
 ## Channel modes

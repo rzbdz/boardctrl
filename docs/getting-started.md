@@ -41,7 +41,7 @@ The minimum useful site describes one board host. Replace the example values in:
 | `hosts/HOST.yaml` | Host id, `server.bind` and `server.auth_token` (see [SECURITY.md](../SECURITY.md)), the GPIO header (`modules.gpio.board`, `backend`), and `modules.dut` |
 | `deploy/HOST.env` | How to reach the host over ssh (`SSH_HOST`, `SSH_USER`), `INSTALL_DIR`, `SERVICE_PORT` |
 | `remotes.json` | How clients reach the host: `url`, optional `fallback_urls`, and `ssh` for tunnelling |
-| `boards/*.yaml` | The pin map of the host's GPIO header, if no pack provides it |
+| `boards/*.yaml` | The pin map of the host's GPIO header, if no shipped profile provides it |
 
 `HOST` must be the same in all three places. Delete the example SDK files you do not need; you
 can add SDKs later (step 6). Every file format is described in

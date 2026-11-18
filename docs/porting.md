@@ -5,7 +5,7 @@ rarely needs code.
 
 ## A new SoC
 
-Create `socs/<soc>/soc.yaml` — in a pack if the information is public, otherwise in your site:
+Create `socs/<soc>/soc.yaml` — in a shipped profile if the information is public, otherwise in your site:
 
 ```yaml
 soc: soc-a
@@ -44,7 +44,7 @@ media_boot:                      # optional: how a board whose FDL strap is held
 - `download_mode` is used by every `enter-fdl` step and by the human reset backend's
   auto-detection.
 - Probe images are looked up in every layer, highest first, and checked against `sha256`. Ship
-  only images you may redistribute in a pack; otherwise keep them in the site, or list them there
+  only images you may redistribute in a shipped profile; otherwise keep them in the site, or list them there
   with a `source` and let `boardctrl images sync` fetch them (see [configuration.md](configuration.md#site-images)).
 - `media_boot` is for SoCs that can boot a board's media from download mode. A plain reset
   (`boardctrl dut reset --no-fdl`) and recipe steps marked `when: fdl-not-strapped` reset the board into
@@ -97,7 +97,7 @@ serves a console and a trace.
 
 ## A site plugin
 
-Hardware nobody bought a driver for is a site plugin: a directory `modules/<name>/` in the site (or a pack) with a
+Hardware nobody bought a driver for is a site plugin: a directory `modules/<name>/` in the site (or in a shipped profile) with a
 `module.py` that defines `setup(ctx, api, config)`. The API registers providers
 (`api.provider("debug", "my-swd", factory, title=…, about=…)`), services for other modules, commands
 (`api.command(Command(CommandSpec(…), handler))`) and FastAPI routers. The `title` and `about` a provider registers

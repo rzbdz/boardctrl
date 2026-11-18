@@ -122,7 +122,7 @@ and `boardctrl probe`, news to `boardctrl watch --registry`.
 flowchart LR
   site["Site"] -- declares --> host["Board host"]
   site -- declares --> target["SDK target"]
-  pack["Pack"] -- provides --> soc["SoC profile"]
+  prof["Shipped profile"] -- provides --> soc["SoC profile"]
   host -- "has a header map" --> header["Board map (pins)"]
   host -- "controls" --> dut["DUT (board)"]
   dut -- "is a" --> soc
@@ -184,7 +184,7 @@ overrides it with `control.fdl.expect`.
 |---|---|---|
 | A board host | `SITE/hosts/<id>.yaml`, `SITE/deploy/<id>.env`, an entry in `remotes.json`; `deploy/deploy.sh <id>` | Host configuration |
 | A board | `boardctrl probe`, `boardctrl dut bind`, or a file in `SITE/duts/` | DUT spec |
-| A SoC | `socs/<soc>/soc.yaml` in a pack; probe images in the site | SoC profile |
+| A SoC | `socs/<soc>/soc.yaml` in a shipped profile; probe images in the site | SoC profile |
 | A probe mechanism | Replace `hooks/probe/{consoles,usb-devices,identify}` | JSON hook contract |
 | A reset mechanism | Subclass `ControlBackend`, register with `@CONTROL_BACKENDS.register` | `reset(log, ready)`, `enter_fdl(log, ready)`, `setup()` |
 | A boot or flash procedure | Recipe steps in the SDK target; `hook` steps call `hooks/flash/<name>` | [Step reference](sdk.md#boot-recipe-steps) |
@@ -192,7 +192,7 @@ overrides it with `control.fdl.expect`.
 | A build style | A runner in `Instance.build_command` (`make`, `envsetup`, `script` exist) | Runner |
 | GPIO hardware | A `GpioBackend` (sysfs, gpiod and mock exist), wrapped by `GuardedBackend` | `set_output`, `set_input`, `status`, `free` |
 | A transport to hosts | A transport in the remote's chain (`HttpTransport`, `SshTransport` exist) | `request()`, `stream()` |
-| Agent knowledge | `hints/*.md` in a pack or the site | Free text |
+| Agent knowledge | `hints/*.md` in a profile or the site | Free text |
 | A host feature | A `Module` that publishes `CommandSpec`s: REST, CLI, AI tools and web console follow | `core/module.py` |
 
 Long operations (boots, probes, human-assisted resets) run as background jobs
@@ -223,5 +223,5 @@ task and target. A target without `workspace:` owns an implicit workspace.
 ## Errors
 
 Every failure has a `code`, a `message`, a `hint` naming the next step, and machine-readable
-`details`; see [cli.md](cli.md#output-and-errors). Hardware quirks are documented by the pack
+`details`; see [cli.md](cli.md#output-and-errors). Hardware quirks are documented by the profile
 that knows the hardware (for example `profiles/spacemit/README.md`).
