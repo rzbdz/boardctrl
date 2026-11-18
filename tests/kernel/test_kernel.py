@@ -11,7 +11,7 @@ from typing import Iterable
 import pytest
 
 from core.errors import Conflict, Forbidden, InvalidRequest, NotFound
-from core.plugins import Plugins
+from core.loader import Providers
 from core.providers import PROVIDERS, describe
 from core.sessions import Session, Sessions, unit_name
 from modules.dut import services as bindings
@@ -219,15 +219,15 @@ def test_a_site_plugin_registers_a_provider_and_takes_its_config(tmp_path):
     class Ctx:
         services: dict = {}
 
-    plugins = Plugins([site / "modules"])
+    plugins = Providers([site / "modules"])
     assert plugins.available() == {"fake": site / "modules" / "fake", "broken": site / "modules" / "broken"}
-    plugins.load(["fake", "broken", "missing"], Ctx(), {"fake": {"pins": "J40:11"}})
+    plugins.load(Ctx(), {"fake": {"pins": "J40:11"}, "broken": {}, "missing": {}})
     assert "fake-swd" in PROVIDERS["debug"].names()
     assert Ctx.services["plugin_seen"] == {"pins": "J40:11"}
     assert "no hardware here" in plugins.errors["broken"]
-    assert "missing" in plugins.errors and plugins.errors["missing"].startswith("no plugin directory")
-    summary = plugins.summary()
-    assert summary["loaded"]["fake"]["providers"] == ["debug/fake-swd"]
+    assert "missing" in plugins.errors and plugins.errors["missing"].startswith("no module directory")
+    assert plugins.view()["fake"]["providers"] == ["debug/fake-swd"]
+    assert plugins.view()["broken"]["error"].startswith("RuntimeError")
 
 
 def test_providers_report_their_roles():

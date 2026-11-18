@@ -19,7 +19,7 @@ for a in "$@"; do [[ $a == --allow-dirty ]] && ALLOW_DIRTY=1; done
 
 SITE=${BSP_SITE:-}
 for c in "$SITE" "$HOME/.config/bsp/site" /etc/bsp/site; do [[ -n $c && -d $c ]] && { SITE=$(cd "$c" && pwd); break; }; done
-[[ -n $SITE && -d $SITE ]] || { echo "no site directory (set BSP_SITE; see examples/site)" >&2; exit 1; }
+[[ -n $SITE && -d $SITE ]] || { echo "no site directory (set BSP_SITE; see tests/fixtures/site)" >&2; exit 1; }
 ENV_FILE=$SITE/deploy/$TARGET.env
 [[ -f $ENV_FILE ]] || { echo "no such target: $ENV_FILE (targets: $(ls "$SITE/deploy" 2>/dev/null | sed 's/\.env$//' | tr '\n' ' '))" >&2; exit 1; }
 [[ -f $SITE/hosts/$TARGET.yaml ]] || { echo "no host config $SITE/hosts/$TARGET.yaml" >&2; exit 1; }

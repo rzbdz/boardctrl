@@ -23,7 +23,7 @@ profiles this host uses (the older key `packs:` is still read).
 
 The shipped profiles are complete enough to run a board on their own, and each one is an example of the
 files a profile can carry: `profiles/spacemit/` for boards, SoCs, hooks and hints, `profiles/rockchip/`
-for what a partial SoC profile looks like. `examples/site/` shows the files only a site has — hosts, DUT
+for what a partial SoC profile looks like. `tests/fixtures/site/` shows the files only a site has — hosts, DUT
 records, SDK trees, remotes, deploy targets and site plugins — and is complete enough to copy.
 
 A rule of thumb for contributors: if anyone who buys the hardware sees the same thing — boot-ROM
@@ -53,7 +53,7 @@ site/
 └── modules/<name>/module.py # site plugins: providers, commands, routes (see porting.md)
 ```
 
-`examples/site/` contains a working example of every file; the test suite runs against it.
+`tests/fixtures/site/` contains a working example of every file; the test suite runs against it.
 
 ### boardctrl.yaml
 

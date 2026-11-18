@@ -64,7 +64,7 @@ class Board:
     def tail(self, n):
         return self.out.splitlines()[-n:]
 
-    def wait(self, mark, rx, fail, timeout, *rest):
+    def wait(self, rx=None, fail=None, timeout=60, mark=None, stall=None, nudge=None):
         if not re.search(rx, self.out[mark[1]:]):
             raise HardwareTimeout(f"/{rx}/ not seen")
 
@@ -90,7 +90,7 @@ def image(tmp_path, data=IMAGE):
 
 
 def test_an_already_waiting_download_port_uses_its_existing_rom_evidence_without_a_reset(tmp_path):
-    from modules.dut.hostio import SerialConsole
+    from modules.smtty.serial import SerialConsole
 
     # Exercise the production marker: a retained ROM banner read through SerialConsole, not an integer offset.
     con = SerialConsole("board-a", log_dir=str(tmp_path))

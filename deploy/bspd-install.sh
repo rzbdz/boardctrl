@@ -153,7 +153,7 @@ echo "--> [3/6] installing boardctrl"
 EXTRAS=server; [[ $RELAY == gpiod ]] && EXTRAS=server,gpiod
 # Editable, from the tree beside it: boardctrl finds its profiles (board pin maps, SoC profiles) beside its source.
 ticking pip_install -e "$NEW/app[$EXTRAS]"
-[[ -f "$NEW/app/third_party/serial-mux/pyproject.toml" ]] && ticking pip_install -e "$NEW/app/third_party/serial-mux"
+[[ -f "$NEW/app/modules/smtty/serial-mux/pyproject.toml" ]] && ticking pip_install -e "$NEW/app/modules/smtty/serial-mux"
 ln -sfn "$NEW" "$PREFIX/current.new" && mv -Tf "$PREFIX/current.new" "$PREFIX/current"
 for b in boardctrl boardctrld bsp bsp-hostd smtty serial-mux; do [[ -x $PREFIX/current/venv/bin/$b ]] && ln -sfn "$PREFIX/current/venv/bin/$b" /usr/local/bin/$b; done
 # The old names are links to the same program, so a script or a unit written before the rename keeps working.

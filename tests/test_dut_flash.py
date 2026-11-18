@@ -18,12 +18,13 @@ from fastapi.testclient import TestClient
 
 from core.errors import InvalidRequest
 from modules.dut import flashpkg
-from modules.dut.hostio import ArtifactStore
+from modules.dut.artifacts import ArtifactStore
 from frontends.server.app import create_app
 from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[1]
-MOCK = ROOT / "examples" / "site" / "hosts" / "dev-mock.yaml"
+SITE = ROOT / "tests" / "fixtures" / "site"
+MOCK = SITE / "hosts" / "dev-mock.yaml"
 
 
 def _sha(data: bytes) -> str:

@@ -5,7 +5,7 @@ import pytest
 from core.errors import InvalidRequest, NotFound
 from modules.sdk.catalog import SdkCatalog, sharing
 
-ROOT = Path(__file__).resolve().parents[1] / "examples" / "site" / "sdk"
+ROOT = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "site" / "sdk"
 
 
 @pytest.fixture(scope="module")

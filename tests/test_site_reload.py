@@ -9,6 +9,7 @@ from frontends.server.app import create_app
 from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[1]
+SITE = ROOT / "tests" / "fixtures" / "site"
 
 # A board a site declares for this host: the site's own console and download port, no hardware here.
 BOARD = """id: board-1
@@ -40,8 +41,8 @@ def test_site_reload_takes_a_site_shipped_after_start(tmp_path, monkeypatch):
                  "  dut: {probe: {pulse_ms: 200}, slots: {auto_console: false}}\n")
     with TestClient(create_app(HostConfig.load(p))) as c:
         assert _sdks(c) == []
-        shutil.copytree(ROOT / "examples" / "site" / "sdk", site / "sdk")
-        shutil.copytree(ROOT / "examples" / "site" / "socs", site / "socs")
+        shutil.copytree(SITE / "sdk", site / "sdk")
+        shutil.copytree(SITE / "socs", site / "socs")
         r = c.post("/api/v1/tools/site_reload", json={}).json()
         assert r["ok"] and "bsp-a" in r["result"]["sdks"] and {"soc-a", "soc-b"} <= set(r["result"]["socs"])
         assert "bsp-a" in _sdks(c)

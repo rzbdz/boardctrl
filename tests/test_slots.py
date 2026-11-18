@@ -11,6 +11,7 @@ from modules.dut import probe as probe_mod
 from modules.dut.slots import SlotTable, is_slot_ref
 
 ROOT = Path(__file__).resolve().parents[1]
+SITE = ROOT / "tests" / "fixtures" / "site"
 
 
 def table(tmp_path, consoles, started=None, **cfg):
@@ -98,7 +99,7 @@ def fake_host(tmp_path, monkeypatch, wiring, aliases=("s1", "s2"), **probe_cfg):
     gpio = FakeGpio(logs, wiring, history_modes=probe_cfg.pop("relays", ()))
     added = []
     mod = types.SimpleNamespace(
-        probe_cfg={"watch_s": 0, **probe_cfg}, socs=SocProfiles([ROOT / "examples" / "site" / "socs"]),
+        probe_cfg={"watch_s": 0, **probe_cfg}, socs=SocProfiles([SITE / "socs"]),
         boards={}, slots=slots, serial_log_dir=str(tmp_path / "logs"), fastboot_bin="fastboot",
         hooks=types.SimpleNamespace(run=lambda kind, name, req, timeout=0, log=None: types.SimpleNamespace(data={"devices": []})),
         ctx=types.SimpleNamespace(host_id="lab-9", service=lambda name: gpio), _event=lambda topic, **d: None)

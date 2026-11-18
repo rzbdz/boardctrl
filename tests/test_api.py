@@ -7,12 +7,13 @@ from frontends.server.app import create_app
 from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[1]
+SITE = ROOT / "tests" / "fixtures" / "site"
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path))
-    with TestClient(create_app(HostConfig.load(ROOT / "examples" / "site" / "hosts" / "dev-mock.yaml"))) as c:
+    with TestClient(create_app(HostConfig.load(SITE / "hosts" / "dev-mock.yaml"))) as c:
         yield c
 
 
@@ -82,7 +83,7 @@ def test_web_ui_relative_urls(tmp_path, monkeypatch):
 
     monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path))
     monkeypatch.setenv("BSP_TOKEN", "s3cret")
-    with TestClient(create_app(HostConfig.load(ROOT / "examples" / "site" / "hosts" / "dev-mock.yaml"))) as c:
+    with TestClient(create_app(HostConfig.load(SITE / "hosts" / "dev-mock.yaml"))) as c:
         html = c.get("/").text
         assert not re.search(r'(src|href)="/', html)
         assert 'href="static/style.css?v=' in html and 'src="static/app.js?v=' in html
@@ -104,7 +105,7 @@ def test_web_ui_relative_urls(tmp_path, monkeypatch):
 def test_auth_token(tmp_path, monkeypatch):
     monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path))
     monkeypatch.setenv("BSP_TOKEN", "s3cret")
-    with TestClient(create_app(HostConfig.load(ROOT / "examples" / "site" / "hosts" / "dev-mock.yaml"))) as c:
+    with TestClient(create_app(HostConfig.load(SITE / "hosts" / "dev-mock.yaml"))) as c:
         assert c.get("/api/v1/gpio/list").status_code == 200
         assert c.post("/api/v1/gpio/P7/set?level=low").status_code == 403
         assert c.post("/api/v1/gpio/P7/set?level=low", headers={"Authorization": "Bearer s3cret"}).status_code == 200

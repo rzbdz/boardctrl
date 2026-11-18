@@ -21,8 +21,8 @@ from core.commands import Command
 import logging
 
 from core.errors import InvalidRequest, NotFound
+from core.context import HostContext
 from modules.sdk.catalog import BOOT_METHODS
-from core.module import MODULES, Module, ModuleContext
 
 log = logging.getLogger(__name__)
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
@@ -41,13 +41,16 @@ def _url(addr: str, port: int) -> str:
     return f"http://[{addr}]:{port}" if ":" in addr else f"http://{addr}:{port}"
 
 
-@MODULES.register("registry")
-class RegistryModule(Module):
-    name = "registry"
-    title = "Host registry"
+TITLE = "Host registry"
 
-    def __init__(self, ctx: ModuleContext, config: dict[str, Any]):
-        super().__init__(ctx, config)
+
+class RegistryModule:
+    name = "registry"
+    title = TITLE
+
+    def __init__(self, ctx: HostContext, config: dict[str, Any]):
+        self.ctx = ctx
+        self.config = config
         self.path: Path = ctx.module_state_dir("registry") / "hosts.json"
         self.stale_s = float(config.get("stale_s", 300))
         self.trust_proxy = bool(config.get("trust_proxy", False))
@@ -323,3 +326,15 @@ class RegistryModule(Module):
         from modules.registry.routes import registry_router
 
         return registry_router(self)
+
+
+def setup(ctx: Any, api: Any, config: dict[str, Any]) -> None:
+    mod = RegistryModule(ctx, config)
+    api.add_commands(mod.commands())
+    api.router(mod.router())
+    api.on_startup(mod.startup)
+    api.on_shutdown(mod.shutdown)
+    api.status(mod.status)
+    for prefix in mod.open_paths():
+        api.open_path(prefix)
+    return mod

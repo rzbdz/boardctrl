@@ -6,7 +6,7 @@ from typing import Any
 
 from core.cmdspec import CommandSpec, Param
 from core.commands import Command
-from core.module import MODULES, Module, ModuleContext
+from core.context import HostContext
 from modules.sdk.catalog import BOOT_METHODS, SdkCatalog
 
 
@@ -27,13 +27,16 @@ def _render_plan(p: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-@MODULES.register("sdk")
-class SdkModule(Module):
-    name = "sdk"
-    title = "SDK catalogue"
+TITLE = "SDK catalogue"
 
-    def __init__(self, ctx: ModuleContext, config: dict[str, Any]):
-        super().__init__(ctx, config)
+
+class SdkModule:
+    name = "sdk"
+    title = TITLE
+
+    def __init__(self, ctx: HostContext, config: dict[str, Any]):
+        self.ctx = ctx
+        self.config = config
         from core.site import layered
 
         self._site = (ctx.config_dir / config.get("site", "..")).resolve()
@@ -85,3 +88,10 @@ class SdkModule(Module):
 
     def status(self) -> dict[str, Any]:
         return {"instances": len(self.catalog.instances.names())}
+
+
+def setup(ctx: Any, api: Any, config: dict[str, Any]) -> None:
+    mod = SdkModule(ctx, config)
+    api.add_commands(mod.commands())
+    api.status(mod.status)
+    return mod

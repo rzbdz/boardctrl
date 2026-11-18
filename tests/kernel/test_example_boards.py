@@ -15,7 +15,8 @@ from core.site import layered
 from modules.gpio.board import BoardCatalog
 
 ROOT = Path(__file__).resolve().parents[2]
-SITE = ROOT / "examples" / "site"
+SITE = ROOT / "tests" / "fixtures" / "site"
+SITE = SITE
 
 
 @pytest.mark.parametrize("board_id, header, pins", [

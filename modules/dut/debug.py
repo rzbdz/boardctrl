@@ -1,69 +1,18 @@
 """The `debug` role: halt, run, step, registers, a live trace channel and a GDB endpoint.
 
-Debug is a service of a board like its console and its download path, because a board may be debugged through a
-different path than it is flashed through (a GPIO bit-banged SWD link rather than a USB port). A provider reports
-what it offers (`kinds`: `halt`, `regs`, `trace`, `gdb`, `write`), starts and stops a server as a session under
-the board's lease, and answers the actions it declares — nothing here assumes a particular adapter or probe.
+The contract (`DebugProvider`) and the server-backed base (`SessionDebug`) live in `core/roles.py` and here, because
+a site plugin implements them without importing a module; the built-in `none` provider says a board has no debug
+path, in the same words everywhere.
 """
 
 from __future__ import annotations
 
-from abc import ABC
 from typing import Any
 
 from core.errors import InvalidRequest
+from core.roles import DebugProvider
 
-
-class DebugProvider(ABC):
-    provider_name = "none"
-    # What this provider can do, as names a page and a CLI render: halt, run, reset, step, regs, trace, gdb, write.
-    kinds: tuple[str, ...] = ()
-
-    def __init__(self, dut: Any, config: dict[str, Any] | None = None, services: Any = None):
-        self.dut = dut
-        self.config = dict(config or {})
-        self._services = services
-
-    @property
-    def sessions(self):
-        """The host's session service: where a provider's server runs (a transient unit under the board's lease)."""
-        if self._services is None:
-            raise RuntimeError(f"{self.provider_name}: no session service on this host")
-        return self._services("sessions")
-
-    @property
-    def gpio(self):
-        """The host's GPIO service, for a provider whose path is bit-banged over header pins."""
-        if self._services is None:
-            raise RuntimeError(f"{self.provider_name}: no GPIO service on this host")
-        return self._services("gpio")
-
-    # ------------------------------------------------------------ lifecycle
-    def start(self, lease: str | None = None) -> dict[str, Any]:
-        """Bring the debug path up (start its server as a session); returns what it is and where."""
-        raise NotImplementedError(f"{self.provider_name} cannot be started")
-
-    def stop(self) -> dict[str, Any]:
-        raise NotImplementedError(f"{self.provider_name} cannot be stopped")
-
-    # ------------------------------------------------------------- actions
-    def action(self, name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Run one action of `kinds` (halt, run, reset, step, regs, …)."""
-        raise NotImplementedError(f"{self.provider_name} has no action {name!r}")
-
-    # --------------------------------------------------------------- views
-    # `title` and `about` are the words a page shows for this path; a provider inherits the ones it registered with.
-    title: str = ""
-    about: str = ""
-
-    def shelf(self) -> dict[str, Any]:
-        """What a board's page shows: provider, kinds, and the live state if it can tell."""
-        return {"provider": self.provider_name, "kinds": list(self.kinds),
-                **({"title": self.title} if self.title else {}), **({"about": self.about} if self.about else {})}
-
-    def info(self) -> dict[str, Any]:
-        return {"provider": self.provider_name, "kinds": list(self.kinds), "available": bool(self.kinds),
-                **({"title": self.title} if self.title else {}), **({"about": self.about} if self.about else {})}
+__all__ = ["DebugProvider", "SessionDebug", "NoDebug"]
 
 
 class SessionDebug(DebugProvider):
@@ -85,8 +34,7 @@ class SessionDebug(DebugProvider):
 
     @property
     def dut_id(self) -> str:
-        """Its board's id: the provider is built for a Board (which has a spec), or given the spec itself."""
-        return getattr(getattr(self.dut, "spec", self.dut), "id")
+        return self.dut_id_of(self.dut)
 
     def start(self, lease: str | None = None) -> dict[str, Any]:
         session = self.sessions.start(self.dut_id, "debug", self.provider_name, self.server_command(),
@@ -104,8 +52,8 @@ class NoDebug(DebugProvider):
 
     def _no(self) -> InvalidRequest:
         return InvalidRequest(
-            f"{self.dut.id} has no debug provider: it is not debugged through this host",
-            hint=f"record one: bsp dut set {self.dut.id} --debug-provider <name> (bsp status lists them)",
+            f"{self.dut_id_of(self.dut)} has no debug provider: it is not debugged through this host",
+            hint=f"record one: bsp dut set {self.dut_id_of(self.dut)} --debug-provider <name> (bsp status lists them)",
         )
 
     def start(self, lease: str | None = None) -> dict[str, Any]:

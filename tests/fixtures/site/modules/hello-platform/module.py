@@ -28,7 +28,7 @@ from typing import Any
 
 from core.errors import InvalidRequest
 from core.providers import Field
-from modules.dut.console import ConsoleProvider
+from core.roles import ConsoleProvider
 
 
 # ------------------------------------------------------------------ console --

@@ -19,11 +19,12 @@ from frontends.server.app import create_app
 from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[2]
+SITE = ROOT / "tests" / "fixtures" / "site"
 
 from test_kernel import FakeSystemd  # noqa: E402
 
 PLUGIN = '''
-from modules.dut.debug import DebugProvider
+from core.roles import DebugProvider
 
 class FakeDebug(DebugProvider):
     provider_name = "fake-swd"
@@ -129,7 +130,7 @@ def site(tmp_path):
     (site / "modules" / "fake" / "module.py").write_text(PLUGIN)
     (site / "hosts").mkdir()
     (site / "boards").mkdir()
-    shutil.copy(ROOT / "examples" / "site" / "boards" / "example-40pin.yaml", site / "boards")
+    shutil.copy(SITE / "boards" / "example-40pin.yaml", site / "boards")
     shutil.copytree(ROOT / "profiles", site / "profiles")
     return site
 
@@ -179,10 +180,10 @@ def test_a_record_the_site_ships_is_bound_to_the_plugins_providers_at_start(clie
 
 def test_the_plugin_loaded_and_registered_its_providers(client):
     status = client.get("/api/v1/status").json()["result"]
-    assert status["plugins"]["loaded"]["fake"]["providers"] == ["debug/fake-swd", "console/fake-rtt",
+    assert status["modules"]["fake"]["providers"] == ["debug/fake-swd", "console/fake-rtt",
                                                               "flash/fake-writer"]
     assert "fake-swd" in status["providers"]["debug"]["names"]
-    assert status["plugins"]["loaded"]["fake"]["commands"] == ["fake.hello"]
+    assert status["modules"]["fake"]["commands"] == ["fake.hello"]
 
 
 def test_the_plugin_commands_work_like_any_other(client):
@@ -343,7 +344,7 @@ def test_a_plugin_switched_off_in_the_host_config_is_not_loaded(site, tmp_path, 
     app = create_app(HostConfig.load(site / "hosts" / "off.yaml"))
     with TestClient(app) as client:
         status = client.get("/api/v1/status").json()
-        assert "fake" not in (status.get("plugins") or {}).get("loaded", {})
+        assert "fake" not in (status.get("modules") or {})
         assert "fake.hello" not in {tool["name"] for tool in client.get("/api/v1/tools").json()["tools"]}
 
 
@@ -363,7 +364,7 @@ def test_a_plugin_named_in_plugins_and_switched_off_is_not_loaded(site, tmp_path
     app = create_app(HostConfig.load(site / "hosts" / "named.yaml"))
     with TestClient(app) as client:
         status = client.get("/api/v1/status").json()
-        assert "fake" not in (status.get("plugins") or {}).get("loaded", {})
+        assert "fake" not in (status.get("modules") or {})
 
 
 RELAY_PLUGIN = '''
@@ -431,12 +432,22 @@ def test_a_plugin_can_fill_the_relay_role(site, tmp_path, monkeypatch):
 
 def test_the_built_in_roles_are_still_the_defaults_and_still_work(site, tmp_path, monkeypatch):
     """Filling the role table must not change what a record that names nothing gets."""
-    from modules.dut.control import build_download, build_relay
+    from core.providers import build
     from modules.dut.catalog import spec_from_dict
 
     spec = spec_from_dict({"id": "plain", "host": "h1", "services": {"download": {"provider": "fastboot", "usb": "usb:1-1"}}})
-    control = build_relay("gpio-relay", spec, lambda name: None)
+    # The relay and download providers come from the modules a host with DUTs carries (loaded by its Hub).
+    from frontends.server.app import ROLE_MODULES
+    from core.loader import Providers
+
+    class Ctx:
+        services: dict = {}
+
+    Providers([Path(__file__).resolve().parents[2] / "modules"]).load(
+        Ctx(), {name: {} for name in ROLE_MODULES})
+    ctx = Ctx()
+    ctx.services = {"smtty": None}
+    control = build("relay", "gpio-relay", ctx, spec, lambda name: None)
     assert type(control).__name__ == "GpioRelayControl"
-    download = build_download("fastboot", spec, "fastboot", lambda name: None,
-                              cfg={"provider": "fastboot", "usb": "usb:1-1"})
+    download = build("download", "fastboot", ctx, spec, lambda name: None)
     assert download.usb == "usb:1-1"

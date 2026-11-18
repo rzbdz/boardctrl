@@ -8,11 +8,14 @@ from modules.gpio.board import BoardCatalog
 from modules.gpio.service import ConfigStore, GpioService
 
 ROOT = Path(__file__).resolve().parents[1]
+# The site every test runs against: a complete, made-up site — hosts, DUT records, board maps, SoC facts, an SDK
+# catalog and one site plugin — and the example a person copies to start their own (never a real one).
+SITE = ROOT / "tests" / "fixtures" / "site"
 
 
 @pytest.fixture
 def board():
-    return BoardCatalog(ROOT / "examples" / "site" / "boards").get("example-40pin")
+    return BoardCatalog(SITE / "boards").get("example-40pin")
 
 
 @pytest.fixture
@@ -33,4 +36,4 @@ def make_service(board, backend, tmp_path):
 @pytest.fixture(autouse=True)
 def example_site(monkeypatch):
     """Every test runs against the made-up example site (never a real one)."""
-    monkeypatch.setenv("BSP_SITE", str(ROOT / "examples" / "site"))
+    monkeypatch.setenv("BSP_SITE", str(SITE))

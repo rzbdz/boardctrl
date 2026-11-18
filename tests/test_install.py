@@ -4,6 +4,7 @@ from frontends.cli import install
 from modules.sdk.catalog import SdkCatalog
 
 ROOT = Path(__file__).resolve().parents[1]
+SITE = ROOT / "tests" / "fixtures" / "site"
 DUTS = [{"id": "board-1", "host": "lab-1", "board": "board-y", "soc": "soc-a", "sdks": ["bsp-a"]},
         {"id": "board-2", "host": "lab-2", "board": "board-x", "soc": "soc-b", "sdks": ["upstream-a"]}]
 
@@ -14,7 +15,7 @@ def _cat(tmp_path, paths):
 
     import yaml
 
-    shutil.copytree(ROOT / "examples" / "site" / "sdk", tmp_path / "sdk")
+    shutil.copytree(SITE / "sdk", tmp_path / "sdk")
     for kind, name, path in paths:
         p = tmp_path / "sdk" / kind / f"{name}.yaml"
         d = yaml.safe_load(p.read_text())
@@ -49,7 +50,7 @@ def test_shared_workspace_lists_all_targets(tmp_path):
 
 
 def test_unconfigured_directory(tmp_path):
-    cat = SdkCatalog(ROOT / "examples" / "site" / "sdk")
+    cat = SdkCatalog(SITE / "sdk")
     text = Path(install.install(tmp_path, cat, None, "bsp")["file"]).read_text()
     assert "**not configured**" in text and "ask the user" in text
 
@@ -57,9 +58,9 @@ def test_unconfigured_directory(tmp_path):
 def test_hints_come_from_configuration(tmp_path):
     from core.site import hints
 
-    found = hints(ROOT / "examples" / "site")
-    assert ("site/ssh", (ROOT / "examples/site/hints/ssh.md").read_text().strip()) in found
-    cat = SdkCatalog(ROOT / "examples" / "site" / "sdk")
+    found = hints(SITE)
+    assert ("site/ssh", (ROOT / "tests/fixtures/site/hints/ssh.md").read_text().strip()) in found
+    cat = SdkCatalog(SITE / "sdk")
     text = Path(install.install(tmp_path, cat, None, "bsp", found)["file"]).read_text()
     assert "## Hints from this installation's configuration" in text and "team's ssh key" in text
     assert text.index("team's ssh key") < text.index("Below: the full bsp skill")

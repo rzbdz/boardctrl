@@ -1,10 +1,11 @@
 """dut module, the DUT manager of a board host: the DUTs attached to it — registry, leases,
 reset/FDL, fastboot boot (load / download), serial console, and auto-discovery (probe).
 
-Each DUT (`Board`) is the three services of the host bound to one board:
-  relay controller   its control backend (`control.py`): gpio service lines, or a person
-  download path      fastboot on its USB port and the artifact cache (`hostio.py`, `boot.py`)
-  serial console     its serial-mux daemon (`consoles.py`, `hostio.SerialConsole`)
+Each DUT (`Board`) is the host's roles bound to one board: a relay, a download port, a console and a debug path,
+each filled by the provider its record names — from the modules this host carries or a site's. The DUT module owns
+what is not a provider: the records, leases, slots, the boot recipes and the probe. It publishes the
+`dut_attention` service (a person's requests) and builds its boards when the host starts, after every module's
+setup, so a board may bind a provider any module registered.
 Commands (`commands.py`) are the atomic layer under `bsp dut ...` / `bsp probe`."""
 
 from __future__ import annotations
@@ -21,14 +22,14 @@ from core.commands import Command
 from core.env import expand
 from core.errors import Conflict, HardwareError, InvalidRequest, NotFound, BspError
 from core.hooks import HookRunner
-from core.module import MODULES, Module, ModuleContext
+from core.context import HostContext
 from core.net import local_addresses
 from modules.sdk.catalog import SdkCatalog
 from modules.dut.boot import BootRunner
 from modules.dut.catalog import DutRegistry, DutSpec
 from modules.dut.commands import build_commands
-from modules.dut.control import build_download, build_relay, register_download_providers, register_relay_providers
-from modules.dut.hostio import ArtifactStore, SerialConsole
+from modules.dut.control import build_relay
+from modules.dut.artifacts import ArtifactStore
 from modules.dut.mediaboot import MediaBoot
 from modules.dut.leases import LeaseManager
 
@@ -36,8 +37,8 @@ class Board:
     """Runtime handles for one DUT (built from its spec): each role filled by the provider its record names."""
 
     def __init__(self, spec: DutSpec, mod: "DutModule"):
-        from modules.dut import services as bindings
         from core.providers import build
+        from modules.dut import services as bindings
 
         self.spec = spec
         self.sessions = mod.sessions
@@ -54,8 +55,7 @@ class Board:
         self.control = build_relay(relay.get("provider", "gpio-relay"), spec, mod.ctx.service,
                                    cfg=relay if explicit_relay is not None else None)
         download = self.bindings.get("download") or {}
-        self.fastboot = build_download(download.get("provider", "fastboot"), spec, mod.fastboot_bin,
-                                       mod.ctx.service, cfg=download)
+        self.fastboot = build("download", download.get("provider", "fastboot"), mod.ctx, spec, mod.ctx.service)
         console = self.bindings.get("console") or {}
         try:
             self.console = build("console", console.get("provider", "serial-mux"), mod.ctx, spec, mod.ctx.service)
@@ -115,22 +115,27 @@ class _NoSystemd:
     pid = lambda self, unit: None           # noqa: E731
 
 
-@MODULES.register("dut")
-class DutModule(Module):
-    name = "dut"
-    title = "DUTs"
+TITLE = "DUTs"
 
-    def __init__(self, ctx: ModuleContext, config: dict[str, Any]):
-        super().__init__(ctx, config)
+
+class DutModule:
+    """The host's DUT manager. Built by `setup`; its boards are built in `startup`."""
+
+    name = "dut"
+    title = TITLE
+
+    def __init__(self, ctx: HostContext, config: dict[str, Any], api: Any = None):
+        self.ctx = ctx
+        self.config = config
+        self.api = api
         from core.site import layered
 
         base = ctx.config_dir
         site = (base / config.get("site", "..")).resolve()    # <site>/hosts/<id>.yaml -> <site>
         state = ctx.module_state_dir("dut")
-        self.smtty = config.get("smtty", "smtty")
-        self.serial_mux = config.get("serial_mux", "serial-mux")
-        self.serial_log_dir = config.get("serial_log_dir", os.path.expanduser("~/.serial-mux/logs"))
-        self.fastboot_bin = config.get("fastboot", "fastboot")
+        # The serial tooling is the `smtty` module's service; slots, probe and logins read it from there, and a host
+        # that carries no smtty module has no serial consoles (`self.smtty` is None here).
+        self.smtty_service = None
         self.probe_cfg = config.get("probe") or {}
         # `dut flash`: packages the host takes (uploaded or downloaded), and where it unpacks them
         self.flash_cfg = config.get("flash") or {}
@@ -157,19 +162,18 @@ class DutModule(Module):
         self.store = ArtifactStore(state / "artifacts")
         self._flash_work = state / "flash"
         from core.sessions import Sessions
-        from modules.dut import console_providers, debug_providers  # noqa: F401 - register the built-in providers
-        # The relay and download roles are provider roles too: their built-ins are offered under the same table, so
-        # a record may name them and a site plugin may add its own.
-        register_relay_providers()
-        register_download_providers()
+        from modules.dut import console_providers, debug_providers, flash  # noqa: F401 - the roles' `none`/`hook`
 
         self.sessions = ctx.services.get("sessions") or Sessions(state / "sessions", _NoSystemd())
-        from modules.dut.consoles import ConsoleManager
+        from modules.smtty.consoles import ConsoleManager
 
-        self.consoles = ConsoleManager(self.serial_mux, self.serial_log_dir)
-        # The console providers read the host's tools (smtty, serial-mux, the log directory) from here.
-        ctx.services["dut_tools"] = {"smtty": self.smtty, "serial_mux": self.serial_mux,
-                                     "log_dir": self.serial_log_dir, "fastboot": self.fastboot_bin}
+        self.smtty_service = ctx.services.get("smtty")
+        self.smtty = self.smtty_service.smtty if self.smtty_service else "smtty"
+        self.serial_log_dir = self.smtty_service.log_dir if self.smtty_service else os.path.expanduser("~/.serial-mux/logs")
+        self.consoles = ConsoleManager(self.smtty_service.serial_mux if self.smtty_service else "serial-mux",
+                                       self.serial_log_dir)
+        # A host without the smtty module (a development machine driving a board over USB only) has no serial
+        # consoles: its slots, probes and logins read the service when it is there.
         from modules.dut.slots import SlotTable
 
         self.slots = SlotTable(state / "slots.json", self._list_consoles,
@@ -177,14 +181,13 @@ class DutModule(Module):
         self.boards: dict[str, Board] = {}
         self._busy: dict[str, str] = {}
         self.port_watcher = None
-        from modules.dut.control import Attention
+        from core.attention import Attention
         from modules.dut.sshlogin import ConsoleLogins
 
         self.attention = Attention(lambda topic, **d: self._event(topic, **d))
         ctx.services["dut_attention"] = self.attention
 
         self.logins = ConsoleLogins(config.get("ssh_console"), ctx.host_id, ctx.port, self.smtty)
-        self._rebuild()
 
     def _rebuild(self) -> None:
         self.boards = {i: Board(s, self) for i, s in sorted(self.registry.all().items())}
@@ -387,9 +390,11 @@ class DutModule(Module):
         return self.ctx.jobs.start(meta.pop("kind", "dut"), f"{dut}: {what}", wrapped, dut=dut, **meta)
 
     # ----------------------------------------------------------- commands --
-    def status(self, dut: str | None = None) -> dict[str, Any]:  # type: ignore[override]
-        if dut is None:   # module health (hub status)
-            return {"duts": sorted(self.boards), "hooks": {k: self.hooks.names(k) for k in ("probe", "flash")}}
+    def health(self) -> dict[str, Any]:
+        """The module's own status for `/api/v1/status`; `status(dut)` is a board's (`dut status`)."""
+        return {"duts": sorted(self.boards), "hooks": {k: self.hooks.names(k) for k in ("probe", "flash")}}
+
+    def status(self, dut: str) -> dict[str, Any]:
         b = self.board(dut)
         try:
             fb = b.fastboot.state()
@@ -886,7 +891,7 @@ class DutModule(Module):
             except ValueError as e:
                 raise InvalidRequest(f"spec is not valid JSON: {e}") from None
         if not isinstance(spec, dict):
-            raise InvalidRequest("spec must be a JSON object (see examples/site/duts/*.yaml for the shape)")
+            raise InvalidRequest("spec must be a JSON object (see tests/fixtures/site/duts/*.yaml for the shape)")
         con = spec.get("console") or {}
         start = con.pop("start", False)
         s = self.registry.add(spec, replace)
@@ -940,6 +945,8 @@ class DutModule(Module):
                 "note": "lease dropped by rename; acquire the new name" if lease_info else None}
 
     def set_fields(self, dut: str, lease: str | None, **fields: Any) -> dict[str, Any]:
+        from modules.dut import services as bindings
+
         self._free_for_edit(dut, lease)
         spec = self.board(dut).spec
         raw = {**spec.raw, "console": dict(spec.console), "fastboot": dict(spec.fastboot),
@@ -984,6 +991,12 @@ class DutModule(Module):
         if fields.get("fdl_pin"):
             raw["control"]["fdl"]["pin"] = fields["fdl_pin"]
             changed.append("fdl_pin")
+        # The roles' providers: each field writes the record's `services` block, so what a host runs is what the
+        # record says (`bindings()` reads it back).
+        block = bindings.services_from_fields(spec, **fields)
+        if block is not None:
+            raw["services"] = block
+            changed.append("services")
         if not changed:
             raise InvalidRequest("nothing to change", hint="see `bsp dut set --help`")
         self.registry.update(dut, raw)
@@ -1233,6 +1246,12 @@ class DutModule(Module):
         self._event("ports", added=change["added"], removed=change["removed"])
 
     def startup(self) -> None:
+        """Build every board of the site's records, then start the port watcher and the consoles it has.
+
+        Boards are built here, not in `__init__`: a record may bind a provider any module registered in its setup,
+        and every module's setup has run by the time the host starts.
+        """
+        self._rebuild()
         from modules.dut.ports import PortWatcher
 
         cfg = self.config.get("watch_ports", True)
@@ -1294,3 +1313,14 @@ def _stage(fb: dict | None, download_rx: str | None) -> str:
     if download_rx and re.search(download_rx, fb.get("product", "")):
         return "download-mode"
     return "fastboot"
+
+
+def setup(ctx: Any, api: Any, config: dict[str, Any]) -> None:
+    """Build the DUT manager and register what it contributes; it builds its boards when the host starts."""
+    mod = DutModule(ctx, config, api)
+    api.add_commands(build_commands(mod))
+    api.router(mod.router())
+    api.on_startup(mod.startup)
+    api.on_shutdown(mod.shutdown)
+    api.status(mod.health)
+    return mod

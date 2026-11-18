@@ -152,7 +152,7 @@ Adding a SoC is a YAML profile plus, optionally, a known-good bootloader image; 
 
 ## Try it without hardware
 
-The repository ships a fictional site (`examples/site/`) and a mock GPIO backend, so you can
+The repository ships a fictional site (`tests/fixtures/site/`) and a mock GPIO backend, so you can
 explore the CLI, the HTTP API and the web console on any Linux machine:
 
 ```bash
@@ -160,8 +160,8 @@ git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-lo
 cd bsp-dev-loop
 python3 -m venv .venv && .venv/bin/pip install -e '.[server]'
 
-export BOARDCTRL_SITE=$PWD/examples/site
-.venv/bin/boardctrld -c examples/site/hosts/dev-mock.yaml --port 8765 &
+export BOARDCTRL_SITE=$PWD/tests/fixtures/site
+.venv/bin/boardctrld -c tests/fixtures/site/hosts/dev-mock.yaml --port 8765 &
 
 export BOARDCTRL_URL=http://127.0.0.1:8765
 bin/bsp dut list                      # two mock boards: mock-board (GPIO reset), mock-slot (manual reset)
@@ -192,7 +192,7 @@ git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-lo
 
 Then, in short:
 
-1. **Create a site.** Copy `examples/site/` to a private location (for example its own git
+1. **Create a site.** Copy `tests/fixtures/site/` to a private location (for example its own git
    repository) and describe your board hosts, build servers and SDKs. Point `BOARDCTRL_SITE` at it,
    or place it at `~/.config/bsp/site`.
 2. **Deploy each board host:** `deploy/deploy.sh HOST_ID` installs `boardctrld` as a systemd
@@ -239,11 +239,11 @@ and a remote CLI that accepts every host command.
 
 | Layer | Contents | Location |
 |---|---|---|
-| Core | Mechanisms, generic hooks, examples | this repository |
+| Core | Mechanisms, generic hooks | this repository |
 | Shipped profiles | Public hardware knowledge: SoC profiles, board pin maps, hooks for public tool formats | `profiles/` in this repository (the site overrides them) |
 | Site | Your hosts, build servers, SDK trees, boot and flash recipes, boards, hints | `$BOARDCTRL_SITE`, `~/.config/boardctrl/site` or `/etc/boardctrl/site` |
 
-Later layers override earlier ones file by file. Start from `examples/site/`; every format is
+Later layers override earlier ones file by file. Start from `tests/fixtures/site/`; every format is
 documented in [docs/configuration.md](docs/configuration.md) and
 [docs/sdk.md](docs/sdk.md).
 

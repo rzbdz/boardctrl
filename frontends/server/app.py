@@ -34,10 +34,10 @@ from core.commands import Command, CommandRegistry
 from core.errors import Forbidden, BspError
 from core.events import EventBus
 from core.jobs import JobManager
-from core.module import MODULES, Module, ModuleContext
+from core.context import HostContext
+from core.loader import Providers
 from frontends.server.config import HostConfig
 
-BUILTIN_MODULES = ["modules.gpio.module", "modules.sdk.module", "modules.dut.module", "modules.registry.module"]
 WEB_DIR = Path(__file__).parent / "web"
 _PYTYPES = {"string": str, "integer": int, "number": float, "boolean": bool, "array": list[str] | str}
 
@@ -50,14 +50,12 @@ class Hub:
     """Runtime container: config, bus, loaded modules and the command registry."""
 
     def __init__(self, config: HostConfig):
-        for m in BUILTIN_MODULES:
-            importlib.import_module(m)
         self.config = config
         self.bus = EventBus()
         self.jobs = JobManager(self.bus)
         self.started = time.time()
         config.state_dir.mkdir(parents=True, exist_ok=True)
-        ctx = ModuleContext(config.host_id, self.bus, config.state_dir, config.config_dir, jobs=self.jobs,
+        ctx = HostContext(config.host_id, self.bus, config.state_dir, config.config_dir, jobs=self.jobs,
                             port=config.port, auth_token=config.auth_token, env=dict(config.env),
                             bind=config.bind, announce=config.announce)
         self.ctx = ctx
@@ -67,39 +65,17 @@ class Hub:
         self.sessions = Sessions(config.state_dir / "sessions", Systemd(),
                                  held=self._lease_held)
         ctx.services["sessions"] = self.sessions
-        # Site plugins: code a site carries (modules/<name>/module.py). A name in `modules:` that no built-in
-        # module registers is a plugin (its config goes to it), so a host enables one the way it enables a module.
-        # Plugins load before the built-in modules: a DUT record the site ships may bind a plugin's provider, and
-        # the DUT module builds its boards as it starts. A plugin that needs a module's service reads it lazily
-        # (`ctx.service(...)` inside what it registers, not in `setup`).
-        from core.plugins import Plugins
-        from core.site import layers
+        # One loader, one contract: the components this repository ships (`modules/<name>/module.py`) and a site's
+        # own (`<site>/modules/<name>/module.py`), the site's copy of a name replacing the shipped one. A module the
+        # host names in `modules:` is set up with its section of that map; `enabled: false` turns it off. Every
+        # setup runs before any module's startup, so a module may read another's service when it starts, in any order.
+        from core.site import REPO, layers
 
-        self.plugins = Plugins([layer / "modules" for layer in layers((config.config_dir / "..").resolve())])
-        available = self.plugins.available()
-        # `enabled: false` turns a plugin off however it was selected: a site that carries a plugin's code may still
-        # want it off on one host (it drives pins, it needs a tool that host does not have), and a config key that
-        # reads like a switch must not be ignored.
-        off = {name for name, cfg in config.modules.items() if cfg.get("enabled", True) is False}
-        named = list(config.plugins or [])
-        wanted = [name for name in (named or [
-            name for name in config.modules if name in available and name not in MODULES]) if name not in off]
-        wanted += [name for name in config.modules
-                   if name not in MODULES and name not in wanted and name not in off]
-        plugin_config = {name: config.modules.get(name) or {} for name in wanted}
-        # `Plugins.load` reads an empty list as "everything available": a host that names no plugin loads none, so
-        # the selection is passed explicitly even when it is empty.
-        self.plugin_commands = self.plugins.load(wanted, ctx, plugin_config) if wanted or named else []
-        for name in wanted:
-            if name not in available and name not in self.plugins.errors:
-                self.plugins.errors[name] = "no modules/%s/module.py in the site or the shipped profiles" % name
-        self.modules: dict[str, Module] = {}
-        for name, mcfg in config.modules.items():
-            if name in wanted or not mcfg.get("enabled", True):
-                continue
-            self.modules[name] = MODULES.get(name)(ctx, mcfg)
-        # A host announcing itself to a registry follows the registry's SDK catalog.
         self.follower = None
+        self.providers = Providers([REPO / "modules"]
+                               + [root / "modules" for root in layers((config.config_dir / "..").resolve())])
+        self.providers.load(ctx, _with_role_modules(config.modules))
+        # A host announcing itself to a registry follows the registry's SDK catalog.
         if config.announce:
             from frontends.server.catalog_follow import CatalogFollower
 
@@ -115,14 +91,22 @@ class Hub:
             ctx.services["catalog_follower"] = self.follower
         self.registry = CommandRegistry()
         self.registry.extend(self._core_commands())
-        for m in self.modules.values():
-            self.registry.extend(m.commands())
-        self.registry.extend(self.plugin_commands)
+        self.registry.extend(self.providers.commands())
+
+    @property
+    def modules(self) -> Any:
+        """`hub.modules["dut"]` — the manager a module set up (the DUT manager, in practice)."""
+        return self.providers
+
+    def module(self, name: str) -> Any:
+        """The object a module set up for itself (its manager), for a test or a helper that drives it directly."""
+        loaded = self.providers.loaded.get(name)
+        return getattr(loaded, "manager", None) if loaded else None
 
     announcer: Any = None
 
     def announcement(self) -> dict[str, Any]:
-        dut = self.modules.get("dut")
+        dut = self.module("dut")
         return {"host": self.config.host_id, "port": self.config.port, "description": self.config.description,
                 "version": __version__, "duts": sorted(getattr(dut, "boards", {}) or {}),
                 # compact, so a registry notices a slot coming online or a board registered into it
@@ -135,7 +119,7 @@ class Hub:
     def _lease_held(self, token: str) -> bool:
         """Whether a lease token is the live one on its board: asked of the DUT module, which owns the leases (and
         is built after this, so it is looked up when asked, not held)."""
-        dut = self.modules.get("dut")
+        dut = self.module("dut")
         return bool(dut and getattr(dut, "lease_live", lambda _token: True)(token))
 
     def status(self) -> dict[str, Any]:
@@ -146,8 +130,7 @@ class Hub:
             "version": __version__,
             "uptime_s": round(time.time() - self.started, 1),
             "auth": bool(self.config.auth_token),
-            "modules": {n: {"title": m.title, **m.status()} for n, m in self.modules.items()},
-            "plugins": self.plugins.summary(),
+            "modules": self.providers.view(),
             "providers": _providers_summary(),
             "sessions": [s.to_dict() for s in self.sessions.list()],
             **({"announce": {"url": self.announcer.url, **self.announcer.last}} if self.announcer else {}),
@@ -205,6 +188,33 @@ class Hub:
         ]
 
 
+# The modules a host carries when it runs DUTs: the tools a record's default roles are filled by. A host that names
+# `dut` gets them unless it names its own section for one (then that section is used, not this default).
+ROLE_MODULES = ("smtty", "fastboot", "human")
+
+
+def _with_role_modules(modules: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """A host's module sections, with the DUT roles' modules added when it runs the DUT manager.
+
+    Their settings are the old `modules.dut.{smtty,serial_mux,serial_log_dir,fastboot}` when the site wrote those
+    and did not name the module, so a site written before the tools had modules of their own keeps working.
+    """
+    if "dut" not in modules:
+        return modules
+    dut = modules.get("dut") or {}
+    out = dict(modules)
+    for name in ROLE_MODULES:
+        if name in out:
+            continue
+        section: dict[str, Any] = {}
+        if name == "smtty":
+            section = {k: dut[k] for k in ("smtty", "serial_mux", "serial_log_dir") if k in dut}
+        elif name == "fastboot":
+            section = {k: dut[k] for k in ("fastboot",) if k in dut}
+        out[name] = section
+    return out
+
+
 def _providers_summary() -> dict[str, Any]:
     """What providers this host has, by role (the built-ins are registered when the host's modules import)."""
     from core.providers import describe
@@ -229,8 +239,7 @@ def create_app(config: HostConfig) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        for m in hub.modules.values():
-            await run_in_threadpool(m.startup)
+        await run_in_threadpool(hub.providers.startup)
         hub.bus.publish("service.started", version=__version__)
         announcer = None
         if config.announce:
@@ -251,8 +260,7 @@ def create_app(config: HostConfig) -> FastAPI:
         yield
         if announcer:
             announcer.stop()
-        for m in hub.modules.values():
-            m.shutdown()
+        hub.providers.shutdown()
 
     app = FastAPI(
         title=f"boardctrld · {config.host_id}",
@@ -304,7 +312,7 @@ def create_app(config: HostConfig) -> FastAPI:
         return envelope(request, exc.status_code, {"code": f"http_{exc.status_code}", "message": str(exc.detail)})
 
     if config.auth_token:
-        open_paths = tuple(p for m in hub.modules.values() for p in m.open_paths())
+        open_paths = tuple(hub.providers.open_paths())
 
         @app.middleware("http")
         async def _auth(request: Request, call_next):
@@ -320,11 +328,7 @@ def create_app(config: HostConfig) -> FastAPI:
     _core_routes(app, hub)
     for spec in hub.registry.specs():
         _command_routes(app, hub, spec)
-    for m in hub.modules.values():
-        r = m.router()
-        if r is not None:
-            app.include_router(r)
-    for r in hub.plugins.routers():
+    for r in hub.providers.routers():
         app.include_router(r)
     from frontends.server.streams import include_session_routes
 

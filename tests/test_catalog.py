@@ -14,7 +14,8 @@ from frontends.server.app import create_app
 from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[1]
-SEED = [ROOT / "examples" / "site" / "sdk"]
+SITE = ROOT / "tests" / "fixtures" / "site"
+SEED = [SITE / "sdk"]
 
 RECIPE = """
 - {do: enter-fdl}
@@ -91,7 +92,7 @@ def _app(tmp_path, name, text):
     p.parent.mkdir(parents=True)
     p.write_text(text)
     for d in ("sdk", "socs", "boards", "duts"):
-        src = ROOT / "examples" / "site" / d
+        src = SITE / d
         (p.parent.parent / d).symlink_to(src)
     return create_app(HostConfig.load(p))
 
@@ -196,7 +197,7 @@ def test_git_registry_commits_writes_and_takes_in_pushed_commits(tmp_path):
     remote, site, other = tmp_path / "remote.git", tmp_path / "site", tmp_path / "other"
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
     seed = tmp_path / "seed"
-    shutil.copytree(ROOT / "examples" / "site" / "sdk", seed / "sdk")
+    shutil.copytree(SITE / "sdk", seed / "sdk")
     for d, cfg in ((seed, None),):
         git(d.parent, "init", "-q", "-b", "main", str(d))
         git(d, "-c", "user.name=t", "-c", "user.email=t@x", "add", ".")
@@ -294,7 +295,7 @@ def test_hosts_and_clis_share_the_registrys_soc_profiles_hooks_and_images(tmp_pa
         with TestClient(host_app) as host:
             st = host.get("/api/v1/status").json()["result"]
             assert st["catalog"]["files_digest"] == shared.digest()
-            dut = [m for m in host_app.state.hub.modules.values() if m.name == "dut"][0]
+            dut = host_app.state.hub.modules["dut"]
             prof = dut.socs.get("soc-a")
             assert prof["media_boot"]["name"] == "shared-handoff"                      # the registry's profile wins
             assert prof["images"]["handoff"]["path"].endswith(f"{sha}/handoff.bin")     # with its image, by hash

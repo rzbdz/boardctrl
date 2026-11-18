@@ -10,13 +10,13 @@ from core.env import expand
 from core.errors import HardwareError, HardwareTimeout, InvalidRequest
 from modules.sdk.catalog import Instance
 from modules.dut.control import ControlBackend
-from modules.dut.hostio import ArtifactStore, Fastboot, SerialConsole
+from modules.dut.artifacts import ArtifactStore
 
 Log = Callable[[str], None]
 
 
 class BootRunner:
-    def __init__(self, dut_id: str, control: ControlBackend, fastboot: Fastboot, console: SerialConsole,
+    def __init__(self, dut_id: str, control: ControlBackend, fastboot: Any, console: Any,
                  store: ArtifactStore, hooks=None, download_mode: dict | None = None, media=None,
                  env: dict[str, Any] | None = None, network: dict[str, Any] | None = None,
                  product_dir: Callable[[str | None, str | None], str | None] | None = None):
@@ -194,8 +194,8 @@ class BootRunner:
                 timeout = float(step.get("timeout", 60))
                 ts = time.monotonic()
                 if step.get("serial"):
-                    self.console.wait(mark, step["serial"], step.get("fail"), timeout, step.get("stall"),
-                                      step.get("nudge"))
+                    self.console.wait(step["serial"], step.get("fail"), timeout, mark=mark,
+                                      stall=step.get("stall"), nudge=step.get("nudge"))
                 if step.get("fastboot"):
                     self.wait_fastboot(step["fastboot"], max(5.0, timeout - (time.monotonic() - ts)), log)
                 log(f"{label}: {step.get('serial') or step.get('fastboot')} after {time.monotonic() - ts:.1f}s")
@@ -204,7 +204,7 @@ class BootRunner:
                 timeout = float(step.get("timeout", 60))
                 ts = time.monotonic()
                 out = self.console.send(step["text"], step.get("serial"), step.get("fail"), timeout,
-                                        step.get("stall"), step.get("nudge"))
+                                        stall=step.get("stall"), nudge=step.get("nudge"))
                 log(f"{label}: sent {step['text']!r}"
                     + (f", /{step['serial']}/ seen" if step.get("serial") else "")
                     + (f" after {time.monotonic() - ts:.1f}s" if step.get("serial") else ""))

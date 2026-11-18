@@ -24,7 +24,7 @@ ones file by file. The only difference between them is who wrote them and where 
                      $BOARDCTRL_SITE, ~/.config/boardctrl/site or /etc/boardctrl/site. A site is read
                      last, so it overrides a shipped profile rather than editing it.
 
-The shipped profiles are their own examples, and `examples/site/` shows the files only a site has
+The shipped profiles are their own examples, and `tests/fixtures/site/` shows the files only a site has
 (hosts, DUT records, SDK trees, remotes, deploy targets, site plugins).
 """
 

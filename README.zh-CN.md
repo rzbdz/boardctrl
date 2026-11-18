@@ -138,7 +138,7 @@ flowchart TB
 
 ## 无硬件试用
 
-仓库自带一个虚构的 site（`examples/site/`）和模拟 GPIO 后端，可以在任意 Linux 机器上体验 CLI、HTTP API
+仓库自带一个虚构的 site（`tests/fixtures/site/`）和模拟 GPIO 后端，可以在任意 Linux 机器上体验 CLI、HTTP API
 和 Web 控制台：
 
 ```bash
@@ -146,8 +146,8 @@ git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-lo
 cd bsp-dev-loop
 python3 -m venv .venv && .venv/bin/pip install -e '.[server]'
 
-export BOARDCTRL_SITE=$PWD/examples/site
-.venv/bin/boardctrld -c examples/site/hosts/dev-mock.yaml --port 8765 &
+export BOARDCTRL_SITE=$PWD/tests/fixtures/site
+.venv/bin/boardctrld -c tests/fixtures/site/hosts/dev-mock.yaml --port 8765 &
 
 export BOARDCTRL_URL=http://127.0.0.1:8765
 bin/bsp dut list                      # 两块模拟板子：mock-board（GPIO 复位）、mock-slot（人工复位）
@@ -178,7 +178,7 @@ git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-lo
 
 接下来简要步骤如下：
 
-1. **创建 site。** 把 `examples/site/` 复制到私有位置（例如单独的 git 仓库），描述你的板控主机、编译服务器
+1. **创建 site。** 把 `tests/fixtures/site/` 复制到私有位置（例如单独的 git 仓库），描述你的板控主机、编译服务器
    和 SDK。用 `BOARDCTRL_SITE` 指向它，或放在 `~/.config/boardctrl/site`。
 2. **部署每台板控主机：** `deploy/deploy.sh HOST_ID` 根据 `SITE/deploy/HOST_ID.env` 和
    `SITE/hosts/HOST_ID.yaml` 把 `boardctrld` 安装为 systemd 服务。
@@ -224,7 +224,7 @@ Web 控制台目前覆盖 GPIO 排针（引脚图、引脚详情、事件、API 
 | 自带 profile | 公开的硬件知识：SoC 配置、板卡引脚定义、公开格式的 hook | 本仓库 `profiles/`（site 会覆盖它们） |
 | Site | 你的主机、编译服务器、SDK 源码树、启动与烧写配方、板子、提示 | `$BOARDCTRL_SITE`、`~/.config/boardctrl/site` 或 `/etc/boardctrl/site` |
 
-后面的层按文件覆盖前面的层。从 `examples/site/` 开始；所有格式见 [docs/configuration.md](docs/configuration.md)
+后面的层按文件覆盖前面的层。从 `tests/fixtures/site/` 开始；所有格式见 [docs/configuration.md](docs/configuration.md)
 和 [docs/sdk.md](docs/sdk.md)。
 
 ## 安全

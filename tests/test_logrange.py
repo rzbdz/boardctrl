@@ -1,7 +1,7 @@
 """Reading a console's log over a time range, with a search: what export and search in front ends are built on."""
 from pathlib import Path
 
-from modules.dut.hostio import SerialConsole
+from modules.smtty.serial import SerialConsole
 
 
 def console(tmp_path: Path) -> SerialConsole:
@@ -53,7 +53,7 @@ def test_hosts_serve_a_dut_s_log_range(tmp_path, monkeypatch):
     hosts = tmp_path / "site" / "hosts"
     hosts.mkdir(parents=True)
     for d in ("sdk", "socs", "boards", "duts"):
-        (tmp_path / "site" / d).symlink_to(root / "examples" / "site" / d)
+        (tmp_path / "site" / d).symlink_to(root / "tests" / "fixtures" / "site" / d)
     (hosts / "h.yaml").write_text("host: {id: h}\nserver: {state_dir: state}\n"
                                   "modules: {gpio_relay: {board: example-40pin, backend: mock, pinmux: false}, dut: {serial_log_dir: %s}}\n" % (tmp_path / "logs"))
     console(tmp_path)

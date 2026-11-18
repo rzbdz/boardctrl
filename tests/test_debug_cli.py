@@ -22,6 +22,7 @@ from frontends.server.app import create_app
 from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[1]
+SITE = ROOT / "tests" / "fixtures" / "site"
 
 PLUGIN = '''
 from modules.dut.debug import SessionDebug
@@ -161,7 +162,7 @@ def site(tmp_path):
     import shutil
 
     (site / "boards").mkdir()
-    shutil.copy(ROOT / "examples" / "site" / "boards" / "example-40pin.yaml", site / "boards")
+    shutil.copy(SITE / "boards" / "example-40pin.yaml", site / "boards")
     shutil.copytree(ROOT / "profiles", site / "profiles")
     return site
 

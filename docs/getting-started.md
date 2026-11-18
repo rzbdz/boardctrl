@@ -25,7 +25,7 @@ All installation-specific data lives in a *site* directory outside this reposito
 the example and keep it under version control privately:
 
 ```bash
-cp -r examples/site ~/bsp-site
+cp -r tests/fixtures/site ~/bsp-site
 cd ~/bsp-site && git init && cd -
 export BOARDCTRL_SITE=~/bsp-site
 ```

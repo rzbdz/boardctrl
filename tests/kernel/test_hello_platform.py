@@ -1,6 +1,6 @@
 """The hello-platform example, loaded as a site plugin by a real host.
 
-The example in `examples/site/modules/hello-platform` is the template a person copies to adapt a real
+The example in `tests/fixtures/site/modules/hello-platform` is the template a person copies to adapt a real
 platform. A template that has rotted is worse than none, so this loads it exactly as a host does — through
 the plugin loader, bound by a DUT record — and asks each role for its answer over the API.
 """
@@ -16,7 +16,8 @@ from frontends.server.app import create_app
 from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[2]
-SITE = ROOT / "examples" / "site"
+SITE = ROOT / "tests" / "fixtures" / "site"
+SITE = SITE
 
 
 @pytest.fixture
@@ -39,8 +40,8 @@ def call(client, tool, **args):
 
 def test_the_example_plugin_loads_and_fills_its_two_roles(client):
     status = call(client, "status")
-    assert status["plugins"]["errors"] == {}
-    assert "hello-platform" in status["plugins"]["loaded"]
+    assert not any("error" in m for m in status["modules"].values())
+    assert "hello-platform" in status["modules"]
     # It registered exactly the two roles the example claims, with the titles it gave them.
     providers = status["providers"]
     assert "hello-console" in providers["console"]["names"]

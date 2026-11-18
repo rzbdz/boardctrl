@@ -36,7 +36,7 @@ def test_example_26pin_profile():
 
     from modules.gpio.board import BoardCatalog
 
-    b = BoardCatalog(Path(__file__).resolve().parents[1] / "examples" / "site" / "boards").get("example-26pin")
+    b = BoardCatalog(Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "site" / "boards").get("example-26pin")
     assert (b.default_header.id, b.default_header.rows, len(b.default_header.pins)) == ("J26", 13, 26)
     assert [p.gpio for p in b.gpio_pins()] == [70, 71, 74, 72, 73, 91, 92, 49, 50]
     assert b.pin(8).kind is PinKind.OTHER and b.pin(8).label.startswith("UART")

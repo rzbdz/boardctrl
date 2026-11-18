@@ -16,6 +16,7 @@ from modules.dut.leases import LeaseManager
 from modules.sdk.catalog import SdkCatalog
 
 ROOT = Path(__file__).resolve().parents[1]
+SITE = ROOT / "tests" / "fixtures" / "site"
 SPEC = {"id": "b1", "board": "board-x", "soc": "soc-b", "console": {"alias": "board1"},
         "fastboot": {"usb": "usb:2-1.2"}, "control": {"backend": "gpio-relay", "reset": {"pin": "P33"},
                                                      "fdl": {"strategy": "strapped"}}, "sdks": ["upstream-a"]}
@@ -100,7 +101,7 @@ class FakeConsole:
     def tail(self, n=10, grep=None):
         return self.path.read_text().splitlines()[-n:]
 
-    def wait(self, mark, pattern, fail, timeout, stall=None, nudge=None):
+    def wait(self, pattern, fail=None, timeout=60, mark=None, stall=None, nudge=None):
         import re
 
         text = self.read_since(mark)
@@ -110,7 +111,7 @@ class FakeConsole:
             raise HardwareError(f"/{pattern}/ not seen: {text!r}")
         return text
 
-    def send(self, text, pattern=None, fail=None, timeout=60, stall=None, nudge=None):
+    def send(self, text, pattern=None, fail=None, timeout=60, mark=None, stall=None, nudge=None):
         self.sent.append(text)
         self.emit(f"{text}\n")
         if pattern:
@@ -133,7 +134,7 @@ class FakeStore:
 
 
 def test_boot_runner_executes_load_recipe(tmp_path):
-    sdk = SdkCatalog(ROOT / "examples" / "site" / "sdk").get("bsp-a")
+    sdk = SdkCatalog(SITE / "sdk").get("bsp-a")
     con = FakeConsole(tmp_path)
     fb = FakeFastboot(con)
     ctl = FakeControl(con)
@@ -146,7 +147,7 @@ def test_boot_runner_executes_load_recipe(tmp_path):
 
 
 def test_boot_runner_uboot_only_variant(tmp_path):
-    sdk = SdkCatalog(ROOT / "examples" / "site" / "sdk").get("bsp-a")
+    sdk = SdkCatalog(SITE / "sdk").get("bsp-a")
     con = FakeConsole(tmp_path)
     fb = FakeFastboot(con)
     BootRunner("b1", FakeControl(con), fb, con, FakeStore()).run(sdk, "load", "uboot-only", lambda m: None)
@@ -164,14 +165,14 @@ def test_boot_runner_send_step_types_one_line_and_waits(tmp_path):
 
 # ------------------------------------------------------ serial send (echo) --
 def _console(tmp_path):
-    from modules.dut import hostio
+    from modules.smtty import serial as hostio
 
     (tmp_path / "b1").mkdir(exist_ok=True)
     return hostio.SerialConsole("b1", log_dir=str(tmp_path))
 
 
 def _fake_smtty(monkeypatch, log, *chunks):
-    from modules.dut import hostio
+    from modules.smtty import serial as hostio
 
     def fake_run(argv, timeout):
         with open(log, "a") as f:
@@ -263,7 +264,7 @@ def test_registry_update_and_rename(tmp_path):
 def test_soc_profiles_detect_and_layer_merge(tmp_path):
     from modules.dut.socs import SocProfiles
 
-    site = ROOT / "examples" / "site" / "socs"
+    site = SITE / "socs"
     p = SocProfiles([site])
     assert p.detect("ROMB: hello\nROMB: usb2 init")[0] == "soc-b"
     assert p.detect("ROMA: boot start\nROMA: usb init")[0] == "soc-a"
@@ -323,7 +324,7 @@ def test_common_boot_banners_count_as_a_boot_and_shell_chatter_does_not():
 
 def test_console_wait_nudges_a_quiet_prompt(tmp_path, monkeypatch):
     """A prompt without a newline only reaches the line-based log after Enter."""
-    from modules.dut import hostio
+    from modules.smtty import serial as hostio
 
     con = hostio.SerialConsole("b1", log_dir=str(tmp_path))
     (tmp_path / "b1").mkdir()
@@ -338,7 +339,7 @@ def test_console_wait_nudges_a_quiet_prompt(tmp_path, monkeypatch):
             f.write("~ # \n")
 
     monkeypatch.setattr(hostio, "_run", fake_run)
-    assert "~ # " in con.wait(mark, r"~ # ", None, timeout=5, nudge=0.3)
+    assert "~ # " in con.wait(r"~ # ", None, timeout=5, mark=mark, nudge=0.3)
     assert sent and sent[0][-2:] == ["--send", " "]
 
 
@@ -346,7 +347,13 @@ def _human(cfg=None):
     import threading
 
     from modules.dut.catalog import spec_from_dict as parse_spec
-    from modules.dut.control import Attention, make_control
+    from core.attention import Attention
+    from modules.dut.control import GpioRelayControl
+    from modules.human.module import HumanControl
+
+    def make_control(spec, services):
+        """The relay provider the record names: the human module's, or the gpio one."""
+        return (HumanControl if spec.control.get("backend") in ("human", "manual") else GpioRelayControl)(spec, services)
 
     att = Attention()
     spec = parse_spec({"id": "slot-1", "host": "h", "board": "b", "console": {"alias": "slot-1"},
@@ -411,7 +418,7 @@ def test_human_probe_pairs_the_console_that_speaks_with_the_usb_port_that_appear
 
     events = []
     mod = types.SimpleNamespace(
-        probe_cfg={}, socs=SocProfiles([ROOT / "examples" / "site" / "socs"]), hooks=Hooks(), boards={},
+        probe_cfg={}, socs=SocProfiles([SITE / "socs"]), hooks=Hooks(), boards={},
         serial_log_dir=str(tmp_path / "logs"), fastboot_bin="fastboot",
         ctx=types.SimpleNamespace(host_id="lab-9", service=lambda name: (_ for _ in ()).throw(NotFound("no gpio"))),
         _event=lambda topic, **d: events.append(d))
@@ -477,7 +484,7 @@ def test_human_probe_starts_from_a_running_board_not_one_already_in_download_mod
             return types.SimpleNamespace(data={"devices": list(usb.values())})
 
     mod = types.SimpleNamespace(
-        probe_cfg={}, socs=SocProfiles([ROOT / "examples" / "site" / "socs"]), hooks=Hooks(), boards={},
+        probe_cfg={}, socs=SocProfiles([SITE / "socs"]), hooks=Hooks(), boards={},
         serial_log_dir=str(tmp_path / "logs"), fastboot_bin="fastboot",
         ctx=types.SimpleNamespace(host_id="lab-9", service=lambda name: (_ for _ in ()).throw(NotFound("no gpio"))),
         _event=lambda topic, **d: None)
@@ -759,7 +766,7 @@ def test_a_board_whose_fdl_is_not_known_says_what_to_set():
 
     from core.errors import InvalidRequest
     from modules.dut.catalog import spec_from_dict as parse_spec
-    from modules.dut.control import make_control
+    from modules.dut.control import GpioRelayControl as make_control
 
     spec = parse_spec({"id": "k3-s1", "host": "h", "board": "b", "console": {"alias": "s1"}, "fastboot": {"usb": "usb:1-1"},
                        "control": {"backend": "gpio-relay", "reset": {"pin": "P33"}, "fdl": {"strategy": "unset"}}})
@@ -845,7 +852,13 @@ def test_confirm_names_the_request_and_a_repeat_is_idempotent():
     import threading
 
     from modules.dut.catalog import spec_from_dict as parse_spec
-    from modules.dut.control import Attention, make_control
+    from core.attention import Attention
+    from modules.dut.control import GpioRelayControl
+    from modules.human.module import HumanControl
+
+    def make_control(spec, services):
+        """The relay provider the record names: the human module's, or the gpio one."""
+        return (HumanControl if spec.control.get("backend") in ("human", "manual") else GpioRelayControl)(spec, services)
 
     att = Attention()
     spec = parse_spec({"id": "slot-1", "host": "h", "board": "b", "console": {"alias": "slot-1"},
@@ -879,7 +892,13 @@ def test_confirm_without_a_request_answers_what_is_waiting_now():
     import threading
 
     from modules.dut.catalog import spec_from_dict as parse_spec
-    from modules.dut.control import Attention, make_control
+    from core.attention import Attention
+    from modules.dut.control import GpioRelayControl
+    from modules.human.module import HumanControl
+
+    def make_control(spec, services):
+        """The relay provider the record names: the human module's, or the gpio one."""
+        return (HumanControl if spec.control.get("backend") in ("human", "manual") else GpioRelayControl)(spec, services)
 
     att = Attention()
     spec = parse_spec({"id": "slot-1", "host": "h", "board": "b", "console": {"alias": "slot-1"},
@@ -900,7 +919,7 @@ def test_confirm_without_a_request_answers_what_is_waiting_now():
 def test_a_repeated_ask_supersedes_the_older_one_and_a_click_on_it_is_answered():
     """bsp asks again before a person answered (a second reset): a click on the first page button resolves to
     'superseded', not to an error, and the newer request carries its own id."""
-    from modules.dut.control import Attention
+    from core.attention import Attention
 
     att = Attention()
     first = att.request("slot-1", "reset", "press RESET")

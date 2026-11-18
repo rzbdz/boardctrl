@@ -21,7 +21,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from core.errors import HardwareError, InvalidRequest
-from modules.dut.hostio import SHA256, ArtifactStore
+from modules.dut.artifacts import SHA256, ArtifactStore
 
 Log = Callable[[str], None]
 

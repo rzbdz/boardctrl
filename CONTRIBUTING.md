@@ -13,11 +13,11 @@ python3 -m venv .venv
 .venv/bin/pytest
 ```
 
-The tests use the fictional site in `examples/site/` and a mock GPIO backend; they need no
+The tests use the fictional site in `tests/fixtures/site/` and a mock GPIO backend; they need no
 hardware and no network. To try the service locally:
 
 ```bash
-BSP_SITE=examples/site .venv/bin/bsp-hostd -c examples/site/hosts/dev-mock.yaml
+BSP_SITE=tests/fixtures/site .venv/bin/bsp-hostd -c tests/fixtures/site/hosts/dev-mock.yaml
 ```
 
 ## What goes where
@@ -32,7 +32,7 @@ bsp separates mechanism from knowledge about a particular installation:
 
 Pull requests must not contain credentials, internal host names or addresses, personal paths, or
 other installation-specific data. Use the documentation address ranges (`192.0.2.0/24`) and
-made-up names like those in `examples/site/` in examples and tests.
+made-up names like those in `tests/fixtures/site/` in examples and tests.
 
 ## Pull requests
 

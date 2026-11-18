@@ -14,6 +14,7 @@ from frontends.server.app import create_app
 from frontends.server.config import HostConfig
 
 ROOT = Path(__file__).resolve().parents[1]
+SITE = ROOT / "tests" / "fixtures" / "site"
 
 
 def _config(tmp_path: Path, text: str) -> HostConfig:
@@ -85,7 +86,7 @@ def test_host_announces_itself_and_the_cli_finds_it(tmp_path, monkeypatch, capsy
 
     reg_server, reg_url = _serve(create_app(_config(tmp_path, REGISTRY)))
     monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "mock-state"))
-    mock = HostConfig.load(ROOT / "examples" / "site" / "hosts" / "dev-mock.yaml")
+    mock = HostConfig.load(SITE / "hosts" / "dev-mock.yaml")
     host_port = None
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
