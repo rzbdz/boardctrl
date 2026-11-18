@@ -114,7 +114,7 @@ EOF
   [[ -n $BOARD ]] && echo "--> board: $BOARD ($MODEL)" || echo "--> no known GPIO header for '${MODEL:-this machine}': no relay lines (human reset only)"
 fi
 [[ $BOARD == none ]] && BOARD=""
-# An interpreter that has the gpiod bindings: the program's own environment gets them, but a site plugin that runs a
+# An interpreter that has the gpiod bindings: the program's own environment gets them, but a site provider that runs a
 # wrapper with the host's python needs that python to have them, and the choice must not depend on whichever python3 is
 # first on PATH (a tool's own venv, say, which is not the machine's python).
 SYSTEM_PYTHON=${SYSTEM_PYTHON:-/usr/bin/python3}
@@ -131,11 +131,11 @@ if [[ $RELAY == auto ]]; then
   if [[ -z $BOARD ]]; then RELAY=none; elif ls /dev/gpiochip* >/dev/null 2>&1 && gpiod_python >/dev/null; then RELAY=gpiod; else RELAY=sysfs; fi
 fi
 # Saying which python has gpiod matters when it is not the machine's own: the program's environment is given the
-# bindings either way, but a plugin that runs the system python has to know to install them there.
+# bindings either way, but a provider that runs the system python has to know to install them there.
 if [[ $RELAY == gpiod ]]; then
   host_python=$(gpiod_python || true)
   if [[ -n $host_python && $host_python != "$SYSTEM_PYTHON" ]]; then
-    echo "--> gpiod is in $host_python, not $SYSTEM_PYTHON: a plugin that runs the system python needs it there"
+    echo "--> gpiod is in $host_python, not $SYSTEM_PYTHON: a provider that runs the system python needs it there"
   elif [[ -n $host_python ]]; then
     echo "--> gpiod: $host_python has it, and the program's own environment gets it"
   fi
@@ -165,8 +165,8 @@ echo "--> [4/6] writing the config"
 mkdir -p "$SITE/hosts" /etc/boardctrl /var/lib/bsp
 CONF=$SITE/hosts/$ID.yaml
 # What this installer knows about the machine is merged into what the file already holds. Reinstalling upgrades the
-# program: it does not take the site's configuration away — neither the rendezvous settings nor a plugin's own section
-# (`modules.ec`, say), which this program does not register and so must not rewrite.
+# program: it does not take the site's configuration away — neither the rendezvous settings nor a provider's own section
+# (`providers.ec`, say), which this program does not register and so must not rewrite.
 "$NEW/venv/bin/python" - "$CONF" "$ID" "${MODEL:-boardctrl host}" "$BIND" "$PORT" "$BOARD" "$RELAY" \
   "$PREFIX/current/venv/bin/smtty" "$PREFIX/current/venv/bin/serial-mux" \
   "$(getent passwd root | cut -d: -f6)/.serial-mux/logs" "$SITE/hooks" "${SITE_HOSTS:-}" <<'EOF'
@@ -187,19 +187,21 @@ if board and relay != "none":
 generated["sdk"] = {}
 # serial-mux keeps its sockets, runtime and logs under ~/.serial-mux of the user it runs as; bspd finds them beside
 # serial_log_dir, so that stays serial-mux's own.
-# Site hooks (possibly a scp/flashing step) take precedence over the generic pack hooks below them: without this, a
-# synced flash recipe names a hook the running host cannot find after every reinstall.
-modules = dict(cfg.get("modules") or {})
+# Site hooks (possibly a scp/flashing step) take precedence over the generic platform hooks below them: without this,
+# a synced flash recipe names a hook the running host cannot find after every reinstall.
+# What the host loads is `providers:`; a file written before the name changed says `modules:`, and keeps saying it.
+KEY = "providers" if "providers" in cfg or "modules" not in cfg else "modules"
+modules = dict(cfg.get(KEY) or {})
 generated["dut"] = {"smtty": smtty, "serial_mux": serial_mux, "serial_log_dir": log_dir, "fastboot": "fastboot",
                     "hook_dirs": [hooks], "probe": {"watch_s": 3.0, "pulse_ms": 1000}}
 for name, block in generated.items():
     merged = dict(modules.get(name) or {}) if isinstance(modules.get(name), dict) else {}
     merged.update(block)
     modules[name] = merged
-cfg["modules"] = modules
-# The site's copy of this host's config (`--site-hosts`) may carry settings for plugins the site installs — an EC's
-# pins and ports, say. A plugin's section travels with its code, in the site's repository; this program does not know
-# those plugins, so it takes them whole and never rewrites them. The machine's own section wins when it has one: a
+cfg[KEY] = modules
+# The site's copy of this host's config (`--site-hosts`) may carry settings for providers the site installs — an EC's
+# pins and ports, say. A provider's section travels with its code, in the site's repository; this program does not know
+# those providers, so it takes them whole and never rewrites them. The machine's own section wins when it has one: a
 # local setting is not silently replaced by what the site says.
 if site_hosts:
     theirs = pathlib.Path(site_hosts) / f"{ident}.yaml"
@@ -208,7 +210,7 @@ if site_hosts:
             document = yaml.safe_load(theirs.read_text()) or {}
         except (OSError, ValueError):
             document = {}
-        their_modules = document.get("modules") if isinstance(document, dict) else None
+        their_modules = (document.get("providers") or document.get("modules")) if isinstance(document, dict) else None
         for name, block in (their_modules or {}).items() if isinstance(their_modules, dict) else []:
             if name in generated or not isinstance(block, dict):
                 continue
@@ -216,10 +218,10 @@ if site_hosts:
             if isinstance(own, dict) and set(own) - {"enabled"}:
                 continue
             modules[name] = dict(block)
-        cfg["modules"] = modules
+        cfg[KEY] = modules
 tmp = p.with_name(p.name + ".new")
 tmp.write_text("# Generated by bspd-install for %s; boardlab rewrites the parts it knows on every install and keeps\n"
-               "# the rest (a site's plugin section, its registry settings) as the file has them.\n%s"
+               "# the rest (a site's provider section, its registry settings) as the file has them.\n%s"
                % (ident, yaml.safe_dump(cfg, default_flow_style=False, sort_keys=False)), encoding="utf-8")
 tmp.replace(p)
 EOF

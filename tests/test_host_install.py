@@ -39,9 +39,10 @@ def test_host_config_keeps_the_existing_announcement(tmp_path):
                                             "addresses": ["192.0.2.40"]}
 
 
-def test_host_config_keeps_a_plugin_section_it_does_not_register(tmp_path):
-    """A site installs a plugin by naming it in modules: its block is the site's, so reinstalling keeps it as it is —
-    while what the installer knows about the machine (gpio, sdk, the dut module's tools) is rewritten."""
+def test_host_config_keeps_a_provider_section_it_does_not_register(tmp_path):
+    """A site installs a provider by naming it under `modules:` (the key a file written before providers uses): its
+    block is the site's, so reinstalling keeps it as it is — while what the installer knows about the machine (gpio,
+    sdk, the DUT's tools) is rewritten in the same key."""
     site, conf, prefix = tmp_path / "site", tmp_path / "site/hosts/test-host.yaml", tmp_path / "prefix"
     conf.parent.mkdir(parents=True)
     conf.write_text("""host: {id: test-host}
@@ -66,9 +67,9 @@ modules:
     assert config["host"] == {"id": "test-host", "description": "test model (test-host)"}
 
 
-def test_host_config_takes_a_plugins_section_from_the_site_and_keeps_a_local_one(tmp_path):
-    """A plugin's settings travel in the site's copy of this host's config: the installer takes them for the plugins it
-    does not register, whole, and never for its own modules. A section the machine already has wins."""
+def test_host_config_takes_a_providers_section_from_the_site_and_keeps_a_local_one(tmp_path):
+    """A provider's settings travel in the site's copy of this host's config: the installer takes them for the providers
+    it does not register, whole, and never for its own. A section the machine already has wins."""
     site, conf, prefix = tmp_path / "site", tmp_path / "site/hosts/test-host.yaml", tmp_path / "prefix"
     shipped = tmp_path / "shipped"
     conf.parent.mkdir(parents=True)
@@ -89,20 +90,30 @@ modules:
 """)
     _run_config(site, conf, prefix, SITE_HOSTS=str(shipped))
     config = yaml.safe_load(conf.read_text())
-    # The plugin's whole section is the site's: the machine only turned it on.
+    # The provider's whole section is the site's: the machine only turned it on.
     assert config["modules"]["ec"]["kit"] == "modules/ec/vendor/kit"
     assert config["modules"]["ec"]["targets"]["pico2"]["pins"] == {"swclk": "J40:11", "swdio": "J40:13"}
-    # The installer's own modules are its own, wherever the site also names them.
+    # The installer's own sections are its own, wherever the site also names them.
     assert config["modules"]["dut"]["serial_log_dir"].endswith("/.serial-mux/logs")
-    # A plugin the machine set itself keeps its setting.
+    # A provider the machine set itself keeps its setting.
     assert config["modules"]["other"] == {"listened": True}
 
 
 def test_host_config_with_no_board_has_no_gpio_section(tmp_path):
+    """A fresh file is written with the key hosts use now (`providers:`), and an old one keeps the key it has."""
     site, conf, prefix = tmp_path / "site", tmp_path / "site/hosts/test-host.yaml", tmp_path / "prefix"
     _run_config(site, conf, prefix)
     config = yaml.safe_load(conf.read_text())
-    assert "gpio" not in config["modules"] and config["modules"]["sdk"] == {}
+    assert "modules" not in config, "a new file says providers"
+    assert "gpio" not in config["providers"] and config["providers"]["sdk"] == {}
+    assert conf == tmp_path / "site/hosts/test-host.yaml"
+
+    old = tmp_path / "site/hosts/old.yaml"
+    old.write_text("host: {id: old}\nmodules:\n  dut: {serial_log_dir: /srv/old}\n")
+    _run_config(site, old, tmp_path / "prefix-old", ID="old")
+    kept = yaml.safe_load(old.read_text())
+    assert "providers" not in kept, "a file written with modules keeps saying modules"
+    assert kept["modules"]["dut"]["serial_log_dir"].endswith("/.serial-mux/logs")
 
 
 def test_takeover_moves_the_old_token_and_reads_it_before_the_old_file():
