@@ -47,6 +47,12 @@ All notable changes to this project are documented here. The format follows
   Ctrl+] and Ctrl-C now go to the board (serial-mux's smtty reads picocom's keys).
 - `smtty --send --wait` timeouts keep the command's output and exit code as scripts expect;
   `--advice` (with `--tail-lines`) adds the console's last lines and how to go on, for an AI driving it.
+- The tree is `core/`, `providers/`, `frontends/`, `platforms/`, `hooks/`. `core/` is the kernel: the
+  DUT manager, its five role contracts, the SDK catalogue, the host registry and the loader. A provider
+  binds one external system to a role (`providers/gpio`, `smtty`, `fastboot`, `human`), and a site's own
+  code has the same shape (`providers/<name>/provider.py`). What shipped as `profiles/` is `platforms/`.
+  A host's config names what it loads under `providers:`; `modules:`, `module.py` and
+  `modules.dut.*` are still read, so a site or a script does not have to move in one day.
 
 ### Fixed
 - Probe no longer says a SoC has no identify section when it skipped identify because no download

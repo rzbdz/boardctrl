@@ -133,7 +133,7 @@ holding a single top-level directory unpacks to that directory), puts the board 
 mode (skip with `--no-reset`) and runs the flash hook `flash/<flasher>` on the directory (see
 [hooks/README.md](../hooks/README.md)).
 
-The flasher is `--flasher`, else the board's `flash.flasher`, else its SoC profile's
+The flasher is `--flasher`, else the board's `flash.flasher`, else its SoC's
 `flash.flasher`, else `spacemit-pkg` (a package with `fastboot.yaml` and `partition_*.json`
 layouts, or a flash zip). The flash runs as a background job of kind `flash` under your lease;
 when the flasher reports progress the job has a percent (`boardctrl job get`, `boardctrl job list`) and the
@@ -168,7 +168,7 @@ whether the daemon is up as `console_up`.
 | `boardctrl remote list\|show\|add\|remove\|use` | Manage personal host entries |
 | `boardctrl watch [--registry]` | Stream live events from the host(s), or with `--registry` from the registry (hosts announcing themselves, `registry.ports` when a host's cables change); `--json` prints one event per line for programs |
 | `boardctrl tools` | Print the host's AI tool schemas in Anthropic format (OpenAI format: `GET /api/v1/tools?format=openai`) |
-| `boardctrl hints` | Hints from every profile (the shipped ones, then the site) |
+| `boardctrl hints` | Hints from every platform (the shipped ones, then the site) |
 | `boardctrl images [list\|sync]` | Images hosts stage (probe images, media-boot helpers): where each comes from and whether the site has it; `sync` fetches the missing ones once into `<site>/.blobs/` (deploy does this) |
 | `boardctrl install [--dir DIR] [--offline]` | Write `SKILL.md` for agents working in an SDK tree (see [agents.md](agents.md)) |
 
@@ -208,7 +208,7 @@ in sync with it. Add `-r HOST` when several hosts are reachable.
 | `boardctrl board` | `info` |
 | `boardctrl job` | `list`, `get` |
 | `boardctrl events` | `recent` |
-| `boardctrl status` | Service, module and backend health |
+| `boardctrl status` | Service, provider and backend health |
 
 The same commands are HTTP endpoints (`GET` for reads, `POST` for changes, under `/api/v1/`) and
 AI tools; `GET /api/v1/tools` lists them and `/docs` serves the OpenAPI description.

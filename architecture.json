@@ -1,0 +1,34 @@
+{
+  "layers": {
+    "core": "the kernel: the DUT and its role contracts, the SDK catalogue, the host registry, the loader and the mechanisms every host has",
+    "providers": "adapters: each binds one external system (this host's GPIO, serial-mux, fastboot, a person) to a role",
+    "frontends": "views and runtime shells: the CLI and boardctrld",
+    "platforms": "data: shipped public hardware knowledge, one directory per vendor",
+    "hooks": "data: the kernel's generic hook executables"
+  },
+  "rules": [
+    {
+      "from": "core",
+      "may_import": ["core", "platforms", "hooks"],
+      "why": "the kernel defines the contracts; it never knows which provider fills one, and it carries no HTTP server"
+    },
+    {
+      "from": "providers/<name>",
+      "may_import": ["providers/<name>", "core", "platforms"],
+      "why": "a provider implements a core contract against one tool; two providers share no files, only services through ctx.service()"
+    },
+    {
+      "from": "frontends",
+      "may_import": ["frontends", "core", "providers"],
+      "why": "a frontend renders commands and routes; the kernel decides what a host has"
+    }
+  ],
+  "forbidden": [
+    {"from": "core", "imports": ["fastapi", "starlette"],
+     "why": "the kernel is usable without a server: routes a frontend adds live under frontends/server/routes"},
+    {"from": "core", "imports": ["providers"],
+     "why": "a provider is loaded, never imported: the kernel must not know one exists"},
+    {"from": "core", "imports": ["frontends"],
+     "why": "the kernel does not know how it is shown"}
+  ]
+}

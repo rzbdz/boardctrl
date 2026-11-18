@@ -41,7 +41,7 @@ The minimum useful site describes one board host. Replace the example values in:
 | `hosts/HOST.yaml` | Host id, `server.bind` and `server.auth_token` (see [SECURITY.md](../SECURITY.md)), the GPIO header (`modules.gpio.board`, `backend`), and `modules.dut` |
 | `deploy/HOST.env` | How to reach the host over ssh (`SSH_HOST`, `SSH_USER`), `INSTALL_DIR`, `SERVICE_PORT` |
 | `remotes.json` | How clients reach the host: `url`, optional `fallback_urls`, and `ssh` for tunnelling |
-| `boards/*.yaml` | The pin map of the host's GPIO header, if no shipped profile provides it |
+| `boards/*.yaml` | The pin map of the host's GPIO header, if no shipped platform provides it |
 
 `HOST` must be the same in all three places. Delete the example SDK files you do not need; you
 can add SDKs later (step 6). Every file format is described in
@@ -98,7 +98,7 @@ boardctrl probe --dry-run
 boardctrl probe --pins P33,P11          # interactive: review and name each board
 ```
 
-Probe identifies the SoC from its boot-ROM output and, if the SoC profile provides one, boots a
+Probe identifies the SoC from its boot-ROM output and, if the SoC facts provide one, boots a
 known-good bootloader to read the board's identity. Rename boards with
 `boardctrl dut rename OLD NEW`. To keep them in the site, run `boardctrl dut export --dir $BOARDCTRL_SITE/duts`
 (one file per board), remove the registered copies with `boardctrl dut remove`, and redeploy the host

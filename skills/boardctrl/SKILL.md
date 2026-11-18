@@ -168,7 +168,7 @@ fastboot by hand while bsp holds the board.
 
 boardctrl is mechanism only. What is specific to this installation lives in the **site** directory
 (`$BSP_SITE`, else `~/.config/bsp/site`, else `/etc/bsp/site`; `tests/fixtures/site/` in the bsp repo
-shows every format). Public hardware knowledge lives in **shipped profiles** (`<boardctrl repo>/profiles/<vendor>/`).
+shows every format). Public hardware knowledge lives in **shipped platforms** (`<boardctrl repo>/platforms/<vendor>/`).
 When the user asks you to bring up something bsp cannot do yet, add it there instead of working
 around it:
 
@@ -178,9 +178,9 @@ around it:
   `status: todo` with `notes`.
 - Procedures that are more than steps (e.g. a vendor flash tool): an executable in
   `<site>/hooks/<kind>/<name>` (contract: `hooks/README.md` in the bsp repo), used by a
-  `{do: hook}` step. Public formats any user of that hardware needs belong in a pack.
+  `{do: hook}` step. Public formats any user of that hardware needs belong in a shipped platform.
 - New SoC: `socs/<soc>/soc.yaml` (boot-ROM fingerprint, download mode, identity patterns) in a
-  pack; probe images you built go in `<site>/socs/<soc>/`.
+  platform; probe images you built go in `<site>/socs/<soc>/`.
 - New board host: `<site>/hosts/<id>.yaml`, `<site>/deploy/<id>.env`, an entry in
   `<site>/remotes.json`, then `deploy/deploy.sh <id>` from the bsp repo (ask the user first; it
   restarts the host service).

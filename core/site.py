@@ -10,22 +10,22 @@ A **profile** is a directory with the same shape, whoever wrote it:
       sdk/             families, servers, workspaces, instances
       duts/            board records: which provider fills each role
       hints/           notes a person or agent reads
-      modules/         site plugins: `modules/<name>/module.py` with setup(ctx, api, config)
+      providers/       provider code: `providers/<name>/provider.py` with setup(ctx, api, config)
 
-There is one mechanism, not two: every directory is just a profile, and later ones override earlier
-ones file by file. The only difference between them is who wrote them and where they live:
+There is one mechanism, not two: every directory is a layer, and later ones override earlier ones
+file by file. The only difference between them is who wrote them and where they live:
 
-  profiles/<name>/   in this repository, shipped with the release. Public hardware knowledge anyone
-                     with the board can check: SoC boot-ROM strings, header pin maps, hooks for public
-                     tool formats. Every profile here is read unless the host's settings name a subset.
+  platforms/<name>/  in this repository, shipped with the release. Public hardware knowledge anyone
+                     with the board can check: SoC boot-ROM strings, header pin maps, hooks for
+                     public tool formats. Every platform here is read.
   the site           outside the repository: one machine or one lab's own facts — its hosts, build
                      servers, SDK trees, boot and flash recipes, DUT records, credentials, and the
-                     site plugins that adapt hardware nobody ships a driver for. Found at
+                     providers that adapt hardware nobody ships a driver for. Found at
                      $BOARDCTRL_SITE, ~/.config/boardctrl/site or /etc/boardctrl/site. A site is read
-                     last, so it overrides a shipped profile rather than editing it.
+                     last, so it overrides a shipped platform rather than editing it.
 
-The shipped profiles are their own examples, and `tests/fixtures/site/` shows the files only a site has
-(hosts, DUT records, SDK trees, remotes, deploy targets, site plugins).
+The shipped platforms are their own examples, and `tests/fixtures/site/` shows the files only a site has
+(hosts, DUT records, SDK trees, remotes, deploy targets, providers).
 """
 
 from __future__ import annotations

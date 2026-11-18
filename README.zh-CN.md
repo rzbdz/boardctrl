@@ -121,7 +121,7 @@ flowchart TB
 - **编译服务器**：存放并编译 SDK 源码树的机器。只需要 ssh 和 Python ≥ 3.6，无需安装任何东西。
 - **客户端**：工作站或编译服务器上的 `bsp` 命令。
 
-具体环境的知识来自分层配置：通用的核心、仓库自带的可选硬件 **pack**（SoC BootROM 特征、板卡排针定义等
+具体环境的知识来自分层配置：通用的核心、随发行版提供的 **providers**（把一种工具接到一个角色上的适配器）、仓库自带的硬件 **platform**（SoC BootROM 特征、板卡排针定义等
 公开信息），以及你私有的 **site** 目录。完整模型见 [docs/architecture.md](docs/architecture.md)。
 
 ## 支持的硬件
@@ -129,7 +129,7 @@ flowchart TB
 | 组件 | 支持范围 | 说明 |
 |---|---|---|
 | 开发板（DUT） | BootROM 提供可用 `fastboot` 访问的 USB 下载模式的 SoC | 启动步骤是配置，其他流程无需写代码即可描述 |
-| 自带的 SoC 配置 | SpacemiT K1、SpacemiT K3（`profiles/spacemit`） | 已验证的被测板：K1-x MUSE Card（K1）、K3 deb1（K3） |
+| 自带的 SoC 配置 | SpacemiT K1、SpacemiT K3（`platforms/spacemit`） | 已验证的被测板：K1-x MUSE Card（K1）、K3 deb1（K3） |
 | 板控主机 | 带 GPIO 排针（sysfs 或 libgpiod）、USB 主机口和 systemd 的 Linux | 自带两款用作板控主机的 SpacemiT 板卡的排针定义：K3 Com260 和 K1-x deb1；其他主机加一个 YAML 文件即可 |
 | 复位控制 | GPIO 开漏按键或继电器；由 bsp 提示人工操作（`human`） | Home Assistant 后端尚为占位实现 |
 | 控制台 | 任意 USB 转串口，经由 serial-mux | |
@@ -221,7 +221,7 @@ Web 控制台目前覆盖 GPIO 排针（引脚图、引脚详情、事件、API 
 | 层 | 内容 | 位置 |
 |---|---|---|
 | 核心 | 机制、通用 hook、示例 | 本仓库 |
-| 自带 profile | 公开的硬件知识：SoC 配置、板卡引脚定义、公开格式的 hook | 本仓库 `profiles/`（site 会覆盖它们） |
+| 自带 platform | 公开的硬件知识：SoC 事实、板卡引脚定义、公开格式的 hook | 本仓库 `platforms/`（site 会覆盖它们） |
 | Site | 你的主机、编译服务器、SDK 源码树、启动与烧写配方、板子、提示 | `$BOARDCTRL_SITE`、`~/.config/boardctrl/site` 或 `/etc/boardctrl/site` |
 
 后面的层按文件覆盖前面的层。从 `tests/fixtures/site/` 开始；所有格式见 [docs/configuration.md](docs/configuration.md)
@@ -252,7 +252,7 @@ Web 控制台目前覆盖 GPIO 排针（引脚图、引脚详情、事件、API 
 | [GPIO relay](docs/gpio-relay.md) | 通道模式、引脚寻址、别名、接线 |
 | [部署](docs/deployment.md) | `deploy.sh`、主机目录结构、服务、客户端安装 |
 | [AI agent](docs/agents.md) | skill、`boardctrl install`、并行 agent、验收测试 |
-| [移植](docs/porting.md) | 新 SoC、板控主机、pack 和 hook |
+| [移植](docs/porting.md) | 新 SoC、板控主机、platform、provider 和 hook |
 | [架构](docs/architecture.md) | 概念、分层、扩展点 |
 | [Hook](hooks/README.md) | hook 接口约定 |
 
@@ -263,12 +263,12 @@ boardctrl 处于 **beta** 阶段（0.1）。租约、编译、内存启动、烧
 开发板上日常使用，测试套件无需硬件即可运行。1.0 之前命令名和 `/api/v1` HTTP API 仍可能变化，变更记录在
 [CHANGELOG.md](CHANGELOG.md)。
 
-计划中：MCP server、Web 控制台的板子与 SDK 视图、更多 SoC pack，以及常见 SDK 结构的可复用配方模板。
+计划中：MCP server、Web 控制台的板子与 SDK 视图、更多 SoC 资料，以及常见 SDK 结构的可复用配方模板。
 
 ## 参与贡献
 
-欢迎提交问题报告、SoC pack 和修复。开发环境搭建（`pip install -e '.[server,dev]' && pytest`，无需硬件）以及
-pack 与 site 的边界，见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+欢迎提交问题报告、SoC 资料和修复。开发环境搭建（`pip install -e '.[server,dev]' && pytest`，无需硬件）以及
+platform 与 site 的边界，见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 许可证
 

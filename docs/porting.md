@@ -5,7 +5,7 @@ rarely needs code.
 
 ## A new SoC
 
-Create `socs/<soc>/soc.yaml` — in a shipped profile if the information is public, otherwise in your site:
+Create `socs/<soc>/soc.yaml` — in a shipped platform if the information is public, otherwise in your site:
 
 ```yaml
 soc: soc-a
@@ -44,7 +44,7 @@ media_boot:                      # optional: how a board whose FDL strap is held
 - `download_mode` is used by every `enter-fdl` step and by the human reset backend's
   auto-detection.
 - Probe images are looked up in every layer, highest first, and checked against `sha256`. Ship
-  only images you may redistribute in a shipped profile; otherwise keep them in the site, or list them there
+  only images you may redistribute in a shipped platform; otherwise keep them in the site, or list them there
   with a `source` and let `boardctrl images sync` fetch them (see [configuration.md](configuration.md#site-images)).
 - `media_boot` is for SoCs that can boot a board's media from download mode. A plain reset
   (`boardctrl dut reset --no-fdl`) and recipe steps marked `when: fdl-not-strapped` reset the board into
@@ -60,26 +60,27 @@ Then write boot recipes for the SDKs of that SoC ([sdk.md](sdk.md)).
 Describe its GPIO header in `boards/<id>.yaml`: one entry per header with its pins — a GPIO pin
 gives its Linux GPIO number (`gpio: 83`), other pins a `kind` (`power`, `gnd`) and `label` —
 plus optional alternate-function labels and where the kernel's pin-mux information lives. See
-`tests/fixtures/site/boards/example-40pin.yaml` and the files in `profiles/spacemit/boards/`. Select it
-with `modules.gpio.board` in the host configuration.
+`tests/fixtures/site/boards/example-40pin.yaml` and the files in `platforms/spacemit/boards/`. Select it
+with `providers.gpio.board` (or `modules.gpio.board`, the older key) in the host configuration.
 
 GPIO access goes through a backend: `sysfs`, `gpiod` (installed automatically by `deploy.sh`) or `mock`. A new
-backend implements the `GpioBackend` interface in `src/bsp/gpio_relay/backends/` and registers
-itself.
+backend implements the `GpioBackend` interface in `providers/gpio/backends/` and registers itself.
 
 ## A new reset mechanism
 
-Providers of the `relay` role live in `src/bsp/dut/control.py`: subclass `ControlBackend`, implement
-`reset(log, ready)` (and `enter_fdl` if the board needs more than a reset), and register it with
-`@CONTROL_BACKENDS.register("name")`. A record selects it with `services.relay.provider` (or the older
-`control.backend`).
+A reset mechanism is a provider of the `relay` role: subclass `ControlBackend`
+(`core/dut/contracts.py`), implement `reset(log, ready)` (and `enter_fdl` if the board needs more than a
+reset), and register it where the mechanism lives — the shipped ones are the `gpio-relay` in
+`providers/gpio/relay.py` and `human` in `providers/human/provider.py`; yours is a provider directory in
+your site. A record selects it with `services.relay.provider` (or the older `control.backend`).
 
 ## A new provider: console, download, flash or debug
 
-A DUT's roles are filled by providers (`src/bsp/core/providers.py`; the record says which, under `services:`).
-A provider of any role is a class with the role's interface — `ConsoleProvider` (`dut/console.py`),
-`DebugProvider` (`dut/debug.py`), `FlashProvider` (`dut/flash.py`), the download shape — and a factory
-`(ctx, spec, services) -> instance` registered as `PROVIDERS["<role>"].register("<name>", factory)`. Say what it
+A DUT's roles are filled by providers (`core/providers.py` holds the table; the record says which, under
+`services:`). A provider of any role is a class with the role's interface — `ConsoleProvider`,
+`DebugProvider`, `FlashProvider`, `ControlBackend` (`core/dut/contracts.py`), or the download shape — and a
+factory `(ctx, spec, services) -> instance` registered as `PROVIDERS["<role>"].register("<name>", factory)`
+from your provider's `setup()`. Say what it
 offers (`DebugProvider.kinds`) and describe its own settings with `Field`s, so `boardctrl dut set` and the page offer
 exactly that. A flash provider's `flash(package, log, timeout)` is handed the local file the host resolved (an
 uploaded one or a downloaded one, its hash checked) and writes it; the built-in `hook` provider is the host's own
@@ -95,42 +96,43 @@ bridges the session's bytes on stdin/stdout for programs (boardlab's debug page 
 whose path carries a trace channel reports the session's endpoint as the DUT's console socket, so the same bridge
 serves a console and a trace.
 
-## A site plugin
+## A provider
 
-Hardware nobody bought a driver for is a site plugin: a directory `modules/<name>/` in the site (or in a shipped profile) with a
-`module.py` that defines `setup(ctx, api, config)`. The API registers providers
-(`api.provider("debug", "my-swd", factory, title=…, about=…)`), services for other modules, commands
-(`api.command(Command(CommandSpec(…), handler))`) and FastAPI routers. The `title` and `about` a provider registers
-with are the words a page shows for it: the instance carries them, so `debug status` and the debug page name the
-path as the plugin does, never by its registered name. Select the plugin in the host config by naming it
-under `modules:` (its own section is passed as `config`), or in `plugins:`. It is loaded at host start; one that
-fails says so in `boardctrl status` and never takes the host down.
+Hardware nobody bought a driver for is a site provider: a directory `providers/<name>/` in the site with a
+`provider.py` that defines `setup(ctx, api, config)` (a site that still spells it `modules/<name>/module.py`
+is read too). The API registers implementations (`api.provider("debug", "my-swd", factory, title=…, about=…)`),
+services for other providers, commands (`api.command(Command(CommandSpec(…), handler))`), HTTP routers, and
+what runs when the host starts and stops. The `title` and `about` a provider registers with are the words a
+page shows for it: the instance carries them, so `debug status` and the debug page name the path as the
+provider does, never by its registered name. A host loads every provider it names under `providers:` (or
+`modules:`) with that section as `config`, and each one's `setup` runs before any startup. One that fails says
+so in `boardctrl status` and never takes the host down.
 
-    <site>/modules/<name>/module.py      def setup(ctx, api, config)
-    <site>/modules/<name>/…              whatever it ships (bundles, data files)
+    <site>/providers/<name>/provider.py      def setup(ctx, api, config)
+    <site>/providers/<name>/…                whatever it ships (bundles, data files, a tool)
 
-Code belongs in the site, not in a shipped profile: a profile carries public knowledge, a site
-carries what belongs to one lab.
+Code belongs in the site: a platform carries public knowledge, a site carries what belongs to one lab.
+A provider may be a consumer too — it reads another's service (`ctx.service("gpio")`) rather than its files.
 
 ## Hooks
 
 Procedures that do not fit recipe steps — a vendor flash tool, a different way to list consoles
-— are hooks: executables with a JSON-in, JSON-out contract, searched in the site, then the shipped profiles,
+— are hooks: executables with a JSON-in, JSON-out contract, searched in the site, then the shipped platforms,
 then the core. See [hooks/README.md](../hooks/README.md).
 
-## Profiles
+## Platforms
 
-A shipped profile is a directory under `profiles/` with a `profile.yaml` and any of `socs/`,
+A shipped platform is a directory under `platforms/` with a `platform.yaml` and any of `socs/`,
 `boards/`, `hooks/` and `hints/`:
 
 ```yaml
 name: acme
-description: ACME A1 SoC profile and evaluation-board header map
+description: ACME A1 SoC facts and evaluation-board header map
 provides:
   socs: [a1]
   boards: [acme-a1-evb]
 ```
 
-Shipped profiles contain only public knowledge: anything a person who buys the hardware can
-observe or download. A site chooses them with `profiles:` in `boardctrl.yaml`. Contributions of new profiles are welcome;
-see [CONTRIBUTING.md](../CONTRIBUTING.md).
+Shipped platforms contain only public knowledge: anything a person who buys the hardware can observe or
+download. Every platform in `platforms/` is read; a site overrides one file by file. Contributions of new
+platforms are welcome; see [CONTRIBUTING.md](../CONTRIBUTING.md).

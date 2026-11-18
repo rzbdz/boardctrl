@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve bsp-dev-loop. Bug reports, documentation fixes, new SoC profiles and code
+Thanks for helping improve bsp-dev-loop. Bug reports, documentation fixes, new SoC facts and code
 contributions are all welcome.
 
 ## Development setup
@@ -26,8 +26,8 @@ bsp separates mechanism from knowledge about a particular installation:
 
 | Belongs in | Examples |
 |---|---|
-| Core (`src/`, `hooks/`) | New step kinds, control or GPIO backends, CLI commands, generic hooks |
-| A shipped profile (`profiles/<vendor>/`) | Facts anyone with the hardware can observe or download: SoC boot-ROM fingerprints and download-mode signatures, header pin maps of purchasable boards, hooks for documented image formats |
+| Core (`core/`, `hooks/`) | New step kinds, control or GPIO backends, CLI commands, generic hooks |
+| A shipped platform (`platforms/<vendor>/`) | Facts anyone with the hardware can observe or download: SoC boot-ROM fingerprints and download-mode signatures, header pin maps of purchasable boards, hooks for documented image formats |
 | A site (not in this repository) | Host names and addresses, accounts, build servers, SDK paths and layouts, boot and flash recipes for your trees, probe images you may not redistribute, boards on your bench |
 
 Pull requests must not contain credentials, internal host names or addresses, personal paths, or

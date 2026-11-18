@@ -130,7 +130,7 @@ Steps run in order on the board host. Each is a mapping with `do:` and its optio
 
 | Step | Options | Effect |
 |---|---|---|
-| `enter-fdl` | `timeout` | Reset into download mode through the board's control backend, then wait until the SoC profile's download-mode console line and fastboot device appear |
+| `enter-fdl` | `timeout` | Reset into download mode through the board's control backend, then wait until the SoC's download-mode console line and fastboot device appear |
 | `reset` | | Plain reset |
 | `stage` | `artifact`, `timeout`, `stop_if` | `fastboot stage` the artifact with that role |
 | `continue` | | `fastboot continue` |
@@ -182,7 +182,7 @@ the registry once; `boardctrl catalog export --dir DIR` writes the registry's do
 | `boardctrl catalog history REF`, `boardctrl catalog rollback REF REV` | Every revision, and writing an earlier one again |
 | `boardctrl catalog status` | The catalog revision, which revision each host has, and site edits it overrides |
 | `boardctrl catalog refresh` | Clear this machine's cached catalog and have every host fetch it again now |
-| `boardctrl catalog sync` | Fetch the registry's catalog, SoC profiles and hooks to this machine now |
+| `boardctrl catalog sync` | Fetch the registry's catalog, SoC facts and hooks to this machine now |
 
 `REF` is an SDK id, or `family/ID`, `server/ID`, `workspace/ID`.
 
@@ -215,7 +215,7 @@ the edit with `boardctrl catalog put REF -f FILE` (after a `get` if someone chan
 ### Keeping the catalog in git (git-registry)
 
 The registry can keep the catalog in a git repository as well. Make the registry's site
-directory a clone of the repository (the whole site: hosts, SoC profiles and so on can live
+directory a clone of the repository (the whole site: hosts, SoC facts and so on can live
 there) and set
 
 ```yaml
@@ -236,17 +236,17 @@ modules:
 - The registry needs push access (its ssh key on the repository). `boardctrl catalog status` shows the
   repository, the head, what was last pushed, writes still pending and the last error.
 
-### SoC profiles and hooks
+### SoC facts and hooks
 
-Besides SDK documents, the registry shares its site's `socs/` (SoC profiles, with their
+Besides SDK documents, the registry shares its site's `socs/` (SoC facts, with their
 `media_boot` steps and images) and `hooks/` (hook scripts). Every host that announces itself
 there, and every client after `boardctrl catalog sync`, gets them as a layer above its own site. Each
-board and each compile machine then works from the same profiles and scripts.
+board and each compile machine then works from the same facts and scripts.
 
 - Change them in the registry's site, which is usually the git-registry clone. A push is taken in
   at the next pull. Hosts fetch them when the files' digest changes, and the registry's answer to
   every announcement carries that digest.
-- Images a profile stages by `sha256` go along: the registry serves them from its `.blobs/`, so
+- Images a platform stages by `sha256` go along: the registry serves them from its `.blobs/`, so
   run `boardctrl images sync` there. Hosts keep a file only if it hashes right.
 - Hooks are code that hosts run, so these files are served only to holders of the registry's
   token (`BSP_REGISTRY_TOKEN` on hosts) when it has one. They come only from the registry's site,

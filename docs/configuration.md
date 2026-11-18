@@ -53,7 +53,7 @@ site/
 ```
 
 `tests/fixtures/site/` contains a working example of every file; the test suite runs against it. A site
-that still carries code under `modules/<name>/` is read too — the name sites used before providers.
+that still carries code under `modules/<name>/module.py` is read too — the name sites used before providers.
 
 ### .bspignore
 
@@ -83,8 +83,8 @@ env:                             # values hooks receive: see "Host environment" 
   BSP_SDK_OUTPUT: /srv/sdk-output
   BSP_SERIAL_LOG_DIR: /root/.serial-mux/logs
   BSP_SMTTY: smtty
-modules:
-  gpio:                         # list it before dut: dut drives reset lines through it (gpio_relay still works)
+providers:                       # what this host loads, by name; `modules:` is the key sites wrote before
+  gpio:                         # dut drives reset lines through it (gpio_relay still works)
     board: example-40pin         # a boards/<id>.yaml from a platform or the site
     backend: sysfs               # sysfs | gpiod | mock
     hw_timeout_s: 3.0            # GPIO calls slower than this mark the backend degraded
@@ -96,7 +96,7 @@ modules:
     aliases:                     # read-only baseline aliases
       bench/fan: P13
   sdk: {}                        # serve the SDK catalog (list/show/plan) over HTTP
-  dut:
+  dut:                            # the framework's own: always on, configured here
     smtty: smtty                 # serial-mux client and daemon commands
     serial_mux: serial-mux
     serial_log_dir: ~/.serial-mux/logs
@@ -144,7 +144,7 @@ env:
 ```
 
 A string written exactly as `env:NAME` is a reference to the environment boardctrld runs with;
-this works anywhere in the host file (top level, `server`, `modules`, nested lists and maps), so
+this works anywhere in the host file (top level, `server`, `providers`, nested lists and maps), so
 paths and tokens need not be repeated. `env:NAME` is resolved once at startup; when `NAME` is
 unset, boardctrld refuses to start and names it. For the service, put such variables in
 `/etc/boardctrl/boardctrld.env`.
@@ -154,14 +154,14 @@ hook gets the same values whether it reads `req["env"]`, its own environment, or
 
 ### Product and network for hooks
 
-`modules.dut.product_dir` says where hooks on this host find a build's product. It may be a
+`providers.dut.product_dir` says where hooks on this host find a build's product. It may be a
 literal path, or a template with `{sdk}` (the SDK instance id) and `{artifacts_dir}` (the
 artifact directory on the build server); with no value the artifact directory itself is passed.
 `boardctrl dut flash` package hooks always get the unpacked package directory instead. This is an opaque path supplied to
 the hook: bsp does not mount Samba/CIFS, translate Windows/UNC paths, or redirect the SDK's SSH artifact pulls through
 it. A hook may run `scp` itself or use a share the site manages separately.
 
-`modules.dut.network` gives hooks the board network facts they would otherwise guess: the
+`providers.dut.network` gives hooks the board network facts they would otherwise guess: the
 boards' DHCP subnet, this host's address there, and the address other machines use. Missing
 keys default from `server.announce.addresses` (first entry) and `server.bind` (a concrete
 address); `board_subnet` has no default because bsp does not run the boards' DHCP server.
@@ -190,13 +190,13 @@ image is a new `sha256` and `ref` (or a new entry) and another sync.
 
 A board host that gets its address from DHCP, or sits behind NAT, can tell a registry where it
 is instead of being listed by hand in every `remotes.json`. The registry is a `boardctrld` with
-the `registry` module, typically on a machine every host and client can reach:
+the `registry` provider, typically on a machine every host and client can reach:
 
 ```yaml
-# hosts/registry.yaml — a registry needs no other module
+# hosts/registry.yaml — a registry needs no other provider
 host: {id: registry}
 server: {bind: 0.0.0.0, port: 8765, state_dir: /var/lib/bsp, auth_token: null}
-modules:
+providers:
   registry:
     stale_s: 300          # hosts not heard from for this long are no longer offered to clients
     trust_proxy: false    # true behind a reverse proxy: take the address from X-Forwarded-For
@@ -215,7 +215,7 @@ server:
 ```
 
 Each host also watches for serial devices (`/dev/ttyUSB*`, `/dev/ttyACM*`) and USB devices
-coming and going (`modules.dut.watch_ports`, on by default; `{interval_s: 2}` sets how often it
+coming and going (`providers.dut.watch_ports`, on by default; `{interval_s: 2}` sets how often it
 looks, `false` turns it off). A change is published on the host as `dut.ports` and announced to
 the registry at once with the host's current ports, and the registry publishes `registry.ports`
 with what was added and removed, so a newly cabled board is noticed within seconds.
@@ -227,7 +227,7 @@ registry list` (and `GET /api/v1/registry/list`) shows the hosts.
 
 ### Console logins
 
-With `modules.dut.ssh_console.enabled: true`, the host keeps one system user per board, named
+With `providers.dut.ssh_console.enabled: true`, the host keeps one system user per board, named
 `<prefix><dut>`. Logging in as that user over ssh (no password) attaches to the board's console
 and nothing else: there is no shell, port forwarding is disabled, and Ctrl-A Ctrl-X ends the session (picocom's keys;
 Ctrl-C and every other key go to the board).
@@ -299,7 +299,7 @@ users of the site; `boardctrl remote add/remove/use` edits a personal overlay at
 
 1. `--url URL`, else `-r NAME[,NAME…]` (case-insensitive, unique prefixes allowed; `-r all`
    for every host), else `$BOARDCTRL_URL`, else `$BOARDCTRL_REMOTE`.
-2. Without any of these: a `boardctrld` with the `dut` module answering on `127.0.0.1:8765`
+2. Without any of these: a `boardctrld` with its DUT answering on `127.0.0.1:8765`
    (local mode, when you run bsp on a board host), else the default set with `boardctrl remote use`, else every remote.
 
 Board commands (`boardctrl dut …`) find the host that owns the board by asking all selected hosts.

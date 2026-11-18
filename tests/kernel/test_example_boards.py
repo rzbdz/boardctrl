@@ -1,6 +1,6 @@
-"""The public board profiles, read the way a host reads them.
+"""The public board maps, read the way a host reads them.
 
-`profiles/spacemit` is public hardware knowledge: the pin maps of boards anyone can buy. A profile that
+`platforms/spacemit` is public hardware knowledge: the pin maps of boards anyone can buy. A map that
 stopped parsing, or that named a pin nothing resolves, would only show up on a board host at runtime,
 so the example boards are checked here.
 """

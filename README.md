@@ -132,22 +132,22 @@ flowchart TB
   there; nothing is installed.
 - **Client** — the `bsp` command on a workstation or on the build server itself.
 
-Installation-specific knowledge comes from configuration layers: the generic core, optional
-hardware **profiles** shipped in this repository (public facts such as SoC boot-ROM signatures and
-board pinouts) and your private **site** directory. See
-[docs/architecture.md](docs/architecture.md) for the full model.
+Installation-specific knowledge comes from layers: the **core** (the kernel), the **providers** this
+release ships (each binding a tool to a role), the hardware **platforms** shipped in this repository
+(public facts such as SoC boot-ROM signatures and board pinouts) and your private **site** directory.
+See [docs/architecture.md](docs/architecture.md) for the full model.
 
 ## Supported hardware
 
 | Component | Supported | Notes |
 |---|---|---|
 | Boards (DUTs) | SoCs whose boot ROM offers a USB download mode reachable with `fastboot` | Boot steps are configuration, so other flows can be described without code |
-| SoC profiles shipped | SpacemiT K1, SpacemiT K3 (`profiles/spacemit`) | Boards tested as DUTs: K1-x MUSE Card (K1), K3 deb1 (K3) |
+| SoC facts shipped | SpacemiT K1, SpacemiT K3 (`platforms/spacemit`) | Boards tested as DUTs: K1-x MUSE Card (K1), K3 deb1 (K3) |
 | Board hosts | Linux with a GPIO header (sysfs or libgpiod), USB host ports, systemd | Header pin maps shipped for two SpacemiT boards used as hosts: K3 Com260 and K1-x deb1; add yours as a YAML file |
-| Reset control | GPIO open-drain button or relay; a person, prompted by bsp (`human`) | A Home Assistant backend is a stub |
+| Reset control | GPIO open-drain button or relay (`gpio-relay`); a person, prompted by boardctrl (`human`) | A site provides others as its own provider |
 | Consoles | Any USB-UART adapter, via serial-mux | |
 
-Adding a SoC is a YAML profile plus, optionally, a known-good bootloader image; see
+Adding a SoC is a YAML file plus, optionally, a known-good bootloader image; see
 [docs/porting.md](docs/porting.md).
 
 ## Try it without hardware
@@ -239,9 +239,10 @@ and a remote CLI that accepts every host command.
 
 | Layer | Contents | Location |
 |---|---|---|
-| Core | Mechanisms, generic hooks | this repository |
-| Shipped profiles | Public hardware knowledge: SoC profiles, board pin maps, hooks for public tool formats | `profiles/` in this repository (the site overrides them) |
-| Site | Your hosts, build servers, SDK trees, boot and flash recipes, boards, hints | `$BOARDCTRL_SITE`, `~/.config/boardctrl/site` or `/etc/boardctrl/site` |
+| Core | The kernel: the DUT and its roles, the mechanisms every host has, generic hooks | `core/` in this repository |
+| Providers | The adapters this release ships: GPIO, serial-mux, fastboot, a person | `providers/` in this repository (a site's own copy of one replaces it) |
+| Platforms | Public hardware knowledge: SoC facts, board pin maps, hooks for public tool formats | `platforms/` in this repository (the site overrides them) |
+| Site | Your hosts, build servers, SDK trees, boot and flash recipes, boards, provider code, hints | `$BOARDCTRL_SITE`, `~/.config/boardctrl/site` or `/etc/boardctrl/site` |
 
 Later layers override earlier ones file by file. Start from `tests/fixtures/site/`; every format is
 documented in [docs/configuration.md](docs/configuration.md) and
@@ -271,7 +272,7 @@ See [SECURITY.md](SECURITY.md) for the threat model and how to report vulnerabil
 | [GPIO relay](docs/gpio-relay.md) | Channel modes, pin addressing, aliases, wiring |
 | [Deployment](docs/deployment.md) | `deploy.sh`, host layout, services, client installation |
 | [AI agents](docs/agents.md) | Skills, `boardctrl install`, parallel agents, acceptance test |
-| [Porting](docs/porting.md) | New SoCs, board hosts, profiles and hooks |
+| [Porting](docs/porting.md) | New SoCs, board hosts, platforms, providers and hooks |
 | [Architecture](docs/architecture.md) | Concepts, layers, extension points |
 | [Hooks](hooks/README.md) | The hook contract |
 
@@ -282,14 +283,14 @@ daily use on SpacemiT K1 and K3 boards, and the test suite runs without hardware
 and the `/api/v1` HTTP API may still change before 1.0; changes are recorded in
 [CHANGELOG.md](CHANGELOG.md).
 
-Planned: an MCP server, DUT and SDK views in the web console, more SoC profiles, and reusable
+Planned: an MCP server, DUT and SDK views in the web console, more SoC facts, and reusable
 recipe templates for common SDK layouts.
 
 ## Contributing
 
-Bug reports, SoC profiles and fixes are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the
+Bug reports, SoC facts and fixes are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the
 development setup (`pip install -e '.[server,dev]' && pytest`; no hardware needed) and for what
-belongs in a pack versus a site.
+belongs in a platform versus a site.
 
 ## License
 

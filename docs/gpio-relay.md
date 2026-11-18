@@ -1,7 +1,7 @@
 # GPIO relay
 
-The `gpio_relay` module turns a board host's GPIO header into named, typed channels: raw GPIO
-lines, relays and push buttons. The `dut` module uses it to press the reset and download-mode
+The `gpio` provider turns a board host's GPIO header into named, typed channels: raw GPIO
+lines, relays and push buttons. The DUT manager in the kernel uses it to press the reset and download-mode
 buttons of the boards; you can use it directly for fans, power relays or anything else on the
 header.
 
@@ -16,7 +16,7 @@ Every command takes a *target*, written as any of:
 | Alias | `board-1/reset` | A name registered for a pin |
 
 The header layout — pin numbers, power and ground pins, GPIO numbers, alternate functions — comes
-from a board map (`boards/<id>.yaml`) in a profile or the site, selected by
+from a board map (`boards/<id>.yaml`) in a platform or the site, selected by
 `modules.gpio.board`.
 
 ## Channel modes
@@ -58,7 +58,7 @@ sensitive) under `protected:` in the host configuration.
 ## Aliases
 
 Aliases give pins meaningful, hierarchical names such as `board-1/reset`. Components register
-the aliases they own — the `dut` module registers `<dut>/reset` and `<dut>/fdl` for each board —
+the aliases they own — the DUT manager registers `<dut>/reset` and `<dut>/fdl` for each board —
 so a command can be passed straight through: `boardctrl dut reset board-1` becomes
 `button click board-1/reset` on the right pin.
 

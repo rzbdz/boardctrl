@@ -1,6 +1,6 @@
 # Hooks
 
-Replaceable executables with a JSON contract (`src/bsp/core/hooks.py`).
+Replaceable executables with a JSON contract (`core/hooks.py`).
 
 ```text
 <hooks-dir>/<kind>/<name>          any executable (python, sh, ...)
@@ -15,7 +15,7 @@ that is a JSON object with a percent, `{"progress": 42}` or `{"type": "progress"
 its log. On timeout a hook and what it started get SIGTERM, then SIGKILL 10 s later: let go of any
 device on SIGTERM.
 
-Search order: `$BOARDCTRL_HOOKS_PATH` (or the old `$BSP_HOOKS_PATH`) → host config `hook_dirs` → `<site>/hooks` → `profiles/*/hooks`
+Search order: `$BOARDCTRL_HOOKS_PATH` (or the old `$BSP_HOOKS_PATH`) → host config `hook_dirs` → `<site>/hooks` → `platforms/*/hooks`
 (later profiles first) → `~/.config/bsp/hooks` → this directory. Generic hooks live here; hooks for a
 public vendor tool or format go in a pack; private procedures go in the site.
 Override a built-in by dropping a file with the same `<kind>/<name>` earlier in the path.
@@ -64,7 +64,7 @@ console / fastboot regexes), then extracts `identify.fields` from the console, d
 `identify.placeholders` and builds the name from `identify.name`. Images are looked up in the layers
 (site before profiles) and checked against their `sha256`.
 
-The orchestrator (`src/bsp/dut/probe.py`) owns the risky part — pulsing GPIOs and
+The orchestrator (`core/dut/probe.py`) owns the risky part — pulsing GPIOs and
 correlating reactions — and calls these hooks for everything hardware-specific.
 
 ## flash/ — download (flash-to-media) mechanisms, used by boot recipe `hook` steps and `boardctrl dut flash`
