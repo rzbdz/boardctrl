@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `boardctrl job cancel ID`: stop any job by id (probes and rebuilds too; a board's job takes its lease).
+  A cancel stops what the job runs at once: fastboot, hooks and copies are stopped with what they started
+  (their process group gets SIGTERM, then SIGKILL), and waits on the console, the download port or a person
+  end. The job ends `cancelled` with the step it was in. Following a cancelled job is no longer reported as a
+  success: the CLI says `error.code: cancelled` and exits 4.
 - serial-mux sends a connecting client the newest 5000 lines and at most 512 KB of history
   (`history_lines`, `history_bytes`), not its whole scrollback.
 - Host environment: a top-level `env:` map in `hosts/<host>.yaml`, and `env:NAME` anywhere in

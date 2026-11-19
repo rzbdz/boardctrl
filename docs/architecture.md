@@ -223,6 +223,11 @@ Long operations (boots, probes, human-assisted resets) run as background jobs
 (`core/jobs.py`) that report progress lines; changes are published on an event bus that feeds
 `boardctrl watch` and the web console.
 
+A job can be cancelled (`job.cancel`). Its cancel token is bound to the job's thread
+(`core.jobs.current_token()`), so a provider honors it without being handed it: waits use
+`token.sleep` / `token.wait`, and programs run through `core/proc.py`, which starts each in a
+process group of its own and stops the group (SIGTERM, then SIGKILL) on a cancel or a timeout.
+
 ## Shared source trees
 
 One source tree can build several targets, such as an upstream kernel tree built for two SoCs.

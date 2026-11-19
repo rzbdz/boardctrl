@@ -17,7 +17,8 @@ brackets>` come from `boardctrl sdk list` / `boardctrl dut list` (or the header 
 
 Use `--json` when you need to parse output: every command prints `{"ok": true, "result": ...}`
 or `{"ok": false, "error": {"code", "message", "hint", "details"}}`. On failure **read
-`error.hint` first** — it says what to do next. Exit codes: 0 ok, 1 failed, 2 usage, 3 host unreachable.
+`error.hint` first** — it says what to do next. Exit codes: 0 ok, 1 failed, 2 usage, 3 host unreachable,
+4 cancelled (the job was stopped on request: `boardctrl dut cancel <dut>` or `boardctrl job cancel <id>`).
 
 ## 0. Look around (read-only, safe)
 

@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
 
+from core import proc
+
 # never route bsp traffic through an HTTP proxy from the environment
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -204,9 +206,8 @@ class SshTransport:
             raise Unreachable(self.label, f"boardctrld gave an unusable upload path: {target!r}")
         t0 = os.times().elapsed
         try:
-            r = subprocess.run(["scp", "-q", *_ssh_options(), file, f"{self.target}:{target}"],
-                               capture_output=True, text=True, timeout=timeout + 15)
-        except subprocess.TimeoutExpired:
+            r = _run(["scp", "-q", *_ssh_options(), file, f"{self.target}:{target}"], timeout=timeout + 15)
+        except proc.TimedOut:
             raise Unreachable(self.label, "scp timed out") from None
         if r.returncode == 255:
             raise Unreachable(self.label, (r.stderr.strip() or "scp failed")[-200:])
@@ -229,9 +230,9 @@ class SshTransport:
         cmd.append(f"http://127.0.0.1:{self.port}{path}")
         try:
             with open(file, "rb") as f:
-                r = subprocess.run(_ssh_base(self.target) + [" ".join(_q(c) for c in cmd)], stdin=f,
-                                   capture_output=True, timeout=timeout + 15)
-        except subprocess.TimeoutExpired:
+                r = _run(_ssh_base(self.target) + [" ".join(_q(c) for c in cmd)], stdin=f, text=False,
+                         timeout=timeout + 15)
+        except proc.TimedOut:
             raise Unreachable(self.label, "timed out") from None
         out, err = r.stdout.decode("utf-8", "replace"), r.stderr.decode("utf-8", "replace")
         if r.returncode == 255:
@@ -251,6 +252,12 @@ class SshTransport:
                 yield line.rstrip("\n")
         finally:
             p.kill()
+
+
+def _run(argv: list[str], *, timeout: float, stdin: Any = None, text: bool = True) -> proc.Result:
+    """A long transfer (scp, a streamed upload) in its own process group: an interrupt or a timeout stops it and
+    the ssh it started, instead of leaving a copy running after the CLI is gone."""
+    return proc.run(argv, timeout=timeout, stdin=stdin, text=text)
 
 
 def _q(s: str) -> str:

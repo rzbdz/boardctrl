@@ -262,6 +262,16 @@ def follow_job(h: HostHandle, job: str, out, timeout: float, lines: list[str] | 
     if v["status"] == "failed":
         e = v.get("error") or {}
         raise CallError({**e, "message": f"job {job} failed: {e.get('message')}"}, h.id)
+    if v["status"] == "cancelled":
+        # Not a success: the job was let go before it was done (code `cancelled`, its own exit code).
+        e = v.get("error") or {}
+        where = (e.get("details") or {}).get("step")
+        raise CallError({**e, "code": "cancelled",
+                         "message": f"job {job} cancelled" + (f" in {where}" if where else "")
+                                    + f" after {v['elapsed_s']}s",
+                         "hint": e.get("hint") or "it was stopped on request; run it again when wanted"}, h.id)
+    if v["status"] != "succeeded":
+        raise CallError({"code": "internal_error", "message": f"job {job} ended {v['status']!r}"}, h.id)
     return v, f"job {job} succeeded in {v['elapsed_s']}s"
 
 

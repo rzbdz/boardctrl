@@ -62,8 +62,7 @@ def test_a_file_the_host_already_has_is_adopted_without_a_transfer(tmp_path):
 
 def test_ssh_transport_copies_a_file_with_scp_not_an_http_body(tmp_path, monkeypatch):
     """The registry's bsp CLI scps to the ticket path; only ticket/adopt are small JSON calls."""
-    import subprocess
-
+    from frontends.cli import transport as transport_mod
     from frontends.cli.transport import SshTransport
 
     src = tmp_path / "Image.itb"
@@ -93,7 +92,7 @@ def test_ssh_transport_copies_a_file_with_scp_not_an_http_body(tmp_path, monkeyp
         return Done()
 
     monkeypatch.setattr(transport, "request", request)
-    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(transport_mod, "_run", run)
     r = transport.upload("/api/v1/artifacts/ignored", str(src), sha256=sha, name="Image.itb")
     assert r["ok"] and r["result"]["sha256"] == sha
     scp = [c for c in calls if c[0] == "scp"]
@@ -145,8 +144,7 @@ def test_a_file_the_host_already_has_is_adopted_without_a_transfer(tmp_path):
 
 def test_ssh_transport_copies_a_file_with_scp_not_an_http_body(tmp_path, monkeypatch):
     """The registry's bsp CLI scps to the ticket path; only ticket/adopt are small JSON calls."""
-    import subprocess
-
+    from frontends.cli import transport as transport_mod
     from frontends.cli.transport import SshTransport
 
     src = tmp_path / "Image.itb"
@@ -176,7 +174,7 @@ def test_ssh_transport_copies_a_file_with_scp_not_an_http_body(tmp_path, monkeyp
         return Done()
 
     monkeypatch.setattr(transport, "request", request)
-    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(transport_mod, "_run", run)
     r = transport.upload("/api/v1/artifacts/ignored", str(src), sha256=sha, name="Image.itb")
     assert r["ok"] and r["result"]["sha256"] == sha
     scp = [c for c in calls if c[0] == "scp"]

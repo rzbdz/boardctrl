@@ -1,13 +1,16 @@
 """Cancelling a job stops what it runs now: a program with what it started, a wait at once, and the job ends
 `cancelled` saying where. A cancelled job is never reported as a success. Fakes only."""
 
+import json
 import os
+import socket
 import stat
 import threading
 import time
 from pathlib import Path
 
 import pytest
+import uvicorn
 from fastapi.testclient import TestClient
 
 from core import proc
@@ -68,34 +71,6 @@ def test_a_cancelled_job_kills_its_program_and_the_grandchild(tmp_path):
     assert job.error["code"] == "cancelled"
 
 
-
-def test_a_token_sleep_and_wait_end_at_once_and_outside_a_job_nothing_cancels(tmp_path):
-    jobs = JobManager(EventBus())
-    ev = threading.Event()
-    job = jobs.start("x", "x", lambda log: current_token().wait(ev, 600))
-    time.sleep(0.1)
-    t0 = time.monotonic()
-    job.cancel()
-    jobs.wait(job.id, 5)
-    assert job.status == "cancelled" and time.monotonic() - t0 < 1
-    tok = current_token()                       # this thread runs no job
-    assert not tok.cancel() and not tok.cancelled
-    tok.check()
-    assert tok.wait(lambda: True, 1)
-
-
-
-def test_a_body_that_ignores_the_cancel_still_ends_cancelled_not_succeeded():
-    jobs = JobManager(EventBus())
-    gate = threading.Event()
-    job = jobs.start("x", "x", lambda log: gate.wait(5) or "done")
-    job.cancel()
-    gate.set()
-    jobs.wait(job.id, 5)
-    assert job.status == "cancelled" and job.error["code"] == "cancelled"
-
-
-
 def test_fastboot_and_a_hook_are_stopped_by_a_cancel(tmp_path, monkeypatch):
     """The fastboot CLI and a hook (the host's two long-running programs) honor the job's cancel."""
     from core.hooks import HookRunner
@@ -120,7 +95,6 @@ def test_fastboot_and_a_hook_are_stopped_by_a_cancel(tmp_path, monkeypatch):
         jobs.wait(job.id, 15)
         assert job.status == "cancelled" and time.monotonic() - t0 < 12
         assert _until(lambda: not _alive(grandchild), 5)
-
 
 
 def test_a_serial_wait_returns_on_cancel_and_the_job_says_which_step(tmp_path):
@@ -151,6 +125,30 @@ def test_a_serial_wait_returns_on_cancel_and_the_job_says_which_step(tmp_path):
     assert job.error["details"]["step"] == "step 2/2 wait"
     assert "step 2/2 wait" in job.lines[-1] and "enough" in job.lines[-1]
 
+
+def test_a_token_sleep_and_wait_end_at_once_and_outside_a_job_nothing_cancels(tmp_path):
+    jobs = JobManager(EventBus())
+    ev = threading.Event()
+    job = jobs.start("x", "x", lambda log: current_token().wait(ev, 600))
+    time.sleep(0.1)
+    t0 = time.monotonic()
+    job.cancel()
+    jobs.wait(job.id, 5)
+    assert job.status == "cancelled" and time.monotonic() - t0 < 1
+    tok = current_token()                       # this thread runs no job
+    assert not tok.cancel() and not tok.cancelled
+    tok.check()
+    assert tok.wait(lambda: True, 1)
+
+
+def test_a_body_that_ignores_the_cancel_still_ends_cancelled_not_succeeded():
+    jobs = JobManager(EventBus())
+    gate = threading.Event()
+    job = jobs.start("x", "x", lambda log: gate.wait(5) or "done")
+    job.cancel()
+    gate.set()
+    jobs.wait(job.id, 5)
+    assert job.status == "cancelled" and job.error["code"] == "cancelled"
 
 
 def test_a_reset_waiting_for_a_person_ends_on_cancel_and_withdraws_the_request():
@@ -228,3 +226,91 @@ def test_a_boards_job_needs_its_lease_to_be_cancelled_and_keeps_the_lease(host):
     assert _until(lambda: not _alive(grandchild), 5)
     st = _call(host, "dut_status", dut="mock-board")
     assert st["lease"] and "mock-board" not in mod._busy
+
+
+# ------------------------------------------------------------------- CLI --
+def test_the_cli_says_a_cancelled_job_was_cancelled_and_exits_4(tmp_path, monkeypatch, capsys):
+    """Following a job that gets cancelled is not a success: `ok:false`, `error.code: cancelled`, exit code 4."""
+    from frontends.cli.main import EXIT_CANCELLED, main
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fb = bindir / "fastboot"
+    fb.write_text("#!/bin/sh\n[ \"$1\" = devices ] && { printf 'dfu\\tDFU download\\n    usb:0-0\\n'; exit 0; }\n"
+                  "sleep 60 & wait\n")
+    fb.chmod(0o755)
+    hooks = tmp_path / "hooks" / "flash"
+    hooks.mkdir(parents=True)
+    (hooks / "slow").write_text("#!/bin/sh\necho flashing\nsleep 60 & wait\n")
+    (hooks / "slow").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BSP_HOOKS_PATH", str(tmp_path / "hooks"))
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    app = create_app(HostConfig.load(MOCK))
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+    t = threading.Thread(target=server.run, daemon=True)
+    t.start()
+    assert _until(lambda: server.started)
+    try:
+        url = ["--url", f"http://127.0.0.1:{port}", "--stateless"]
+        assert main([*url, "--json", "dut", "acquire", "mock-board", "--holder", "t"]) == 0
+        token = json.loads(capsys.readouterr().out)["result"]["token"]
+        pkg = tmp_path / "pkg.tar"
+        import tarfile
+
+        with tarfile.open(pkg, "w") as tf:
+            (tmp_path / "img").write_bytes(b"x" * 1024)
+            tf.add(tmp_path / "img", arcname="img")
+        jobs = app.state.hub.jobs
+
+        def cancel_when_flashing():
+            for _ in range(500):
+                running = [j for j in jobs.list() if j.status == "running" and j.kind == "flash"]
+                if running and any("flashing" in line for line in running[0].lines):
+                    jobs.cancel(running[0].id, token, reason="test")
+                    return
+                time.sleep(0.02)
+
+        threading.Thread(target=cancel_when_flashing, daemon=True).start()
+        rc = main([*url, "--json", "dut", "flash", "mock-board", "--package", str(pkg), "--flasher", "slow",
+                   "--lease", token, "--no-reset"])
+        body = json.loads(capsys.readouterr().out)
+        assert rc == EXIT_CANCELLED == 4
+        assert body["ok"] is False and body["error"]["code"] == "cancelled"
+        assert "flash/slow" in body["error"]["message"]          # where it stopped
+    finally:
+        server.should_exit = True
+        t.join(5)
+
+
+def test_job_cancel_on_the_cli_stops_a_job_by_id(tmp_path, monkeypatch, capsys):
+    """`boardctrl job cancel ID` reaches `job.cancel`; a board's job takes the lease the CLI saved."""
+    from frontends.cli.main import main
+
+    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    app = create_app(HostConfig.load(MOCK))
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+    t = threading.Thread(target=server.run, daemon=True)
+    t.start()
+    assert _until(lambda: server.started)
+    try:
+        url = ["--url", f"http://127.0.0.1:{port}"]
+        assert main([*url, "--json", "dut", "acquire", "mock-board", "--holder", "t"]) == 0
+        capsys.readouterr()
+        mod = app.state.hub.modules["dut"]
+        job = mod._start_job("mock-board", "wait", lambda log: current_token().sleep(600))
+        assert main([*url, "--json", "job", "cancel", job.id]) == 0
+        assert json.loads(capsys.readouterr().out)["result"]["cancelled"] is True
+        app.state.hub.jobs.wait(job.id, 5)
+        assert job.status == "cancelled"
+    finally:
+        server.should_exit = True
+        t.join(5)
+

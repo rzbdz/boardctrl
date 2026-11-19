@@ -19,7 +19,7 @@ Global options (anywhere on the line): -r/--remote NAME[,NAME|all], --url URL,
 --token T, --json (machine output: {"ok":..., "result"|"error"}), --stateless
 (ignore saved defaults and saved lease tokens; for parallel agents).
 
-Exit codes: 0 ok, 1 failed, 2 usage error, 3 host unreachable.
+Exit codes: 0 ok, 1 failed, 2 usage error, 3 host unreachable, 4 cancelled (a job stopped on request).
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from frontends.cli.fleet import Fleet, HostHandle, LeaseBook, connect
 from frontends.cli.remotes import Remote, RemoteError, RemoteStore
 from frontends.cli.transport import Unreachable
 
-EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_UNREACHABLE = 0, 1, 2, 3
+EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_UNREACHABLE, EXIT_CANCELLED = 0, 1, 2, 3, 4
 CLIENT_GROUPS = {"hosts", "init", "probe", "dut", "slot", "debug", "sdk", "install", "hints", "catalog", "images"}
 
 
@@ -248,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
             err = e.to_dict()
             if getattr(e, "host", None):
                 err["host"] = e.host
-            return _fail(g, err, EXIT_FAIL)
+            return _fail(g, err, EXIT_CANCELLED if e.code == "cancelled" else EXIT_FAIL)
         except KeyboardInterrupt:
             return 130
         if isinstance(result, dutcli.Quiet):
@@ -296,6 +296,8 @@ def main(argv: list[str] | None = None) -> int:
         return _fail(g, {"code": "ambiguous_host",
                          "message": f"`{name}` changes state and {len(hosts)} hosts are reachable",
                          "hint": f"pick one with -r ({', '.join(h.id for h in hosts)})"}, EXIT_USAGE)
+    if name == "job.cancel" and not cargs.get("lease") and len(hosts) == 1:
+        cargs["lease"] = _job_lease(hosts[0], cargs.get("id"), book)
     code, multi = EXIT_OK, len(hosts) > 1
     for h in hosts:
         try:
@@ -311,6 +313,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"== {h.id} ==")
         _emit(g, resp.get("result"), resp.get("text"))
     return code
+
+
+def _job_lease(h: HostHandle, job: str | None, book: LeaseBook) -> str | None:
+    """`job cancel ID` of a board's job: the board's lease, as `dut cancel` finds it ($BOARDCTRL_LEASE, then saved)."""
+    if naming.get("BOARDCTRL_LEASE"):
+        return naming.get("BOARDCTRL_LEASE")
+    try:
+        r = h.call("job_get", {"id": job, "since": 1 << 30, "wait": 0}, timeout=30)
+    except Unreachable:
+        return None
+    dut = ((r.get("result") or {}).get("meta") or {}).get("dut") if r.get("ok") else None
+    return book.get(f"dut:{dut}") if dut else None
 
 
 def _images(args) -> tuple[Any, str]:

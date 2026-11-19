@@ -39,6 +39,8 @@ How hosts are chosen without `-r`/`--url` is described in
 | `boardctrl dut console DUT` | Attach interactively over ssh (Ctrl-A Ctrl-X detaches, as in picocom) |
 | `boardctrl dut pipe DUT` | Raw serial-mux protocol on stdin/stdout, for programs (see [Console pipe](#console-pipe)) |
 | `boardctrl dut confirm DUT [NOTE]` | Tell a waiting reset/boot that the requested manual action is done |
+| `boardctrl dut cancel DUT` | Stop the job running on a board (a boot, a flash, a reset waiting for a person) |
+| `boardctrl job cancel ID [--reason TEXT]` | Stop any job by id, a probe or a rebuild too; a board's job takes the board's lease |
 | `boardctrl dut logins` | `ssh` commands that open each board's console (if enabled on the host) |
 | `boardctrl dut bind NAME --console TTY\|ALIAS --usb USB [--soc SOC] [--board B] [--description D] [--sdks LIST] [--fdl strapped\|button] [--host HOST] [--replace]` | Register a board from a console and a USB port; a person does the resets |
 | `boardctrl dut add HOST --spec JSON\|@FILE [--replace]` | Register a board from a spec (what probe produces) |
@@ -235,4 +237,11 @@ progress lines to stderr in JSON mode.
 | 1 | The command failed |
 | 2 | Usage error, or an ambiguous host for a state-changing command |
 | 3 | No host reachable |
+| 4 | Cancelled: the job the command followed was stopped on request (`error.code` is `cancelled`) |
 | 130 | Interrupted |
+
+**Cancelling a job.** `boardctrl dut cancel DUT` or `boardctrl job cancel ID` stops a job now, not at its next
+step: the program it runs (fastboot, a flash or probe hook, an scp) is stopped with whatever it started (SIGTERM
+to its process group, SIGKILL a few seconds later), and a wait (the console, the download port, a person) ends at
+once. The job ends `cancelled`, and its error says the step it was in (`error.details.step`) and the last line it
+printed. The board keeps its lease and is no longer busy.
