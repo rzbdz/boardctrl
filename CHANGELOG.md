@@ -7,6 +7,8 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- serial-mux sends a connecting client the newest 5000 lines and at most 512 KB of history
+  (`history_lines`, `history_bytes`), not its whole scrollback.
 - Host environment: a top-level `env:` map in `hosts/<host>.yaml`, and `env:NAME` anywhere in
   the file to take a value from bsp-hostd's environment. Hooks get it as `req["env"]`, in their
   process environment, and `${NAME}` / `${NAME:-default}` in their `args`.
