@@ -21,6 +21,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from core.errors import HardwareError, InvalidRequest
+from core.jobs import current_token
 from core.dut.artifacts import SHA256, ArtifactStore
 
 Log = Callable[[str], None]
@@ -99,9 +100,11 @@ def fetch(store: ArtifactStore, url: str, sha256: str | None, log: Log, max_byte
         tmp = incoming / f"{os.getpid()}.{time.monotonic_ns()}.part"
         name = _name_from(resp.geturl(), resp.headers)
         log(f"downloading {name}" + (f" ({total:,} B)" if total else "") + f" from {urllib.parse.urlsplit(url).hostname}")
+        token = current_token()               # a cancelled flash stops downloading; the part file is removed
         try:
             with open(tmp, "wb") as f:
                 for chunk in iter(lambda: resp.read(1 << 20), b""):
+                    token.check()
                     size += len(chunk)
                     if size > max_bytes:
                         raise InvalidRequest(f"package is more than this host takes ({max_bytes:,} B)",
@@ -152,6 +155,7 @@ def unpack(path: Path, dest: Path, max_bytes: int = 4 * DEFAULT_MAX_BYTES) -> Pa
     dest.mkdir(parents=True, exist_ok=True)
     kind = kind_of(path)
     total = 0
+    token = current_token()                   # a cancelled flash stops unpacking between entries
     if kind == "zip":
         with zipfile.ZipFile(path) as z:
             infos = z.infolist()
@@ -163,6 +167,7 @@ def unpack(path: Path, dest: Path, max_bytes: int = 4 * DEFAULT_MAX_BYTES) -> Pa
                 if total > max_bytes:
                     raise InvalidRequest(f"package unpacks to more than {max_bytes:,} B")
             for i in infos:
+                token.check()
                 rel = _safe_name(i.filename)
                 target = dest.joinpath(*rel.parts)
                 if i.is_dir():
@@ -170,10 +175,11 @@ def unpack(path: Path, dest: Path, max_bytes: int = 4 * DEFAULT_MAX_BYTES) -> Pa
                     continue
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with z.open(i) as src, open(target, "wb") as out:
-                    shutil.copyfileobj(src, out, 1 << 20)
+                    _copy(src, out, token)
     else:
         with tarfile.open(path, "r:*") as t:
             for m in t:
+                token.check()
                 rel = _safe_name(m.name)
                 if m.issym() or m.islnk():
                     raise InvalidRequest(f"package entry {m.name!r} is a link", hint="the archive is not usable")
@@ -192,13 +198,20 @@ def unpack(path: Path, dest: Path, max_bytes: int = 4 * DEFAULT_MAX_BYTES) -> Pa
                 target.parent.mkdir(parents=True, exist_ok=True)
                 src = t.extractfile(m)
                 with src, open(target, "wb") as out:
-                    shutil.copyfileobj(src, out, 1 << 20)
+                    _copy(src, out, token)
     # nothing may have landed outside dest (a name that resolved through a directory planted earlier, say)
     root = dest.resolve()
     for p in dest.rglob("*"):
         if p.is_symlink() or not p.resolve().is_relative_to(root):
             raise InvalidRequest(f"package entry {p.relative_to(dest)} points outside the package")
     return top_dir(dest)
+
+
+def _copy(src, out, token) -> None:
+    """Copy one entry out of the archive, stopping between chunks when the job is cancelled."""
+    for chunk in iter(lambda: src.read(1 << 20), b""):
+        token.check()
+        out.write(chunk)
 
 
 def top_dir(d: Path) -> Path:

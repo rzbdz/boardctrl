@@ -88,22 +88,74 @@ def test_a_body_that_ignores_the_cancel_still_ends_cancelled_not_succeeded():
 
 
 
-def test_a_hook_is_stopped_by_a_cancel(tmp_path, monkeypatch):
-    """A hook (a flasher, an identify script) honors the job's cancel, with what it started."""
+def test_fastboot_and_a_hook_are_stopped_by_a_cancel(tmp_path, monkeypatch):
+    """The fastboot CLI and a hook (the host's two long-running programs) honor the job's cancel."""
     from core.hooks import HookRunner
+    from providers.fastboot.cli import Fastboot
 
+    fb_exe, fb_pids = _pidfile_program(tmp_path, "fastboot")
     hooks = tmp_path / "hooks" / "flash"
     hooks.mkdir(parents=True)
-    pids = tmp_path / "hook.pid"
-    (hooks / "stuck").write_text(f"#!/bin/sh\nsleep 60 &\necho $! > {pids}\nwait\n")
+    hook_pids = tmp_path / "hook.pid"
+    (hooks / "stuck").write_text(f"#!/bin/sh\nsleep 60 &\necho $! > {hook_pids}\nwait\n")
     (hooks / "stuck").chmod(0o755)
     monkeypatch.setenv("BSP_HOOKS_PATH", str(tmp_path / "hooks"))
     jobs = JobManager(EventBus())
-    job = jobs.start("flash", "b1: flash", lambda log: HookRunner().run("flash", "stuck", {}, timeout=300, log=log))
-    assert _until(lambda: pids.exists() and pids.read_text().strip())
-    grandchild = int(pids.read_text())
+    for start, pids in ((lambda log: Fastboot("usb:1-1", str(fb_exe)).cmd("flash", "rootfs", "x", timeout=300),
+                         fb_pids),
+                        (lambda log: HookRunner().run("flash", "stuck", {}, timeout=300, log=log), hook_pids)):
+        job = jobs.start("flash", "b1: flash", start)
+        assert _until(lambda: pids.exists() and pids.read_text().strip())
+        grandchild = int(pids.read_text())
+        t0 = time.monotonic()
+        job.cancel()
+        jobs.wait(job.id, 15)
+        assert job.status == "cancelled" and time.monotonic() - t0 < 12
+        assert _until(lambda: not _alive(grandchild), 5)
+
+
+
+def test_a_serial_wait_returns_on_cancel_and_the_job_says_which_step(tmp_path):
+    """A recipe waiting on the console for minutes stops at once, and its status names the step it was in."""
+    from core.dut.boot import BootRunner
+    from providers.smtty.serial import SerialConsole
+
+    (tmp_path / "b1").mkdir()
+    con = SerialConsole("b1", log_dir=str(tmp_path))
+    con._log_path().write_text("booting\n")
+
+    class Fb:
+        usb, binary = "usb:1-1", "fastboot"
+
+        def state(self):
+            return None
+
+    runner = BootRunner("b1", control=None, fastboot=Fb(), console=con, store=None)
+    steps = [{"do": "settle", "seconds": 0}, {"do": "wait", "serial": "login:", "timeout": 600}]
+    jobs = JobManager(EventBus())
+    job = jobs.start("boot", "b1: boot", lambda log: runner.run_steps(steps, log))
+    assert _until(lambda: any("1/2 settle" in line for line in job.lines))
+    time.sleep(0.3)
+    t0 = time.monotonic()
+    job.cancel("enough")
+    jobs.wait(job.id, 5)
+    assert job.status == "cancelled" and time.monotonic() - t0 < 2
+    assert job.error["details"]["step"] == "step 2/2 wait"
+    assert "step 2/2 wait" in job.lines[-1] and "enough" in job.lines[-1]
+
+
+
+def test_a_reset_waiting_for_a_person_ends_on_cancel_and_withdraws_the_request():
+    """A person may never come: a cancel ends the wait at once and the board's page no longer asks."""
+    from test_dut import _human
+
+    ctl, att, _ = _human()
+    jobs = JobManager(EventBus())
+    job = jobs.start("reset", "slot-1: reset", lambda log: ctl.reset(log), dut="slot-1")
+    assert _until(lambda: att.view("slot-1"))
     t0 = time.monotonic()
     job.cancel()
-    jobs.wait(job.id, 15)
-    assert job.status == "cancelled" and time.monotonic() - t0 < 12
-    assert _until(lambda: not _alive(grandchild), 5)
+    jobs.wait(job.id, 5)
+    assert job.status == "cancelled" and time.monotonic() - t0 < 2
+    assert att.view("slot-1") is None
+

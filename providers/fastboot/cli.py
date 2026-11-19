@@ -5,16 +5,16 @@ from __future__ import annotations
 import re
 from typing import Callable
 
+from core import proc
 from core.errors import HardwareError, HardwareTimeout
 from core.dut.contracts import DownloadPort, Log
 
 
 def _run(argv: list[str], timeout: float):
-    import subprocess
-
+    """Run fastboot in its own process group: a timeout or the job's cancel stops it (and what it started)."""
     try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
+        return proc.run(argv, timeout=timeout)
+    except proc.TimedOut:
         raise HardwareTimeout(f"`{' '.join(argv[:4])} ...` timed out after {timeout:g}s") from None
     except FileNotFoundError:
         raise HardwareError(f"{argv[0]} not found on this host",

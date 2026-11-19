@@ -7,22 +7,23 @@ import os
 import re
 import shlex
 import stat
-import subprocess
 import time
 from pathlib import Path
 from typing import Any, Callable
 
+from core import proc
+from core.jobs import current_token
 from core.errors import Conflict, HardwareError, HardwareTimeout, InvalidRequest
 
 Log = Callable[[str], None]
 SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
-def _run(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
-    """Run a local command for the cache; its failures are the host's, said as such."""
+def _run(argv: list[str], timeout: float) -> proc.Result:
+    """Run a local command for the cache; its failures are the host's, said as such. A cancelled job stops it."""
     try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
+        return proc.run(argv, timeout=timeout)
+    except proc.TimedOut:
         raise HardwareTimeout(f"`{' '.join(argv[:4])} ...` timed out after {timeout:g}s") from None
     except FileNotFoundError:
         raise HardwareError(f"{argv[0]} not found on this host", hint="install it or set its path in the host config") from None
@@ -64,6 +65,7 @@ class ArtifactStore:
             meta[path] = (sha, size, mtime)
         out: dict[str, dict[str, Any]] = {}
         for role, path in files.items():
+            current_token().check()                 # a cancelled boot stops before the next artifact
             sha, size, mtime = meta.get(path, ("MISSING", "-", "-"))
             if sha == "MISSING":
                 raise InvalidRequest(f"artifact '{role}' missing on {ssh}: {path}",
@@ -75,7 +77,11 @@ class ArtifactStore:
                 local.parent.mkdir(parents=True, exist_ok=True)
                 tmp = local.with_suffix(local.suffix + ".part")
                 t0 = time.monotonic()
-                rr = _run(["scp", "-q", *self.SSH_OPTS, f"{ssh}:{path}", str(tmp)], 600)
+                try:
+                    rr = _run(["scp", "-q", *self.SSH_OPTS, f"{ssh}:{path}", str(tmp)], 600)
+                except BaseException:
+                    tmp.unlink(missing_ok=True)     # a cancelled or timed-out copy leaves no part behind
+                    raise
                 if rr.returncode != 0:
                     raise HardwareError(f"scp {path} failed: {rr.stderr.strip()[-300:]}")
                 got = _sha256(tmp)

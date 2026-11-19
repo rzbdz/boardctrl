@@ -46,7 +46,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from core.errors import InvalidRequest, BspError
+from core.errors import BspError, Cancelled, InvalidRequest
+from core.jobs import current_token
 
 Log = Callable[[str], None]
 
@@ -333,6 +334,9 @@ class Prober:
         return proposal
 
     def _try_pin(self, pin: dict[str, Any], pending: dict, raw: dict, log: Log) -> dict[str, Any] | None:
+        token = current_token()
+        token.at(f"pin {pin['target']}")
+        token.check()                              # a cancelled probe presses no further line
         gpio = self._gpio()
         marks = {cid: self._mark(c) for cid, c in pending.items()}
         for w in raw.values():
@@ -344,7 +348,7 @@ class Prober:
         except BspError as e:
             log(f"{pin['target']}: skip ({e.message})")
             return None
-        time.sleep(self.watch_s)
+        token.sleep(self.watch_s)
         spoke, chatter = {}, []
         for cid, c in pending.items():
             text = raw[cid].take().decode("utf-8", "replace") if cid in raw else self._read(c, marks[cid])
@@ -387,6 +391,7 @@ class Prober:
             for n in range(1, self.rounds + 1):
                 if not pending:
                     break
+                current_token().at(f"round {n}")
                 hit, anything = self._human_round(n, pending, raw, registered, log)
                 if hit:
                     found.append(hit)
@@ -428,8 +433,9 @@ class Prober:
         started = {cid: False for cid in pending}   # it first printed download mode
         seen = {cid: 0 for cid in pending}          # what of the console has been classified already
         deadline = time.monotonic() + self.wait_s
+        token = current_token()                   # a cancelled probe stops waiting for the person at once
         while time.monotonic() < deadline:
-            time.sleep(0.5)
+            token.sleep(0.5)
             chunks = collect(texts)
             for cid, text in chunks.items():
                 fresh = text[seen[cid]:]
@@ -464,7 +470,7 @@ class Prober:
                         message=f"probe: hold BOOT/download, press RESET and release, so the board enters download mode (board {n})")
         deadline, settle_until = time.monotonic() + self.wait_s, None
         while True:
-            time.sleep(0.5)
+            token.sleep(0.5)
             chunks = collect(texts)
             spoke = {cid: text for cid, text in chunks.items() if text.strip() and self.socs.looks_like_boot(text)}
             after = self.usb_snapshot()
@@ -602,6 +608,8 @@ def identify_board(mod, usb: str | None, in_download: bool, soc: str | None, con
     try:
         res = mod.hooks.run("probe", "identify", req, timeout=180, log=log)
         return res.data if res.applicable else {}
+    except Cancelled:
+        raise
     except BspError as e:
         log(f"identify failed: {e.message} (keeping a generic name)")
         return {}

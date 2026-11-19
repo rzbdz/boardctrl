@@ -21,6 +21,7 @@ from typing import Any
 from core.commands import Command
 from core.env import expand
 from core.errors import Conflict, HardwareError, InvalidRequest, NotFound, BspError
+from core.jobs import current_token
 from core.hooks import HookRunner
 from core.context import HostContext
 from core.net import local_addresses
@@ -868,31 +869,41 @@ class DutManager:
 
             t0 = time.monotonic()
             log(f"flash {dut} with {name} ({why}): package {label}")
+            token = current_token()
+            token.at("fetch the package")
             if url:
                 got = flashpkg.fetch(self.store, url, sha256, log, max_bytes)
                 path = Path(got["path"])
             else:
                 path = self.store.get(package)
+            token.check()
             self._flash_work.mkdir(parents=True, exist_ok=True)
             work = Path(tempfile.mkdtemp(prefix=f"{dut}-", dir=self._flash_work))
             try:
                 if not hook_based:
                     # The provider writes the file itself: no unpacking, no download mode, no hook.
                     log(f"{dut}: {name} writes {path.name}")
+                    token.at(f"{name} writes {path.name}")
                     res = provider.flash(path, log=log, timeout=timeout)
+                    token.check()
                     out = {"dut": dut, "flasher": name, "package": path.name,
                            "elapsed_s": round(time.monotonic() - t0, 1), **dict(res or {})}
                     log(f"{dut} written by {name} in {out['elapsed_s']}s")
                     self._event("flashed", dut=dut, flasher=name, package=path.name)
                     return out
+                token.at(f"unpack {path.name}")
                 pkg_dir = flashpkg.unpack(path, work / "pkg", max_bytes=4 * max_bytes)
                 files = sum(1 for p in pkg_dir.rglob("*") if p.is_file())
                 log(f"unpacked {path.name}: {files} file(s)")
+                token.at("enter download mode")
+                token.check()
                 if reset:
                     runner.enter_fdl(log)
                 elif not b.fastboot.state():
                     raise HardwareError(f"{dut}: no download port on {b.spec.usb}",
                                         hint=f"put it in download mode first (`bsp dut reset {dut}`), or drop --no-reset")
+                token.at(f"flash/{name}")
+                token.check()
                 artifacts = {"package": str(path)}
                 if flashpkg.kind_of(path) == "zip":
                     artifacts["flash-zip"] = str(path)
@@ -1271,7 +1282,7 @@ class DutManager:
                 usb = fresh[0]
                 log(f"download port moved: {spec.usb} -> {usb}")
                 break
-            time.sleep(0.5)
+            current_token().sleep(0.5)
         soc = self.socs.detect(text)[0] or soc_given or spec.soc
         fdl = self.socs.in_download_mode(text, products) or bool(usb)
         if not usb:

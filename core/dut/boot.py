@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from core.env import expand
 from core.errors import HardwareError, HardwareTimeout, InvalidRequest
+from core.jobs import current_token
 from core.sdk.catalog import Instance
 from core.dut.control import ControlBackend
 from core.dut.artifacts import ArtifactStore
@@ -41,11 +42,13 @@ class BootRunner:
         rx = re.compile(product)
         deadline = time.monotonic() + timeout
         last = None
+        token = current_token()
         while time.monotonic() < deadline:
+            token.check()
             last = self.fb.state()
             if last and rx.search(last["product"]):
                 return last
-            time.sleep(0.3)
+            token.sleep(0.3)
         raise HardwareTimeout(
             f"fastboot /{product}/ did not appear on {self.fb.usb} within {timeout:g}s (last: {last})",
             hint="check USB cabling and `bsp dut status`; the console tail is in details",
@@ -85,7 +88,9 @@ class BootRunner:
             deadline = max(started + self.control.human_timeout(), confirmed + 60)
         else:
             deadline = time.monotonic() + timeout
+        token = current_token()
         while not seen():
+            token.check()
             if time.monotonic() > deadline:
                 if human:
                     raise HardwareTimeout(
@@ -105,7 +110,7 @@ class BootRunner:
                          "rebuild it (`bsp probe --rebuild -r <host> --yes`); otherwise see "
                          "`bsp dut log <dut>`, the board may be in another stage",
                     details={"console_tail": "\n".join(self.console.tail(15))})
-            time.sleep(0.3)
+            token.sleep(0.3)
         dev = self.wait_fastboot(self.download_mode.get("fastboot") or ".", timeout, log)
         log(f"board in download mode on {dev['usb']} ({dev['product']})")
 
@@ -126,12 +131,12 @@ class BootRunner:
         action = mark                                             # ... and since it began, for `check`
         strapped = self.strapped()
         media = self.media if self.media is not None and strapped else None
+        token = current_token()
         for i, step in enumerate(steps, 1):
-            check = getattr(log, "check", None)
-            if check is not None:
-                check()                                   # a cancelled job ends before its next step
             kind = step["do"]
             label = f"{what} {i}/{len(steps)} {kind}"
+            token.at(label)                               # where a cancelled job says it stopped
+            token.check()                                 # a cancelled job ends before its next step
             # Steps that need the board to boot its own media: on a strapped board they run only when it has a
             # media boot (then `reset` boots through it); otherwise they are skipped and the log says why.
             if step.get("when") == "fdl-not-strapped" and strapped and not (media and media.available()):
@@ -194,7 +199,7 @@ class BootRunner:
                 log(f"{label}: flashed {step['partition']} <- {name}")
             elif kind == "settle":
                 log(f"{label}: {step['seconds']}s ({step.get('why', 'hardware timing')})")
-                time.sleep(float(step["seconds"]))
+                token.sleep(float(step["seconds"]))
             elif kind == "wait":
                 timeout = float(step.get("timeout", 60))
                 ts = time.monotonic()
@@ -282,11 +287,14 @@ class BootRunner:
         elif not self.fb.state():
             raise HardwareError(f"{self.dut_id}: no download port on {self.fb.usb}",
                                 hint=f"put it in download mode first (`bsp dut reset {self.dut_id}`), or drop --no-reset")
+        token = current_token()
         for i, f in enumerate(files, 1):
             label = f"file {i}/{len(files)} {f['name']}"
+            token.at(label)
+            token.check()
             if i > 1:
                 settle = first_wait if i == 2 else later_wait
-                time.sleep(settle)
+                token.sleep(settle)
                 deadline = time.monotonic() + port_timeout
                 while not self.fb.state():
                     if time.monotonic() > deadline:
@@ -294,7 +302,7 @@ class BootRunner:
                             f"download port {self.fb.usb} did not come back within {settle + port_timeout:g}s "
                             f"after file {i - 1}; it may not have started",
                             hint=f"see `bsp dut log {self.dut_id}`", details={"console_tail": "\n".join(self.console.tail(15))})
-                    time.sleep(poll)
+                    token.sleep(poll)
             ts = time.monotonic()
             self.fb.cmd("stage", f["path"], timeout=stage_timeout)
             try:

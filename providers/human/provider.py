@@ -15,6 +15,7 @@ import time
 from typing import Any
 
 from core.errors import HardwareTimeout
+from core.jobs import current_token
 from core.dut.contracts import ControlBackend, Log, Ready
 
 TITLE = "A person's hands"
@@ -43,9 +44,10 @@ class HumanControl(ControlBackend):
         log(f"waiting for `bsp dut confirm {self.dut.id}` (request {req['id']})"
             + (" or for the board to show it on its own" if ready else "") + f" (timeout {timeout:g}s)")
         deadline = time.monotonic() + timeout
+        token = current_token()          # a cancelled job stops waiting for the person, and the request is cleared
         try:
             while True:
-                if ev.wait(0.5):
+                if token.wait(ev, 0.5):
                     log(f"{action}: confirmed by a person")
                     return
                 seen = ready() if ready else None

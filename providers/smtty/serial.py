@@ -3,23 +3,24 @@
 from __future__ import annotations
 
 import re
-import subprocess
 import time
 from datetime import date
 from pathlib import Path
 from typing import Any, Callable
 
-from core.errors import HardwareError, HardwareTimeout, InvalidRequest
+from core import proc
+from core.jobs import current_token
+from core.errors import Cancelled, HardwareError, HardwareTimeout, InvalidRequest
 from core.dut.contracts import ConsoleProvider
 
 # serial-mux's log lines start with the time they were read
 _STAMP = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]")
 
 
-def _run(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
+def _run(argv: list[str], timeout: float) -> proc.Result:
     try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
+        return proc.run(argv, timeout=timeout)
+    except proc.TimedOut:
         raise HardwareTimeout(f"`{' '.join(argv[:4])} ...` timed out after {timeout:g}s") from None
     except FileNotFoundError:
         raise HardwareError(f"{argv[0]} not found on this host", hint="install it or set its path in the host config") from None
@@ -112,6 +113,8 @@ class SerialConsole(ConsoleProvider):
         printed without a newline (`~ # `) only shows up once something follows it."""
         try:
             _run([self.smtty, self.alias, "--send", " "], timeout=10)
+        except Cancelled:
+            raise
         except Exception:  # noqa: BLE001 - a missed nudge only delays the wait
             pass
 
@@ -131,7 +134,9 @@ class SerialConsole(ConsoleProvider):
         deadline = time.monotonic() + timeout
         last_size, last_move = -1, time.monotonic()
         last_nudge = last_move
+        token = current_token()          # a cancelled job stops waiting at once
         while True:
+            token.check()
             text = self.read_since(mark)
             if after is not None:
                 text = after(text)
@@ -154,7 +159,7 @@ class SerialConsole(ConsoleProvider):
                 raise HardwareTimeout(f"/{pattern}/ not seen on console within {timeout:g}s",
                                       hint="see `bsp dut log <dut>`; the board may be in another stage",
                                       details={"console_tail": text[-800:]})
-            time.sleep(0.25)
+            token.sleep(0.25)
 
     def send(self, text: str, pattern: str | None = None, fail: str | None = None, timeout: float = 60,
              mark: Any = None, stall: float | None = None, nudge: float | None = None) -> dict[str, Any]:
