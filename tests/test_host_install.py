@@ -99,6 +99,23 @@ modules:
     assert config["modules"]["other"] == {"listened": True}
 
 
+def test_host_config_takes_the_announcement_from_the_site_when_it_has_none(tmp_path):
+    """Without `server.announce` the host never tells the registry where it is, goes stale there, and gets no catalog
+    changes. The site's copy of the host file carries it; a machine's own announcement wins."""
+    site, conf, prefix = tmp_path / "site", tmp_path / "site/hosts/test-host.yaml", tmp_path / "prefix"
+    shipped = tmp_path / "shipped"
+    conf.parent.mkdir(parents=True)
+    shipped.mkdir()
+    conf.write_text("host: {id: test-host}\nserver: {bind: 0.0.0.0, port: 8765}\n")
+    (shipped / "test-host.yaml").write_text("host: {id: test-host}\nserver:\n  announce: {url: http://registry.test:8765, interval_s: 60}\n")
+    _run_config(site, conf, prefix, SITE_HOSTS=str(shipped))
+    assert yaml.safe_load(conf.read_text())["server"]["announce"] == {"url": "http://registry.test:8765", "interval_s": 60}
+    # Its own announcement is not replaced by the site's.
+    conf.write_text("host: {id: test-host}\nserver:\n  announce: {url: http://own.test:8765}\n")
+    _run_config(site, conf, prefix / "again", SITE_HOSTS=str(shipped))
+    assert yaml.safe_load(conf.read_text())["server"]["announce"] == {"url": "http://own.test:8765"}
+
+
 def test_host_config_with_no_board_has_no_gpio_section(tmp_path):
     """A fresh file is written with the key hosts use now (`providers:`), and an old one keeps the key it has."""
     site, conf, prefix = tmp_path / "site", tmp_path / "site/hosts/test-host.yaml", tmp_path / "prefix"
