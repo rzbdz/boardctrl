@@ -39,13 +39,13 @@ def registry(tmp_path):
 
 
 def test_announce_records_the_address_it_came_from(registry):
-    body = {"host": "lab-2", "port": 8765, "addresses": ["192.168.1.105", "127.0.0.1", "nonsense"],
+    body = {"host": "lab-2", "port": 8765, "addresses": ["198.51.100.7", "127.0.0.1", "nonsense"],
             "ssh_user": "root", "duts": ["b1", "b2"], "version": "0.1"}
     r = registry.post("/api/v1/registry/announce", json=body).json()
-    assert r["ok"] and r["result"]["addresses"] == ["192.0.2.30", "192.168.1.105"]
+    assert r["ok"] and r["result"]["addresses"] == ["192.0.2.30", "198.51.100.7"]
     items = registry.get("/api/v1/registry/list").json()["result"]
     assert [e["host"] for e in items] == ["lab-2"]
-    assert items[0]["remote"] == {"url": "http://192.0.2.30:8765", "fallback_urls": ["http://192.168.1.105:8765"],
+    assert items[0]["remote"] == {"url": "http://192.0.2.30:8765", "fallback_urls": ["http://198.51.100.7:8765"],
                                   "ssh": "root@192.0.2.30", "port": 8765, "description": "registered lab-2"}
     assert items[0]["duts"] == ["b1", "b2"] and not items[0]["stale"]
     for bad in ({"host": "../x"}, {"host": "h", "port": 0}, {"host": "h", "ssh_user": "root;rm"}):
