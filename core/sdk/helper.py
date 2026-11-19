@@ -292,14 +292,32 @@ def op_exec(req):
     if req.get("mutating", True):
         _check_holder(lease, req.get("token"), "exec")
     cwd = _inside(req["path"], req.get("cwd") or ".")
+    # Its own session: a timeout stops the command and everything it started (a make and its compilers), not only
+    # the shell, which left the rest running in the tree. The helper runs alone on the build server, so this is
+    # core/proc.py's stop in stdlib terms: SIGTERM to the group, then SIGKILL.
     p = subprocess.Popen(["bash", "-c", req["command"]], cwd=cwd, stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT, universal_newlines=True)
+                         stderr=subprocess.STDOUT, universal_newlines=True, start_new_session=True)
     try:
         out, _ = p.communicate(timeout=int(req.get("timeout_s", 300)))
     except subprocess.TimeoutExpired:
-        p.kill()
+        _stop_group(p)
         raise Fail("timeout", "command timed out after {}s".format(req.get("timeout_s", 300)))
     return {"rc": p.returncode, "output": out[-200000:], "cwd": cwd}
+
+
+def _stop_group(p, grace=3.0):
+    """SIGTERM to the process group `p` leads, then SIGKILL to it if `p` is still there after `grace` seconds."""
+    import signal
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(p.pid, sig)
+        except OSError:
+            pass
+        if sig == signal.SIGTERM:
+            try:
+                p.communicate(timeout=grace)
+            except subprocess.TimeoutExpired:
+                pass
 
 
 def op_get(req):

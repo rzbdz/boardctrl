@@ -82,3 +82,22 @@ def test_shared_workspace_lease_names_the_target(sdk):
     # the holder may build any target of the workspace with the same token
     job = call({"op": "build_start", "path": str(sdk), "command": "true", "token": a["token"]})
     assert job["ok"]
+
+
+def test_exec_past_its_timeout_stops_what_the_command_started(tmp_path):
+    """A timed-out command is stopped with its children (a make and its compilers), not only its shell."""
+    import os
+
+    pidfile = tmp_path / "child.pid"
+    r = call({"op": "exec", "path": str(tmp_path), "command": f"sleep 60 & echo $! > {pidfile}; wait",
+              "timeout_s": 1, "mutating": False})
+    assert not r["ok"] and r["error"]["code"] == "timeout"
+    child = int(pidfile.read_text())
+    for _ in range(50):
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError("the command's child outlived the timeout")
