@@ -169,6 +169,9 @@ class RegistryService:
         if result.get("checked") or "rev" not in result:
             return result
         self.ctx.bus.publish("catalog.changed", ref=result.get("ref"), rev=self.catalog.rev)
+        known = self.list(all=True)
+        result = {**result, "reaches": [e["host"] for e in known if not e["stale"]],
+                  "not_reached": [e["host"] for e in known if e["stale"]]}
 
         def nudge() -> None:
             import urllib.request
@@ -213,6 +216,16 @@ class RegistryService:
 
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         hosts = []
+        known = self.list(all=True)
+        stale = [{"host": e["host"], "age_s": e["age_s"]} for e in known if e["stale"]]
+        # A host that stopped announcing is not reached: saying "done" with nobody reached hides that the catalog goes
+        # nowhere (a host whose file lost its `server.announce`, say).
+        if not any(not e["stale"] for e in known):
+            raise InvalidRequest(
+                "no board host is announcing to this registry, so the catalog reaches none of them"
+                + (f" (stale: {', '.join(x['host'] for x in stale)})" if stale else ""),
+                hint="a host announces when its host file has server.announce (url of this registry); reinstall it from "
+                     "boardlab (the site's host file carries it), then check `bsp registry list --all`")
         for e in self.list():
             row = {"host": e["host"], "rev": None, "error": None, "shadowed": []}
             for url in [e["remote"]["url"], *e["remote"]["fallback_urls"]]:
@@ -227,7 +240,7 @@ class RegistryService:
                 except Exception as ex:  # noqa: BLE001 - reported per host
                     row["error"] = str(ex)
             hosts.append(row)
-        return {"rev": self.catalog.rev, "hosts": hosts}
+        return {"rev": self.catalog.rev, "hosts": hosts, "stale": stale}
 
     def _git_pull(self) -> dict[str, Any]:
         if not self.git:
@@ -248,12 +261,18 @@ class RegistryService:
         CHECK = Param("check", "boolean", "only validate, write nothing", required=False, default=False)
         TEXT = Param("text", help="the YAML document", positional=False)
 
+        def reach(r: dict[str, Any]) -> str:
+            if "reaches" not in r:
+                return ""
+            line = f"\n  reaches {', '.join(r['reaches'])}" if r["reaches"] else "\n  WARNING: reaches no board host (none is announcing)"
+            return line + (f"\n  NOT REACHED (not announcing): {', '.join(r['not_reached'])}" if r["not_reached"] else "")
+
         def show(r: dict[str, Any]) -> str:
             if r.get("checked"):
                 return f"{r.get('ref', '')}: valid (nothing written)" if "imported" not in r else f"would import {len(r['imported'])}: {', '.join(r['imported'])}"
             if "imported" in r:
-                return f"imported {len(r['imported'])} document(s) into catalog revision {r['rev']}"
-            return f"{r['ref']}: {'deleted' if r['deleted'] else 'written'} as catalog revision {r['rev']} (was {r['previous']})"
+                return f"imported {len(r['imported'])} document(s) into catalog revision {r['rev']}" + reach(r)
+            return f"{r['ref']}: {'deleted' if r['deleted'] else 'written'} as catalog revision {r['rev']} (was {r['previous']})" + reach(r)
 
         return [
             Command(CommandSpec("catalog.list", "SDK catalog documents: where each comes from, its revision, who changed it last",
@@ -304,7 +323,8 @@ class RegistryService:
                     lambda r: f"catalog revision {r['rev']}\n" + "\n".join(
                         f"  {h['host']:<16} " + (f"rev {h['rev']}" if h["rev"] is not None else f"FAILED: {h['error']}")
                         + "".join(f"\n    NOT IN EFFECT: {x['file']} differs from {x['ref']} (publish with put)" for x in h["shadowed"])
-                        for h in r["hosts"])),
+                        for h in r["hosts"]) + "".join(
+                        f"\n  {x['host']:<16} NOT REACHED: has not announced for {int(x['age_s'])}s" for x in r.get("stale") or [])),
         ]
 
     def commands(self) -> list[Command]:

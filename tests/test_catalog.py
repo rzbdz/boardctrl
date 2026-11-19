@@ -118,9 +118,13 @@ def test_writes_need_no_token_and_hosts_pick_the_catalog_up(tmp_path, monkeypatc
         with TestClient(reg_app) as reg:
             assert reg.post("/api/v1/registry/announce", json={"host": "h"}).status_code == 403   # hosts need the token
             text = reg.get("/api/v1/catalog/get?ref=bsp-b").json()["result"]["text"]
+            # Nobody announces yet: refreshing reaches no host, and says so instead of reporting success.
+            nobody = reg.post("/api/v1/tools/catalog_refresh", json={}).json()
+            assert not nobody["ok"] and "no board host is announcing" in nobody["error"]["message"], nobody
             r = reg.post("/api/v1/tools/catalog_recipe", json={"sdk": "bsp-b", "method": "load", "text": RECIPE,
                                                                "author": "claude:x"}).json()
             assert r["ok"] and r["result"]["rev"] == 1, r
+            assert r["result"]["reaches"] == [] and r["result"]["not_reached"] == []
         monkeypatch.delenv("BSP_TOKEN")
         host_app = _app(tmp_path, "h1", f"host: {{id: h1}}\nserver: {{state_dir: state, announce: {{url: '{url}', interval_s: 3600}}}}\n"
                                         "modules: {gpio_relay: {board: example-40pin, backend: mock, pinmux: false}, sdk: {}, dut: {}}\n")
