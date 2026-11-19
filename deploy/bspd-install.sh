@@ -2,7 +2,7 @@
 # Install (or update) boardctrld on this machine from an unpacked tree, with a config generated from what this
 # machine is: no site directory to write by hand. Run as root, from the tree it installs (boardlab runs it over ssh).
 #
-#   deploy/bspd-install.sh --id <host id> [--port 8765] [--bind 127.0.0.1] [--token <token>] [--board auto|<board>]
+#   deploy/bspd-install.sh --id <host id> [--port 8765] [--bind 127.0.0.1] [--token <token> | --no-token] [--board auto|<board>]
 #                          [--relay auto|sysfs|gpiod|none] [--site <dir>] [--prefix /opt/boardctrl]
 #   deploy/bspd-install.sh --uninstall [--purge]
 #
@@ -17,12 +17,13 @@
 # watches the install (boardlab's page) sees how far it is.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-ID="" PORT=8765 BIND=127.0.0.1 TOKEN="" BOARD=auto RELAY=auto SITE=/etc/boardctrl/site PREFIX=/opt/boardctrl CA="" UNINSTALL="" PURGE="" SITE_HOSTS=""
+ID="" PORT=8765 BIND=127.0.0.1 TOKEN="" BOARD=auto RELAY=auto SITE=/etc/boardctrl/site PREFIX=/opt/boardctrl CA="" UNINSTALL="" PURGE="" SITE_HOSTS="" NO_TOKEN=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --id) ID=$2; shift 2 ;; --port) PORT=$2; shift 2 ;; --bind) BIND=$2; shift 2 ;; --token) TOKEN=$2; shift 2 ;;
     --board) BOARD=$2; shift 2 ;; --relay) RELAY=$2; shift 2 ;; --site) SITE=$2; shift 2 ;; --prefix) PREFIX=$2; shift 2 ;; --ca) CA=$2; shift 2 ;;
     --site-hosts) SITE_HOSTS=$2; shift 2 ;;
+    --no-token) NO_TOKEN=1; shift ;;
     --uninstall) UNINSTALL=1; shift ;; --purge) PURGE=1; shift ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
@@ -228,6 +229,8 @@ EOF
 # A token, if given (boardlab gives one); an existing one is kept otherwise.
 mkdir -p /etc/boardctrl
 if [[ -n $TOKEN ]]; then umask 077; printf 'BOARDCTRL_TOKEN=%s\nBSP_TOKEN=%s\n' "$TOKEN" "$TOKEN" > /etc/boardctrl/boardctrld.env; fi
+# No token at all (`--no-token`): every request is accepted, so keep the port where only trusted machines reach it.
+if [[ -n $NO_TOKEN ]]; then sed -i -E '/^(BOARDCTRL_TOKEN|BSP_TOKEN)=/d' /etc/boardctrl/boardctrld.env 2>/dev/null || true; fi
 [[ -f /etc/boardctrl/boardctrld.env ]] || { umask 077; : > /etc/boardctrl/boardctrld.env; }
 chmod 600 /etc/boardctrl/boardctrld.env
 # A certificate this host must trust (the network's own CA, say): installed beside the system's before anything is
