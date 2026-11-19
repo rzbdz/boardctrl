@@ -463,7 +463,9 @@ class DutManager:
             finally:
                 self._busy.pop(dut, None)
 
-        return self.ctx.jobs.start(meta.pop("kind", "dut"), f"{dut}: {what}", wrapped, dut=dut, **meta)
+        # Cancelling a board's job needs the board's lease, as everything else that changes what the board does.
+        return self.ctx.jobs.start(meta.pop("kind", "dut"), f"{dut}: {what}", wrapped,
+                                   guard=lambda lease: self.leases.check(dut, lease), dut=dut, **meta)
 
     # ----------------------------------------------------------- commands --
     def health(self) -> dict[str, Any]:
@@ -622,14 +624,16 @@ class DutManager:
         return {"job": job.id, "dut": dut, "sdk": sdk, "method": method, "host": self.ctx.host_id}
 
     def cancel(self, dut: str, lease: str | None) -> dict[str, Any]:
-        """Stop the job running on a DUT (a boot or a flash): it ends before its next step, `cancelled`."""
+        """Stop the job running on a DUT (a boot or a flash): `job.cancel` on each, found by the board's name. What
+        the job runs is stopped now (a program with what it started, a wait at once); it ends `cancelled`."""
         b = self.board(dut)
         self.leases.check(dut, lease)
         running = [j for j in self.ctx.jobs.list() if j.status == "running" and j.meta.get("dut") == b.spec.id]
         if not running:
-            raise InvalidRequest(f"{dut}: no job running")
+            raise InvalidRequest(f"{dut}: no job running",
+                                 hint="`bsp job list` shows the host's jobs; `bsp job cancel <id>` stops one by id")
         for job in running:
-            job.cancel()
+            self.ctx.jobs.cancel(job.id, lease, reason=f"dut cancel {dut}")
         self._event("cancel", dut=dut, jobs=[j.id for j in running])
         return {"dut": dut, "cancelled": [j.id for j in running]}
 

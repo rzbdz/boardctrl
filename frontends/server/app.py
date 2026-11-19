@@ -199,6 +199,16 @@ class Hub:
                                 mutating=False),
                     lambda id, since, wait: (self.jobs.wait(id, wait) if wait else self.jobs.get(id)).view(since),
                     _render_job),
+            Command(CommandSpec("job.cancel", "Stop a running job (boot, flash, probe, rebuild): the program it runs is "
+                                              "stopped with what it started, a wait ends at once, and the job ends "
+                                              "`cancelled` saying where it stopped",
+                                [Param("id", help="job id"),
+                                 Param("lease", help="the board's lease token, for a job a board runs (the CLI "
+                                                     "fills it in / $BSP_LEASE)", required=False, positional=False),
+                                 Param("reason", help="why, kept with the job", required=False, positional=False)]),
+                    lambda id, lease, reason: self.jobs.cancel(id, lease, reason),
+                    lambda r: f"job {r['id']}: " + ("cancelling; it ends `cancelled`" if r["cancelled"]
+                                                    else r.get("message") or r["status"])),
             Command(CommandSpec("job.list", "Recent background jobs", [], mutating=False),
                     lambda: [{k: v for k, v in j.view().items() if k != "lines"} for j in self.jobs.list()],
                     lambda js: "\n".join(f"{j['id']:<28} {j['status']:<10} "
