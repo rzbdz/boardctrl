@@ -19,6 +19,13 @@ from pathlib import Path
 from core.errors import HardwareError, InvalidRequest
 
 
+def _boot_id() -> str | None:
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    except OSError:
+        return None
+
+
 def _alive(pid) -> bool:
     try:
         os.kill(int(pid), 0)
@@ -42,8 +49,14 @@ class ConsoleManager:
             return None
 
     def running(self, alias: str) -> bool:
+        """A daemon of this boot serves `alias`: after a reboot an old record's pid may be another process's."""
         i = self.info(alias)
-        return bool(i and _alive(i.get("pid")))
+        if not i:
+            return False
+        booted, now = i.get("boot_id"), _boot_id()
+        if booted and now and booted != now:
+            return False
+        return _alive(i.get("pid"))
 
     def socket(self, alias: str) -> Path:
         """The daemon's Unix socket (serial-mux protocol): from its run record, else where serial-mux puts it."""

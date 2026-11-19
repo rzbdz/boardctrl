@@ -1,5 +1,6 @@
 """Slots: every console on a host is a slot; reset lines, download ports and DUTs are attached to it."""
 import json
+import sys
 import types
 from datetime import date
 from pathlib import Path
@@ -230,3 +231,27 @@ def test_a_dead_daemon_is_started_again(tmp_path):
     started.clear()
     t.refresh()
     assert started == []
+
+
+def test_a_daemon_record_from_an_earlier_boot_is_not_alive(tmp_path):
+    """After a reboot an old record's pid may belong to another process: the record's boot decides, not the pid."""
+    import os
+    import subprocess
+
+    from providers.smtty.consoles import ConsoleManager
+
+    run = tmp_path / "run"
+    run.mkdir()
+    live = {"alias": "s3", "device": "/dev/ttyUSB2", "pid": os.getpid(), "socket": str(tmp_path / "s3.sock")}
+    (run / "s3.json").write_text(json.dumps({**live, "boot_id": "an-earlier-boot"}))
+    probe = Path(__file__).resolve().parents[1] / "hooks" / "probe" / "consoles"
+    out = subprocess.run([sys.executable, str(probe)], input=json.dumps({"serial_mux_run": str(run), "patterns": []}),
+                         capture_output=True, text=True).stdout.splitlines()[-1]
+    assert json.loads(out)["consoles"][0]["busy"] is False
+    manager = ConsoleManager.__new__(ConsoleManager)
+    manager.run_dir = run
+    assert not manager.running("s3")
+    # The same record written in this boot is alive.
+    now = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    (run / "s3.json").write_text(json.dumps({**live, "boot_id": now}))
+    assert manager.running("s3")

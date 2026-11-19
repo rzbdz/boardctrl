@@ -23,8 +23,19 @@ def usb_port(dev):
     return None
 
 
-def alive(pid):
-    """A daemon's record outlives it (a reboot, a kill): only a live pid serves the console."""
+def boot_id():
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    except OSError:
+        return None
+
+
+def alive(pid, booted=None):
+    """A daemon's record outlives it (a reboot, a kill): only a live pid of this boot serves the console. After a
+    reboot the old pid may belong to another process, so a record from an earlier boot is never alive."""
+    now = boot_id()
+    if booted and now and booted != now:
+        return False
     try:
         os.kill(int(pid), 0)
         return True
@@ -50,7 +61,7 @@ def main():
             owned.add(os.path.realpath(dev))
         out.append({"id": alias, "kind": "serial-mux", "alias": alias, "device": dev,
                     "usb_port": info.get("usb_port"), "log": str(logs / alias),
-                    "busy": alive(info.get("pid")), "state": info.get("serial_state")})
+                    "busy": alive(info.get("pid"), info.get("boot_id")), "state": info.get("serial_state")})
     for pat in req.get("patterns", ["ttyUSB*", "ttyACM*"]):
         for dev in sorted(glob.glob(f"/dev/{pat}")):
             if os.path.realpath(dev) in owned:
