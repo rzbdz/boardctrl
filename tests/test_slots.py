@@ -216,3 +216,17 @@ def test_a_waiting_daemon_does_not_keep_an_empty_slot(tmp_path):
     t.refresh()
     consoles[0]["device"] = None                          # unplugged: the daemon waits, the slot is empty
     assert t.refresh(lambda alias: None)["gone"] == [{"id": "s1", "alias": "s1"}] and t.all() == []
+
+
+def test_a_dead_daemon_is_started_again(tmp_path):
+    """serial-mux keeps a daemon's record after it dies (a reboot): an empty slot gets its console back."""
+    consoles = [{"id": "s3", "kind": "serial-mux", "alias": "s3", "device": "/dev/ttyUSB2", "usb_port": "p3", "busy": False}]
+    started = []
+    t = table(tmp_path, consoles, started)
+    change = t.refresh()
+    assert started == [("s3", None)] and change["started"] == ["s1"] and t.all()[0]["online"]
+    # A live one is left alone.
+    consoles[0]["busy"] = True
+    started.clear()
+    t.refresh()
+    assert started == []

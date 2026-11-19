@@ -112,6 +112,14 @@ class SlotTable:
                         slot["device"] = device
                     live[slot["id"]] = {"online": bool(device) and bool(c.get("busy")), "device": device,
                                         "log": c.get("log"), "daemon": True}
+                    # serial-mux keeps a daemon's record after it dies (a reboot, a kill): start it again.
+                    if device and not c.get("busy") and self.auto_console:
+                        try:
+                            self._start(alias, None)
+                            started.append(slot["id"])
+                            live[slot["id"]]["online"] = True
+                        except Exception as e:  # noqa: BLE001 - a console that will not start is reported, not fatal
+                            failed.append({"slot": slot["id"], "device": device, "error": str(e)[:200]})
                     continue
                 port = port_key(device, c.get("usb_port"))
                 slot = self._by_port(port)

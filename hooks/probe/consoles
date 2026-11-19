@@ -23,6 +23,17 @@ def usb_port(dev):
     return None
 
 
+def alive(pid):
+    """A daemon's record outlives it (a reboot, a kill): only a live pid serves the console."""
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (TypeError, ValueError, ProcessLookupError):
+        return False
+    except PermissionError:
+        return True
+
+
 def main():
     req = json.loads(sys.stdin.read() or "{}")
     run = Path(os.path.expanduser(req.get("serial_mux_run", "~/.serial-mux/run")))
@@ -39,7 +50,7 @@ def main():
             owned.add(os.path.realpath(dev))
         out.append({"id": alias, "kind": "serial-mux", "alias": alias, "device": dev,
                     "usb_port": info.get("usb_port"), "log": str(logs / alias),
-                    "busy": bool(info.get("pid")), "state": info.get("serial_state")})
+                    "busy": alive(info.get("pid")), "state": info.get("serial_state")})
     for pat in req.get("patterns", ["ttyUSB*", "ttyACM*"]):
         for dev in sorted(glob.glob(f"/dev/{pat}")):
             if os.path.realpath(dev) in owned:
