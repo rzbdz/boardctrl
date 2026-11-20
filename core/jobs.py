@@ -302,11 +302,14 @@ class JobManager:
         return {"id": job.id, "status": job.status, "cancelled": True,
                 **({} if asked else {"message": "cancel was already asked for"})}
 
-    def wait(self, job_id: str, timeout: float) -> Job:
+    def wait(self, job_id: str, timeout: float, stop: threading.Event | None = None) -> Job:
+        """The job once it ends or `timeout` passes; sooner when `stop` is set (the service is stopping)."""
         job = self.get(job_id)
         deadline = time.time() + timeout
+        stop = stop or threading.Event()
         while job.status == "running" and time.time() < deadline:
-            time.sleep(0.2)
+            if stop.wait(0.2):
+                break
         return job
 
     def list(self) -> list[Job]:

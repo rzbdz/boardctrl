@@ -28,9 +28,11 @@ from core.sessions import Sessions
 CHUNK = 32768
 
 
-def sessions_router(get_sessions) -> Any:
+def sessions_router(get_sessions, stopping: threading.Event | None = None) -> Any:
     """Routes over the host's sessions: read through `get_sessions()` so a host that swaps the service is
-    followed (a test's fake process table, a service restarted in place)."""
+    followed (a test's fake process table, a service restarted in place). A stream ends when `stopping` is set:
+    the service is going down, and the session itself goes on in its own unit."""
+    stopping = stopping or threading.Event()
     from fastapi import APIRouter
 
     router = APIRouter(tags=["sessions"])
@@ -77,7 +79,7 @@ def sessions_router(get_sessions) -> Any:
             threading.Thread(target=pump, name=f"session-{dut}-{role}", daemon=True).start()
             yield "event: ready\ndata: {}\n\n"
             idle = 0.0
-            while not stop.is_set():
+            while not stop.is_set() and not stopping.is_set():
                 try:
                     data = q.get(timeout=0.2)
                     if data is None:
@@ -127,5 +129,5 @@ def _connect(endpoint: str, timeout: float = 5.0) -> socket.socket:
     return s
 
 
-def include_session_routes(app: FastAPI, get_sessions) -> None:
-    app.include_router(sessions_router(get_sessions))
+def include_session_routes(app: FastAPI, get_sessions, stopping: threading.Event | None = None) -> None:
+    app.include_router(sessions_router(get_sessions, stopping))

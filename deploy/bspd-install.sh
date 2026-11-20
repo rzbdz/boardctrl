@@ -289,7 +289,9 @@ EnvironmentFile=-/etc/bsp/hostd.env
 EnvironmentFile=-/etc/boardctrl/boardctrld.env
 Restart=always
 RestartSec=2
-TimeoutStopSec=10
+# boardctrld ends its streams at once on SIGTERM and gives other requests 5 s (frontends/server/__main__.py);
+# this leaves room for its own shutdown after that, so it is never killed mid-shutdown.
+TimeoutStopSec=20
 
 [Install]
 WantedBy=multi-user.target

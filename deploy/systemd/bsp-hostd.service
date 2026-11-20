@@ -14,7 +14,8 @@ Environment=BSP_SITE=@INSTALL_DIR@/site
 EnvironmentFile=-/etc/bsp/hostd.env
 Restart=on-failure
 RestartSec=2
-TimeoutStopSec=10
+# streams end at once on SIGTERM, other requests get 5 s, then the service shuts down
+TimeoutStopSec=20
 
 [Install]
 WantedBy=multi-user.target

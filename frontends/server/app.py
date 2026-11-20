@@ -16,6 +16,7 @@ import inspect
 import json
 import re
 import socket
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -53,6 +54,9 @@ class Hub:
         self.config = config
         self.bus = EventBus()
         self.started = time.time()
+        # Set when the service is told to stop: streams and long polls end at once, so the process stops within
+        # its stop timeout instead of waiting on clients (see frontends/server/__main__.py).
+        self.stopping = threading.Event()
         config.state_dir.mkdir(parents=True, exist_ok=True)
         # Job records outlive the process: after a restart, a job it was running reads `interrupted`.
         self.jobs = JobManager(self.bus, record_dir=config.state_dir / "jobs")
@@ -207,7 +211,8 @@ class Hub:
                                  Param("since", "integer", "only lines after this index", required=False, default=0),
                                  Param("wait", "number", "block up to N seconds while it runs", required=False, default=0)],
                                 mutating=False),
-                    lambda id, since, wait: (self.jobs.wait(id, wait) if wait else self.jobs.get(id)).view(since),
+                    lambda id, since, wait: (self.jobs.wait(id, wait, self.stopping) if wait
+                                             else self.jobs.get(id)).view(since),
                     _render_job),
             Command(CommandSpec("job.cancel", "Stop a running job (boot, flash, probe, rebuild): the program it runs is "
                                               "stopped with what it started, a wait ends at once, and the job ends "
@@ -336,6 +341,7 @@ def create_app(config: HostConfig) -> FastAPI:
                 hub.bus.on(topic, lambda ev: announcer.poke())
             announcer.start()
         yield
+        hub.stopping.set()
         if announcer:
             announcer.stop()
         hub.providers.shutdown()
@@ -418,7 +424,7 @@ def create_app(config: HostConfig) -> FastAPI:
         app.include_router(r)
     from frontends.server.streams import include_session_routes
 
-    include_session_routes(app, lambda: app.state.hub.sessions)
+    include_session_routes(app, lambda: app.state.hub.sessions, hub.stopping)
 
     # Served by a route of its own: a mounted StaticFiles takes the proxy's `root_path` off the path again and would
     # look the file up in the wrong place under a prefix.
@@ -472,11 +478,16 @@ def _core_routes(app: FastAPI, hub: Hub) -> None:
         async def gen():
             yield "retry: 2000\n\n"
             with hub.bus.subscribe(since) as sub:
-                while not await request.is_disconnected():
-                    ev = await sub.get(timeout=15)
+                idle = 0.0
+                while not hub.stopping.is_set() and not await request.is_disconnected():
+                    ev = await sub.get(timeout=0.5)
                     if ev is None:
-                        yield ": ping\n\n"
+                        idle += 0.5
+                        if idle >= 15:
+                            idle = 0.0
+                            yield ": ping\n\n"
                         continue
+                    idle = 0.0
                     # no `event:` field: topic is in the payload, so EventSource.onmessage sees everything
                     yield f"id: {ev.seq}\ndata: {json.dumps(ev.to_dict(), default=str)}\n\n"
 
