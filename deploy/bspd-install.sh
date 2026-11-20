@@ -3,8 +3,12 @@
 # machine is: no site directory to write by hand. Run as root, from the tree it installs (boardlab runs it over ssh).
 #
 #   deploy/bspd-install.sh --id <host id> [--port 8765] [--bind 127.0.0.1] [--token <token> | --no-token] [--board auto|<board>]
-#                          [--relay auto|sysfs|gpiod|none] [--site <dir>] [--prefix /opt/boardctrl]
-#   deploy/bspd-install.sh --uninstall [--purge]
+#                          [--relay auto|sysfs|gpiod|none] [--site <dir>] [--prefix /opt/boardctrl] [--force]
+#   deploy/bspd-install.sh --uninstall [--purge] [--force]
+#
+# A running job (a flash, a boot) lives in the service's process: before stopping the service, this waits for the jobs
+# it runs, naming them, up to BOARDCTRL_UPGRADE_WAIT seconds (default 600), and refuses if they are still running.
+# `--force` stops the service anyway; those jobs then read `interrupted by a service restart`.
 #
 # The file keeps its old name (boardlab on older lines runs it); an older bspd install on the machine is taken over:
 # its service stops, its site moves to /etc/boardctrl/site, its state is kept.
@@ -17,18 +21,85 @@
 # watches the install (boardlab's page) sees how far it is.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-ID="" PORT=8765 BIND=127.0.0.1 TOKEN="" BOARD=auto RELAY=auto SITE=/etc/boardctrl/site PREFIX=/opt/boardctrl CA="" UNINSTALL="" PURGE="" SITE_HOSTS="" NO_TOKEN=""
+ID="" PORT=8765 BIND=127.0.0.1 TOKEN="" BOARD=auto RELAY=auto SITE=/etc/boardctrl/site PREFIX=/opt/boardctrl CA="" UNINSTALL="" PURGE="" SITE_HOSTS="" NO_TOKEN="" FORCE=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --id) ID=$2; shift 2 ;; --port) PORT=$2; shift 2 ;; --bind) BIND=$2; shift 2 ;; --token) TOKEN=$2; shift 2 ;;
     --board) BOARD=$2; shift 2 ;; --relay) RELAY=$2; shift 2 ;; --site) SITE=$2; shift 2 ;; --prefix) PREFIX=$2; shift 2 ;; --ca) CA=$2; shift 2 ;;
     --site-hosts) SITE_HOSTS=$2; shift 2 ;;
     --no-token) NO_TOKEN=1; shift ;;
-    --uninstall) UNINSTALL=1; shift ;; --purge) PURGE=1; shift ;;
+    --uninstall) UNINSTALL=1; shift ;; --purge) PURGE=1; shift ;; --force) FORCE=1; shift ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
 done
 [[ $(id -u) == 0 ]] || { echo "run as root (it installs a system service and drives GPIO)" >&2; exit 1; }
+
+# --- running jobs: asked of the service on its loopback port right before it is stopped, so a job that started
+# while this install ran still counts. A read-only GET, which needs no token (the env file may already hold a new one).
+host_jobs() {  # $1 port. Prints the running jobs. 0: none; 1: some; 2: nothing serves the port; 3: could not tell
+  python3 - "$1" <<'PY'
+import json, sys, time, urllib.error, urllib.request
+try:
+    with urllib.request.urlopen(f"http://127.0.0.1:{sys.argv[1]}/api/v1/job/list", timeout=5) as r:
+        jobs = json.load(r).get("result") or []
+except urllib.error.HTTPError as e:
+    print(f"it answered HTTP {e.code}"); sys.exit(3)
+except urllib.error.URLError as e:
+    if isinstance(e.reason, ConnectionRefusedError):
+        sys.exit(2)
+    print(e.reason); sys.exit(3)
+except (OSError, ValueError) as e:
+    print(e); sys.exit(3)
+running = [j for j in jobs if isinstance(j, dict) and j.get("status") == "running"]
+for j in running:
+    meta = j.get("meta") or {}
+    where = meta.get("dut") or meta.get("host")
+    pct = f", {j['progress']}%" if j.get("progress") is not None else ""
+    age = round(time.time() - float(j.get("created") or time.time()))
+    print(f"job {j.get('id')} ({j.get('kind')}{', board ' + str(where) if where else ''}): {j.get('title')}, {age}s{pct}")
+sys.exit(1 if running else 0)
+PY
+}
+wait_for_jobs() {  # $1 port, $2 what is about to happen to the service
+  local port=$1 budget=${BOARDCTRL_UPGRADE_WAIT:-600} start=$SECONDS said=-1000 out rc
+  while :; do
+    rc=0; out=$(host_jobs "$port") || rc=$?
+    case $rc in 0|2) return 0 ;; esac
+    if [[ -n $FORCE ]]; then
+      [[ $rc == 1 ]] && { echo "--> --force: $2 although these run (they will read 'interrupted by a service restart'):"; sed 's/^/    /' <<<"$out"; }
+      return 0
+    fi
+    if [[ $rc == 3 ]]; then
+      echo "!! could not tell whether the service on port $port runs a job ($out), so not $2." >&2
+      echo "!! check it with \`boardctrl job list\`; run the install again with --force to go ahead anyway." >&2
+      exit 1
+    fi
+    if (( SECONDS - start >= budget )); then
+      echo "!! jobs still run after ${budget}s of waiting, so not $2 (it would cut them off):" >&2
+      sed 's/^/!!   /' <<<"$out" >&2
+      echo "!! let them finish or cancel them (\`boardctrl job cancel <id>\`), then install again; --force goes ahead anyway." >&2
+      exit 1
+    fi
+    if (( SECONDS - said >= 10 )); then
+      said=$SECONDS
+      echo "--> waiting for running jobs before $2 ($((SECONDS - start))s of ${budget}s; --force does not wait):"
+      sed 's/^/    /' <<<"$out"
+    fi
+    sleep 2
+  done
+}
+# The port the running service listens on, from the config it was started with (this install may change it).
+running_port() {
+  local f p
+  for f in "$SITE/hosts/$ID.yaml" "/etc/bsp/site/hosts/$ID.yaml"; do
+    [[ -n $ID && -f $f ]] || continue
+    p=$(sed -n 's/^  port: *\([0-9]*\).*/\1/p' "$f" | head -1)
+    [[ -n $p ]] && { echo "$p"; return; }
+  done
+  echo "$PORT"
+}
+RUNNING_PORT=$(running_port)
+# --- end running jobs
 
 # An older install (bspd under /opt/bspd, unit bsp-hostd, site /etc/bsp/site) is taken over, not duplicated: its
 # service is stopped and disabled, its site and state are kept (the site moves to the new place), and the old
@@ -38,6 +109,7 @@ TAKEOVER=""
 if [[ -f /etc/systemd/system/$OLD_UNIT || -d $OLD_PREFIX/current || -d /etc/bsp ]]; then
   TAKEOVER=1
   echo "--> taking over the older bspd install (site $OLD_SITE, $OLD_PREFIX)"
+  if systemctl is-active -q bsp-hostd.service 2>/dev/null; then wait_for_jobs "$RUNNING_PORT" "stopping bsp-hostd"; fi
   systemctl disable --now bsp-hostd.service 2>/dev/null || systemctl disable --now bsp-hostd 2>/dev/null || true
   if [[ ! -d $SITE && -d $OLD_SITE ]]; then
     mkdir -p "$(dirname "$SITE")"
@@ -65,6 +137,7 @@ if [[ -f /etc/systemd/system/$OLD_UNIT || -d $OLD_PREFIX/current || -d /etc/bsp 
 fi
 
 if [[ -n $UNINSTALL ]]; then
+  wait_for_jobs "$RUNNING_PORT" "removing boardctrld"
   for u in boardctrld.service bsp-hostd.service; do systemctl disable --now "$u" 2>/dev/null || true; rm -f "/etc/systemd/system/$u"; done
   systemctl daemon-reload
   for b in boardctrl boardctrld bsp bsp-hostd smtty serial-mux; do [[ $(readlink -f /usr/local/bin/$b 2>/dev/null) == $PREFIX/* ]] && rm -f /usr/local/bin/$b; done
@@ -300,23 +373,9 @@ systemctl daemon-reload
 systemctl enable -q boardctrld.service
 # A restart does not lose a lock or a console (both live outside this process: leases in the state directory,
 # consoles and sessions as their own systemd units), but a job runs in a thread of this process, so restarting
-# mid-flash cuts the image off. Wait for one to finish instead of killing it; a job that never ends is a reason to
-# stop and ask, not to guess. BOARDCTRL_UPGRADE_WAIT is how long to wait for a job (default: 30 minutes).
-wait_for_jobs() {
-  local port budget=${BOARDCTRL_UPGRADE_WAIT:-1800} seen=""
-  port=$(sed -n 's/^  port: *\([0-9]*\).*/\1/p' "$CONF" | head -1); port=${port:-8765}
-  for _ in $(seq 1 "$budget"); do
-    seen=$(curl -fsS -m 2 "http://127.0.0.1:$port/api/v1/tools/job_list" 2>/dev/null \
-           || python3 -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:$port/api/v1/tools/job_list',timeout=2).read().decode())" 2>/dev/null) || return 0
-    echo "$seen" | grep -q '"status": *"running"' || return 0
-    echo "--> a job is running on this host; waiting for it before restarting (ctrl-c stops this install)"
-    sleep 1
-  done
-  echo "!! jobs are still running after ${budget}s: not restarting boardctrld (a flash would be cut off)." >&2
-  echo "!! finish or cancel them (\`boardctrl job list\`, \`boardctrl cancel <board>\`), then run this installer again." >&2
-  exit 1
-}
-wait_for_jobs
+# mid-flash cuts the image off: wait for the jobs it runs (see wait_for_jobs), asked right before the restart.
+wait_for_jobs "$RUNNING_PORT" "restarting boardctrld"
+[[ $RUNNING_PORT == "$PORT" ]] || wait_for_jobs "$PORT" "restarting boardctrld"
 systemctl restart boardctrld.service
 # The old unit is gone once the new one serves: a machine does not answer to two names at once.
 if [[ -n $TAKEOVER ]]; then rm -f /etc/systemd/system/bsp-hostd.service; systemctl daemon-reload; fi
