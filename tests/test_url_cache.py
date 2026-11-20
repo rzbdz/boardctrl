@@ -28,6 +28,7 @@ def srv():
         gets: list[str] = []
         conditional: list[str] = []
         delay = 0.0
+        etags = True                      # False: a server that gives no ETag (nor Last-Modified)
 
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -36,7 +37,7 @@ def srv():
                 self.send_error(404)
                 return
             etag = f'"{_sha(data)[:16]}"'
-            if self.headers.get("If-None-Match"):
+            if self.server.etags and self.headers.get("If-None-Match"):
                 self.server.conditional.append(self.path)
                 if self.headers["If-None-Match"] == etag:
                     self.send_response(304)
@@ -46,7 +47,8 @@ def srv():
             self.server.gets.append(self.path)
             self.send_response(200)
             self.send_header("Content-Length", str(len(data)))
-            self.send_header("ETag", etag)
+            if self.server.etags:
+                self.send_header("ETag", etag)
             self.end_headers()
             half = len(data) // 2
             self.wfile.write(data[:half])
@@ -92,7 +94,7 @@ def _in_thread(fn, *a, **k):
     return out["r"]
 
 
-def test_a_url_fetched_within_the_ttl_is_used_again_without_a_request(tmp_path, srv):
+def test_a_url_fetched_within_the_ttl_is_asked_again_and_a_304_sends_no_body(tmp_path, srv):
     store, lines = ArtifactStore(tmp_path / "art"), []
     data = b"pkg-1" * 1000
     srv.files["/daily/pkg.tgz?build=7"] = data
@@ -101,13 +103,51 @@ def test_a_url_fetched_within_the_ttl_is_used_again_without_a_request(tmp_path, 
     assert first["fetched"] and first["sha256"] == _sha(data) and srv.gets == ["/daily/pkg.tgz?build=7"]
     again = flashpkg.fetch(store, url, None, lines.append)
     assert again == {"sha256": _sha(data), "path": first["path"], "size": len(data), "fetched": False, "cached": True}
-    assert len(srv.gets) == 1 and not srv.conditional                     # no request at all
+    assert len(srv.gets) == 1 and srv.conditional == ["/daily/pkg.tgz?build=7"]     # asked; no body sent
     hit = [l for l in lines if "from the URL cache" in l]
-    assert len(hit) == 1 and _sha(data)[:12] in hit[0] and "/daily/pkg.tgz?..." in hit[0] and "ago" in hit[0]
+    assert len(hit) == 1 and _sha(data)[:12] in hit[0] and "/daily/pkg.tgz?..." in hit[0] and "unchanged" in hit[0]
     assert "build=7" not in hit[0]                                        # a query may carry a token: not logged
     # the query string is part of the key: another build is another URL
     srv.files["/daily/pkg.tgz?build=8"] = b"pkg-2"
     assert flashpkg.fetch(store, f"{srv.url}/daily/pkg.tgz?build=8", None, lines.append)["fetched"]
+
+
+def test_a_link_that_changes_within_the_ttl_is_downloaded_again(tmp_path, srv):
+    """`latest/pkg.zip` gives tonight's build under yesterday's URL: the cache must not hand out yesterday's."""
+    store = ArtifactStore(tmp_path / "art")
+    srv.files["/latest/pkg.zip"] = b"monday" * 100
+    url = f"{srv.url}/latest/pkg.zip"
+    flashpkg.fetch(store, url, None, lambda m: None)
+    srv.files["/latest/pkg.zip"] = b"tuesday" * 100
+    r = flashpkg.fetch(store, url, None, lambda m: None)
+    assert r["fetched"] and r["sha256"] == _sha(b"tuesday" * 100) and len(srv.gets) == 2
+
+
+def test_a_server_without_validators_is_trusted_for_the_ttl_without_a_request(tmp_path, srv):
+    srv.etags = False
+    store, lines = ArtifactStore(tmp_path / "art"), []
+    srv.files["/p.tgz"] = b"plain" * 100
+    url = f"{srv.url}/p.tgz"
+    flashpkg.fetch(store, url, None, lines.append, ttl_s=60)
+    r = flashpkg.fetch(store, url, None, lines.append, ttl_s=60)
+    assert r["cached"] and len(srv.gets) == 1 and not srv.conditional              # no request at all
+    assert any("no ETag or Last-Modified" in l and "--refresh" in l for l in lines)
+    _age_entries(store, 120)                                              # after the TTL it downloads again
+    assert flashpkg.fetch(store, url, None, lines.append, ttl_s=60)["fetched"] and len(srv.gets) == 2
+
+
+def test_a_server_that_cannot_be_reached_within_the_ttl_leaves_the_recent_copy_in_use(tmp_path, srv):
+    store, lines = ArtifactStore(tmp_path / "art"), []
+    srv.files["/p.tgz"] = b"v1" * 100
+    url = f"{srv.url}/p.tgz"
+    flashpkg.fetch(store, url, None, lines.append, ttl_s=60)
+    srv.shutdown()
+    srv.server_close()
+    r = flashpkg.fetch(store, url, None, lines.append, ttl_s=60, timeout=2)
+    assert r["cached"] and any("could not reach" in l for l in lines)
+    _age_entries(store, 120)                                              # an old copy is not used blind
+    with pytest.raises(flashpkg.HardwareError, match="downloading the package failed"):
+        flashpkg.fetch(store, url, None, lines.append, ttl_s=60, timeout=2)
 
 
 def test_the_index_survives_a_new_store_and_a_missing_file_is_fetched_again(tmp_path, srv):
@@ -134,7 +174,9 @@ def test_after_the_ttl_the_server_is_asked_and_a_304_refreshes_the_entry(tmp_pat
     r = flashpkg.fetch(store, url, None, lines.append, ttl_s=60)
     assert r["cached"] and srv.conditional == ["/p.tgz"] and len(srv.gets) == 1   # 304: no body sent
     assert any("unchanged" in l for l in lines)
-    assert flashpkg.fetch(store, url, None, lines.append, ttl_s=60)["cached"] and len(srv.conditional) == 1
+    # a server with a validator is asked every time; a 304 still sends no body
+    assert flashpkg.fetch(store, url, None, lines.append, ttl_s=60)["cached"] and len(srv.conditional) == 2
+    assert len(srv.gets) == 1
     # changed at the server: after the TTL the new file is downloaded and replaces the entry
     srv.files["/p.tgz"] = b"v2" * 100
     _age_entries(store, 120)

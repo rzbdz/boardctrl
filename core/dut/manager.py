@@ -681,7 +681,7 @@ class DutManager:
             # Say what the board's last job did: a caller that came to stop one learns it already ended (and how).
             last = next((j for j in self.ctx.jobs.list() if j.meta.get("dut") == b.spec.id), None)
             if last is None:
-                raise InvalidRequest(f"{dut}: no job running, and none has run on it since the host started",
+                raise InvalidRequest(f"{dut}: no job running, and the host keeps no record of one run on it",
                                      hint="`bsp job list` shows the host's jobs; `bsp job cancel <id>` stops one by id",
                                      details={"running": False, "last_job": None})
             err = last.error or {}

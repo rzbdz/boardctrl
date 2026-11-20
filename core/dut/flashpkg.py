@@ -68,8 +68,9 @@ def fetch(store: ArtifactStore, url: str, sha256: str | None, log: Log, max_byte
     """Download `url` into the artifact cache (once: a cached `sha256` is not fetched again). With `sha256` the
     download must hash to it; without, it is kept under the hash it has. Refuses more than `max_bytes`.
 
-    The URL cache (`core.dut.urlcache`) remembers what the URL gave: within `ttl_s` (default 24 h, 0 = off) that
-    file is used again without a request, after it the server is asked whether it changed. `refresh` downloads
+    The URL cache (`core.dut.urlcache`) remembers what the URL gave. A server that gave an ETag or Last-Modified is
+    asked whether the file changed every time (a 304 reuses the copy); one that gave neither is trusted within
+    `ttl_s` (default 24 h, 0 = off) without a request. `refresh` downloads
     again whatever the cache says; an entry whose file is not the `sha256` asked for is never used."""
     from core.dut.urlcache import UrlCache, _age, shown, ttl_from
 
@@ -95,22 +96,35 @@ def fetch(store: ArtifactStore, url: str, sha256: str | None, log: Log, max_byte
                                  hint="raise modules.dut.flash.max_package_bytes in the host config")
         if entry:
             cache.hold(entry["sha256"])       # a prune elsewhere keeps this file while this job uses it
-        if entry and cache.fresh(entry):
-            log(f"package {Path(entry['path']).name} from the URL cache: {shown(url)} "
-                f"(sha256 {entry['sha256'][:12]}, fetched {_age(entry['age_s'])} ago; --refresh downloads it again)")
-            return {"sha256": entry["sha256"], "path": entry["path"], "size": entry["size"], "fetched": False,
-                    "cached": True}
         validators = {}
         if entry:
             validators = {k: v for k, v in (("If-None-Match", entry.get("etag")),
                                             ("If-Modified-Since", entry.get("last_modified"))) if v}
-        got = _download(store, url, want, log, max_bytes, timeout, validators)
+        cached = None if not entry else {"sha256": entry["sha256"], "path": entry["path"], "size": entry["size"],
+                                         "fetched": False, "cached": True}
+        # A link like `latest/pkg.zip` changes under the same URL: a server that gives a validator is always asked
+        # (a 304 costs no body), so a changed file is never served from the cache. Only a server that gives none is
+        # trusted for the TTL without a request.
+        if entry and not validators and cache.fresh(entry):
+            log(f"package {Path(entry['path']).name} from the URL cache: {shown(url)} "
+                f"(sha256 {entry['sha256'][:12]}, fetched {_age(entry['age_s'])} ago; the server gives no ETag or "
+                f"Last-Modified to ask with; --refresh downloads it again)")
+            return cached
+        try:
+            got = _download(store, url, want, log, max_bytes, timeout, validators)
+        except Unreachable as e:
+            if not (entry and cache.fresh(entry)):
+                raise
+            # Within the TTL a server that cannot be reached right now does not stop the flash: the copy is recent.
+            # An HTTP error (the link is gone, or refused) is not this: it fails the flash.
+            log(f"could not reach {shown(url)} to ask whether it changed ({e.message}); using the cached copy "
+                f"fetched {_age(entry['age_s'])} ago (sha256 {entry['sha256'][:12]})")
+            return cached
         if got is None:                       # 304: what the cache holds is still the URL's file
             cache.touch(url)
-            log(f"package {Path(entry['path']).name} unchanged at {shown(url)}: using the cached copy "
-                f"(sha256 {entry['sha256'][:12]})")
-            return {"sha256": entry["sha256"], "path": entry["path"], "size": entry["size"], "fetched": False,
-                    "cached": True}
+            log(f"package {Path(entry['path']).name} from the URL cache: {shown(url)} unchanged at the server "
+                f"(sha256 {entry['sha256'][:12]}, fetched {_age(entry['age_s'])} ago)")
+            return cached
         cache.hold(got["sha256"])
         cache.record(url, got, got["validators"])
     cache.prune(log)
@@ -119,6 +133,10 @@ def fetch(store: ArtifactStore, url: str, sha256: str | None, log: Log, max_byte
 
 def _result(got: dict[str, Any]) -> dict[str, Any]:
     return {"sha256": got["sha256"], "path": got["path"], "size": got["size"], "fetched": True}
+
+
+class Unreachable(HardwareError):
+    """The package's server could not be reached at all (no HTTP answer)."""
 
 
 def _download(store: ArtifactStore, url: str, want: str | None, log: Log, max_bytes: int, timeout: float,
@@ -137,7 +155,7 @@ def _download(store: ArtifactStore, url: str, want: str | None, log: Log, max_by
                             hint="check the URL from this board host (it downloads the package itself)") from None
     except (urllib.error.URLError, OSError) as e:
         reason = getattr(e, "reason", e)
-        raise HardwareError(f"downloading the package failed: {reason}",
+        raise Unreachable(f"downloading the package failed: {reason}",
                             hint="the board host downloads the package itself: is the URL reachable from it?") from None
     with resp:
         length = resp.headers.get("Content-Length")

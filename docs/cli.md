@@ -136,12 +136,14 @@ mode (skip with `--no-reset`) and runs the flash hook `flash/<flasher>` on the d
 [hooks/README.md](../hooks/README.md)).
 
 The host remembers which file each package URL gave, by the exact URL (query string included), so
-flashing the same link again does not download it again. Within 24 hours of the download
-(`modules.dut.flash.url_cache_ttl_s` in the host config, in seconds; `0` turns this off) the host
-uses its copy without contacting the server, and the job log says so, with the sha256 and the age
-of the copy. After that the host asks the server again: when the server gave an ETag or
-Last-Modified, it sends a conditional request, and on "not modified" the copy counts as freshly
-fetched again. A `--sha256` other than the copy's always downloads and checks. `--refresh`
+flashing the same link again does not download it again. When the server gave an ETag or
+Last-Modified, the host asks it every time with a conditional request: on "not modified" it uses
+its copy without downloading, and a link that now gives another file (a `latest/` build) is
+downloaded again. A server that gives neither is trusted for 24 hours after the download
+(`modules.dut.flash.url_cache_ttl_s` in the host config, in seconds; `0` turns the cache off)
+without being contacted; within that time a server the host cannot reach does not stop the flash
+either. The job log says which copy it used, with the sha256 and its age. A `--sha256` other than
+the copy's always downloads and checks. `--refresh`
 downloads the URL again whatever the host remembers. `boot --files http(s)://...` uses the same
 cache. The index is `.url-cache.json` in the host's artifact cache, so it survives a restart. A
 file the host downloaded this way is deleted from the artifact cache once no URL within the TTL

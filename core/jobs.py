@@ -224,6 +224,7 @@ class JobManager:
         self._seq = itertools.count(1)
         self._records = record_dir
         self._written: dict[str, float] = {}
+        self._written_lock = threading.Lock()   # every job thread saves; its own lock, as _save may run under _lock
         if record_dir is not None:
             self._load()
 
@@ -325,14 +326,15 @@ class JobManager:
         first one at once); a start and an end always do."""
         if self._records is None:
             return
-        if not now:
-            t = time.monotonic()
-            last = self._written.get(job.id)
-            if last is not None and t - last < RECORD_EVERY_S:
-                return
-            self._written[job.id] = t
-        elif job.status != "running":
-            self._written.pop(job.id, None)
+        with self._written_lock:
+            if not now:
+                t = time.monotonic()
+                last = self._written.get(job.id)
+                if last is not None and t - last < RECORD_EVERY_S:
+                    return
+                self._written[job.id] = t
+            elif job.status != "running":
+                self._written.pop(job.id, None)
         rec = {k: v for k, v in job.view().items() if k not in ("elapsed_s", "next")}
         rec["lines"] = job.lines[-RECORD_LINES:]
         try:
@@ -349,7 +351,8 @@ class JobManager:
     def _forget(self, job_id: str) -> None:
         if self._records is None:
             return
-        self._written.pop(job_id, None)
+        with self._written_lock:
+            self._written.pop(job_id, None)
         try:
             self._path(job_id).unlink()
         except OSError:

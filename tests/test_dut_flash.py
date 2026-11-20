@@ -480,7 +480,7 @@ def test_cancel_with_nothing_running_names_the_boards_last_job(host):
     """Nothing to cancel: the answer says so and what the board's last job did, so a caller knows it already ended."""
     token = _call(host, "dut_acquire", dut="mock-board", holder="t", ttl=60)["token"]
     e = _call(host, "dut_cancel", dut="mock-board", lease=token)
-    assert e["code"] == "invalid_request" and "no job running, and none has run on it" in e["message"]
+    assert e["code"] == "invalid_request" and "no job running, and the host keeps no record of one run on it" in e["message"]
     assert e["details"] == {"running": False, "last_job": None}
 
     from core.errors import HardwareError

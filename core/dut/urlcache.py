@@ -1,8 +1,8 @@
 """The URL cache: which artifact an http(s) package URL gave last, so the same link is not downloaded every time.
 
 An entry maps the exact URL to the sha256 of the file it gave (in the ArtifactStore), when it was fetched, its size
-and the server's ETag / Last-Modified. Within the TTL the file is used again without asking the server; after it the
-host asks again (a conditional request when the server gave a validator). The index is a small JSON file in the
+and the server's ETag / Last-Modified. A server that gave a validator is asked every time (a conditional request: a
+304 reuses the file); one that gave none is trusted within the TTL without a request. The index is a small JSON file in the
 artifact store, written atomically, so it outlives a boardctrld restart.
 
 Files the cache downloaded itself are its own: once no entry within the TTL refers to one and no running job uses
