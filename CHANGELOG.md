@@ -73,6 +73,8 @@ All notable changes to this project are documented here. The format follows
   `modules.dut.*` are still read, so a site or a script does not have to move in one day.
 
 ### Fixed
+- A media boot (a strapped board's reset) from a board left in a later stage, such as U-Boot's fastboot after a
+  flash, resets the board into the boot ROM's download mode first instead of running the ROM's steps against U-Boot.
 - Probe no longer says a SoC has no identify section when it skipped identify because no download
   port appeared.
 - The SpacemiT flash hook skips a medium U-Boot reports as `NULL` (no SPI NOR on a UFS board)

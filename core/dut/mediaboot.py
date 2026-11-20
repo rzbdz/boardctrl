@@ -26,6 +26,7 @@ of this; a DUT can opt out with `control.media_boot: false`.
 from __future__ import annotations
 
 import hashlib
+import re
 import time
 from typing import Any, Callable
 
@@ -111,10 +112,17 @@ class MediaBoot:
         # A provider that keeps no log reads nothing back, which is the honest answer: the board is looked at as it
         # is now, not as it printed before the host could hear it.
         before = runner.console.read_since(retained) if retained is not None else ""
+        # Only the boot ROM's own download device counts: a board left in a later stage (U-Boot's fastboot after a
+        # flash) has a fastboot port too, and the steps would run against the wrong program. That one is reset.
+        want = re.compile((getattr(runner, "download_mode", None) or {}).get("fastboot") or ".")
         try:
-            waiting = runner.fb.state() is not None
+            port = runner.fb.state()
         except Exception:  # no download port is the normal reason to reset, not a stale-log success
-            waiting = False
+            port = None
+        waiting = port is not None and bool(want.search(port.get("product", "")))
+        if port is not None and not waiting:
+            log(f"{self.name}: {port.get('product') or 'a device'} on the download port is not the boot ROM's "
+                f"download mode (/{want.pattern}/): reset the board into it first")
         if waiting and before.strip():
             log(f"{self.name}: the download port is already present; verify the existing ROM state")
             runner.run_steps(self.cfg["steps"], log, images=images, what=self.name, since=retained)

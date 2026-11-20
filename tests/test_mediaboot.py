@@ -123,6 +123,26 @@ def test_an_already_waiting_download_port_uses_its_existing_rom_evidence_without
     assert r["name"] == "rom handoff" and any("already present" in line for line in lines)
 
 
+def test_a_board_left_in_a_later_fastboot_is_reset_into_the_rom_first(tmp_path):
+    """After a flash the board sits in U-Boot's fastboot, and the console still holds the ROM banner from before the
+    flash: that port is not the ROM's download mode, so the board is reset into it before any step runs."""
+    b = Board()
+    b.out = BANNER + "U-Boot 2022.10\nfastboot: waiting\n"
+    b.product = "U-Boot fastboot"
+    b.state = lambda: {"product": b.product, "usb": b.usb}
+    enter = b.enter_fdl
+
+    def enter_fdl(log, seen):
+        enter(log, seen)
+        b.product = "download"
+
+    b.enter_fdl = enter_fdl
+    lines = []
+    MediaBoot(spec(), profile(image(tmp_path))).run(runner(b), lines.append)
+    assert b.calls == ["reset", "getvar rom-version", "stage handoff.bin", "continue"]
+    assert any("U-Boot fastboot on the download port is not the boot ROM's download mode" in l for l in lines)
+
+
 def test_a_human_strapped_board_with_an_existing_banner_does_not_need_another_request(tmp_path):
     # Human/relay is only how the action is performed; it must not change the media-boot decision.
     s = spec()
