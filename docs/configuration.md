@@ -104,6 +104,9 @@ providers:                       # what this host loads, by name; `modules:` is 
     hook_dirs: []                # extra hook directories, searched first
     product_dir: "{artifacts_dir}"  # what hooks call the product: a path, or a template with
                                  # {sdk} / {artifacts_dir}; absent = the artifact directory itself
+    flash:                       # `dut flash` packages (see cli.md "Flashing a package")
+      max_package_bytes: 17179869184  # largest package the host takes, uploaded or downloaded (16 GiB)
+      url_cache_ttl_s: 86400     # reuse a URL's download for this long without asking the server; 0 = off
     network:                     # what hooks tell a board to use (all keys optional)
       board_subnet: 192.0.2.0/24 # the boards' DHCP subnet (no default: bsp does not run that DHCP)
       host_address: 192.0.2.20   # this host on the board network (default: server.bind or an announced address)

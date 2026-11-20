@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import tarfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -63,9 +64,15 @@ def _name_from(url: str, headers) -> str:
 
 
 def fetch(store: ArtifactStore, url: str, sha256: str | None, log: Log, max_bytes: int = DEFAULT_MAX_BYTES,
-          timeout: float = 60) -> dict[str, Any]:
+          timeout: float = 60, ttl_s: Any = None, refresh: bool = False) -> dict[str, Any]:
     """Download `url` into the artifact cache (once: a cached `sha256` is not fetched again). With `sha256` the
-    download must hash to it; without, it is kept under the hash it has. Refuses more than `max_bytes`."""
+    download must hash to it; without, it is kept under the hash it has. Refuses more than `max_bytes`.
+
+    The URL cache (`core.dut.urlcache`) remembers what the URL gave: within `ttl_s` (default 24 h, 0 = off) that
+    file is used again without a request, after it the server is asked whether it changed. `refresh` downloads
+    again whatever the cache says; an entry whose file is not the `sha256` asked for is never used."""
+    from core.dut.urlcache import UrlCache, _age, shown, ttl_from
+
     check_url(url)
     want = (sha256 or "").lower() or None
     if want and not SHA256.fullmatch(want):
@@ -74,12 +81,58 @@ def fetch(store: ArtifactStore, url: str, sha256: str | None, log: Log, max_byte
         p = store.find(want)
         log(f"package {p.name} already on this host (sha256 {want[:12]})")
         return {"sha256": want, "path": str(p), "size": p.stat().st_size, "fetched": False}
+    cache = UrlCache(store, ttl_from(ttl_s))
+    if not cache.enabled:
+        got = _download(store, url, want, log, max_bytes, timeout)
+        cache.prune(log)
+        return _result(got)
+    with cache.lock(url, log):
+        entry = None if refresh else cache.lookup(url)
+        if entry and want and entry["sha256"] != want:
+            entry = None                      # the URL gave another file than the one asked for: ask the server
+        if entry and int(entry["size"]) > max_bytes:
+            raise InvalidRequest(f"package is {int(entry['size']):,} B, more than this host takes ({max_bytes:,} B)",
+                                 hint="raise modules.dut.flash.max_package_bytes in the host config")
+        if entry:
+            cache.hold(entry["sha256"])       # a prune elsewhere keeps this file while this job uses it
+        if entry and cache.fresh(entry):
+            log(f"package {Path(entry['path']).name} from the URL cache: {shown(url)} "
+                f"(sha256 {entry['sha256'][:12]}, fetched {_age(entry['age_s'])} ago; --refresh downloads it again)")
+            return {"sha256": entry["sha256"], "path": entry["path"], "size": entry["size"], "fetched": False,
+                    "cached": True}
+        validators = {}
+        if entry:
+            validators = {k: v for k, v in (("If-None-Match", entry.get("etag")),
+                                            ("If-Modified-Since", entry.get("last_modified"))) if v}
+        got = _download(store, url, want, log, max_bytes, timeout, validators)
+        if got is None:                       # 304: what the cache holds is still the URL's file
+            cache.touch(url)
+            log(f"package {Path(entry['path']).name} unchanged at {shown(url)}: using the cached copy "
+                f"(sha256 {entry['sha256'][:12]})")
+            return {"sha256": entry["sha256"], "path": entry["path"], "size": entry["size"], "fetched": False,
+                    "cached": True}
+        cache.hold(got["sha256"])
+        cache.record(url, got, got["validators"])
+    cache.prune(log)
+    return _result(got)
+
+
+def _result(got: dict[str, Any]) -> dict[str, Any]:
+    return {"sha256": got["sha256"], "path": got["path"], "size": got["size"], "fetched": True}
+
+
+def _download(store: ArtifactStore, url: str, want: str | None, log: Log, max_bytes: int, timeout: float,
+              validators: dict[str, str] | None = None) -> dict[str, Any] | None:
+    """One GET of `url` into the store; None when the server answers a conditional request with 304."""
     opener = urllib.request.build_opener(_HttpOnlyRedirects())
-    req = urllib.request.Request(url, headers={"User-Agent": "bsp-dut-flash"})
+    req = urllib.request.Request(url, headers={"User-Agent": "bsp-dut-flash", **(validators or {})})
     t0 = time.monotonic()
     try:
         resp = opener.open(req, timeout=timeout)
     except urllib.error.HTTPError as e:
+        if e.code == 304 and validators:
+            e.close()
+            return None
         raise HardwareError(f"downloading the package failed: HTTP {e.code} {e.reason}",
                             hint="check the URL from this board host (it downloads the package itself)") from None
     except (urllib.error.URLError, OSError) as e:
@@ -97,7 +150,7 @@ def fetch(store: ArtifactStore, url: str, sha256: str | None, log: Log, max_byte
         h, size, next_log = hashlib.sha256(), 0, 0.0
         incoming = store.root / ".incoming"
         incoming.mkdir(parents=True, exist_ok=True)
-        tmp = incoming / f"{os.getpid()}.{time.monotonic_ns()}.part"
+        tmp = incoming / f"{os.getpid()}.{threading.get_ident()}.{time.monotonic_ns()}.part"
         name = _name_from(resp.geturl(), resp.headers)
         log(f"downloading {name}" + (f" ({total:,} B)" if total else "") + f" from {urllib.parse.urlsplit(url).hostname}")
         token = current_token()               # a cancelled flash stops downloading; the part file is removed
@@ -123,11 +176,14 @@ def fetch(store: ArtifactStore, url: str, sha256: str | None, log: Log, max_byte
                                      hint="the file at the URL is not the one meant (or --sha256 is wrong)")
             if not size:
                 raise InvalidRequest("the package URL gave an empty file")
+            had = store.find(got) is not None
             final = store.adopt(tmp, got, name)
         finally:
             tmp.unlink(missing_ok=True)
+        headers = {"etag": resp.headers.get("ETag"), "last_modified": resp.headers.get("Last-Modified")}
     log(f"downloaded {name} ({size:,} B in {time.monotonic() - t0:.1f}s, sha256 {got[:12]})")
-    return {"sha256": got, "path": str(final), "size": size, "fetched": True}
+    return {"sha256": got, "path": str(final), "size": size, "name": final.name, "stored": not had,
+            "validators": headers}
 
 
 # ------------------------------------------------------------------ unpack --

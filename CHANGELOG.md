@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `dut flash --package URL` and `dut boot --files URL`: the host reuses what a URL gave within
+  `modules.dut.flash.url_cache_ttl_s` (default 24 h, 0 = off) instead of downloading it again, then asks the
+  server with a conditional request. `--refresh` (`refresh` over HTTP) downloads it anyway; a `--sha256` other
+  than the cached file's always downloads. Files downloaded this way leave the artifact cache once expired and
+  unused.
 - `boardctrl job cancel ID`: stop any job by id (probes and rebuilds too; a board's job takes its lease).
   A cancel stops what the job runs at once: fastboot, hooks and copies are stopped with what they started
   (their process group gets SIGTERM, then SIGKILL), and waits on the console, the download port or a person

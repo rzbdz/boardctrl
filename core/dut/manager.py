@@ -760,7 +760,8 @@ class DutManager:
 
             source, path = ref["source"], ref["path"]
             if source == "url":
-                got = flashpkg.fetch(self.store, flashpkg.check_url(path), None, log)
+                got = flashpkg.fetch(self.store, flashpkg.check_url(path), None, log,
+                                     ttl_s=self.flash_cfg.get("url_cache_ttl_s"))
                 p, sha = Path(got["path"]), got["sha256"]
             elif source == "host":
                 # A build product or share already on this host; hash what is actually read.
@@ -875,7 +876,7 @@ class DutManager:
                             details={"tried": tried})
 
     def flash(self, dut: str, package: str, sha256: str | None, flasher: str | None, lease: str | None,
-              timeout: float, reset: bool) -> dict[str, Any]:
+              timeout: float, reset: bool, refresh: bool = False) -> dict[str, Any]:
         """Write a package to the board.
 
         With the flash role's built-in `hook` provider: enter download mode, then run the flash hook on the unpacked
@@ -935,7 +936,8 @@ class DutManager:
             token = current_token()
             token.at("fetch the package")
             if url:
-                got = flashpkg.fetch(self.store, url, sha256, log, max_bytes)
+                got = flashpkg.fetch(self.store, url, sha256, log, max_bytes, ttl_s=self.flash_cfg.get("url_cache_ttl_s"),
+                                     refresh=refresh)
                 path = Path(got["path"])
             else:
                 path = self.store.get(package)

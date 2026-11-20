@@ -403,3 +403,22 @@ def test_hooks_declare_check_explicitly(tmp_path):
     shipped = HookRunner((str(ROOT / "platforms" / "spacemit" / "hooks"),))
     assert shipped.declares("flash", "spacemit-pkg", "check")
     assert shipped.check("flash", "spacemit-pkg", {"fastboot": "no-such-fastboot-binary"})["reason"].startswith("no no-such")
+
+
+def test_flashing_one_url_twice_downloads_it_once_unless_refreshed(host, web):
+    data = _zip({"fastboot.yaml": b"actions: []\n", "u-boot.itb": b"u"})
+    (web.root / "daily.zip").write_bytes(data)
+    token = _call(host, "dut_acquire", dut="mock-board", holder="t", ttl=60)["token"]
+    url = f"{web.url}/daily.zip?build=1"
+
+    def flash(**kw):
+        r = _call(host, "dut_flash", dut="mock-board", package=url, flasher="fake", lease=token, reset=False, **kw)
+        job = _call(host, "job_get", id=r["job"], wait=20)
+        assert job["status"] == "succeeded", job
+        return job["lines"]
+
+    assert any("downloading daily.zip" in l for l in flash())
+    lines = flash()
+    assert not any("downloading" in l for l in lines)
+    assert any("from the URL cache" in l and _sha(data)[:12] in l for l in lines)
+    assert any("downloading daily.zip" in l for l in flash(refresh=True))

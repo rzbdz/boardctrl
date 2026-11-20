@@ -117,13 +117,17 @@ def build_commands(mod: "DutModule") -> list[Command]:
                    required=False),
              LEASE,
              Param("timeout", "number", "seconds the flasher may take", required=False, default=3600),
-             Param("reset", "boolean", "enter download mode first", required=False, default=True)],
+             Param("reset", "boolean", "enter download mode first", required=False, default=True),
+             Param("refresh", "boolean", "download a URL package again even when the host's URL cache has it",
+                   required=False, default=False)],
             render=lambda r: f"job {r['job']}: {r['dut']} flash {r['package']} with {r['flasher']}",
             description="The package is a .tar.gz, .tgz, .tar or .zip (the CLI sends a local directory as a .tar). "
                         "With the board's flash provider `hook` (the default), the host unpacks it, puts the board "
                         "in download mode and runs the flash hook `flash/<flasher>` on the unpacked directory. A "
                         "board whose record names another flash provider (a site plugin's image writer) has the "
-                        "file written by that provider instead, with no download mode. Background job: follow it "
+                        "file written by that provider instead, with no download mode. A URL the host downloaded within "
+                        "`modules.dut.flash.url_cache_ttl_s` (default 24 h) is used again without downloading it; "
+                        "`refresh` downloads it anyway. Background job: follow it "
                         "with `boardctrl job get`; its progress is a percent when the flasher reports one."),
         cmd("artifact.has", "Whether a file with this sha256 is in the host's artifact cache",
             mod.artifact_has, [Param("sha256", help="64 hex digits")], mutating=False,

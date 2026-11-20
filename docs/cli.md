@@ -135,6 +135,19 @@ holding a single top-level directory unpacks to that directory), puts the board 
 mode (skip with `--no-reset`) and runs the flash hook `flash/<flasher>` on the directory (see
 [hooks/README.md](../hooks/README.md)).
 
+The host remembers which file each package URL gave, by the exact URL (query string included), so
+flashing the same link again does not download it again. Within 24 hours of the download
+(`modules.dut.flash.url_cache_ttl_s` in the host config, in seconds; `0` turns this off) the host
+uses its copy without contacting the server, and the job log says so, with the sha256 and the age
+of the copy. After that the host asks the server again: when the server gave an ETag or
+Last-Modified, it sends a conditional request, and on "not modified" the copy counts as freshly
+fetched again. A `--sha256` other than the copy's always downloads and checks. `--refresh`
+downloads the URL again whatever the host remembers. `boot --files http(s)://...` uses the same
+cache. The index is `.url-cache.json` in the host's artifact cache, so it survives a restart. A
+file the host downloaded this way is deleted from the artifact cache once no URL within the TTL
+gives it and no running job uses it; files uploaded to the host are never deleted this way. Two
+flashes of the same URL at the same time download it once: the second waits for the first.
+
 The flasher is `--flasher`, else the board's `flash.flasher`, else its SoC's
 `flash.flasher`, else the host's (`providers.dut.flash.flasher`), else `spacemit-pkg` (the SpacemiT
 package: `fastboot.yaml` and `partition_*.json` layouts, or a flash zip). A board whose SoC facts

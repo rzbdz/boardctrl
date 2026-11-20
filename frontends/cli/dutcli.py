@@ -323,6 +323,8 @@ def _flash(h: HostHandle, dut: str, args, book: LeaseBook) -> tuple[Any, str]:
             raise InvalidRequest(f"package URL scheme {urlsplit(pkg).scheme!r} is not allowed",
                                  hint="use an http(s) URL the board host can reach, or a local path")
         body.update(package=pkg, sha256=args.sha256)
+        if args.refresh:
+            body["refresh"] = True
     else:
         if not os.path.exists(pkg):
             raise InvalidRequest(f"no such file or directory: {pkg}")
@@ -851,6 +853,8 @@ def add_parsers(sub) -> None:
     fl.add_argument("--lease")
     fl.add_argument("--timeout", type=float, default=3600, help="seconds the flasher may take (default 3600)")
     fl.add_argument("--no-reset", action="store_true", help="the board is already in download mode")
+    fl.add_argument("--refresh", action="store_true",
+                    help="a URL package: download it again even when the host fetched it within its URL cache TTL")
     fl.add_argument("--no-wait", action="store_true", help="return the job id instead of following it")
     c = ds.add_parser("console", help="run a shell command on the DUT console (no command: interactive attach)")
     c.add_argument("dut")
