@@ -50,6 +50,27 @@ class GpioRelayControl(ControlBackend):
             # idle = released; for push-pull relay mode that drives the inactive level
             gpio.switch(self._alias("reset"), "off")
 
+    def _roles(self) -> list[str]:
+        """The lines `reset` and `enter_fdl` drive: the reset line, and the FDL line when a button strategy holds it."""
+        fdl = self.cfg.get("fdl") or {}
+        roles = ["reset"] if (self.cfg.get("reset") or {}).get("pin") else []
+        if fdl.get("strategy", "strapped") == "button" and fdl.get("pin"):
+            roles.append("fdl")
+        return roles
+
+    def preflight(self) -> None:
+        """Each line this board's reset and download mode drive can be driven now (no pulse, no level change)."""
+        gpio = self._gpio()
+        for role in self._roles():
+            pin = self.cfg[role]["pin"]
+            try:
+                gpio.check(self._alias(role))
+            except BspError as e:
+                raise type(e)(f"{self.dut.id}: its {role} line ({pin}) cannot be driven now: {e.message}",
+                              hint=(e.hint + "; " if e.hint else "")
+                                   + f"nothing was reset or fetched; retry once the line is free (`bsp gpio get {pin}`)",
+                              details={"dut": self.dut.id, "role": role, "pin": pin, "cause": e.to_dict()}) from e
+
     def reset(self, log: Log, ready: Ready | None = None) -> None:
         line = self.cfg.get("reset") or {}
         if not line.get("pin"):

@@ -490,6 +490,27 @@ def test_a_backend_that_cannot_tell_lets_the_line_pass(make_service):
     assert svc.check("J40:11")
 
 
+def test_the_default_control_preflight_has_nothing_to_say():
+    """A control that cannot check anything (a person, no relay) passes preflight: nothing that worked now fails."""
+    from core.dut.contracts import ControlBackend, DownloadPort
+
+    class Person(ControlBackend):
+        needs_human = True
+        def reset(self, log, ready=None): ...
+
+    class Dut:
+        id = "b1"
+        control: dict = {}
+
+    assert Person(Dut(), lambda name: None).preflight() is None
+
+    class Port(DownloadPort):
+        def state(self): return None
+        def cmd(self, *args, timeout=120): return ""
+
+    assert Port(Dut()).enumeration() is None          # cannot tell a re-enumeration: the device as it is counts
+
+
 def test_gpiod_ebusy_names_a_sysfs_export_or_the_holder(tmp_path):
     """EBUSY from gpiod says why: the line is exported through sysfs (use the sysfs backend, or unexport it), or
     which consumer holds it."""

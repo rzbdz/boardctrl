@@ -422,3 +422,55 @@ def test_flashing_one_url_twice_downloads_it_once_unless_refreshed(host, web):
     assert not any("downloading" in l for l in lines)
     assert any("from the URL cache" in l and _sha(data)[:12] in l for l in lines)
     assert any("downloading daily.zip" in l for l in flash(refresh=True))
+
+
+# ------------------------------------------------------- control preflight --
+def _hold(host, pin="P15", holder="another-program"):
+    """Make the mock line behind `pin` look held by something else, as a stale export or another program looks."""
+    gpio = host.app.state.hub.modules["dut"].ctx.service("gpio")
+    gpio.backend.inner.held[gpio.resolve(pin).gpio] = holder
+    return gpio
+
+
+def test_a_busy_reset_line_fails_the_flash_before_anything_is_fetched(host, web):
+    """The board's reset line cannot be driven: the flash fails at once, naming the line and why, and nothing is
+    downloaded, reset or pulsed."""
+    gpio = _hold(host)
+    (web.root / "big.tgz").write_bytes(b"x" * 10)
+    token = _call(host, "dut_acquire", dut="mock-board", holder="t", ttl=60)["token"]
+    e = _call(host, "dut_flash", dut="mock-board", package=f"{web.url}/big.tgz", flasher="fake", lease=token)
+    assert e["code"] == "hardware_error", e
+    assert "mock-board: its reset line (P15) cannot be driven now" in e["message"]
+    assert "held by 'another-program'" in e["message"]
+    assert "nothing was reset or fetched" in e["hint"] and "bsp gpio get P15" in e["hint"]
+    assert e["details"]["role"] == "reset" and e["details"]["cause"]["code"] == "hardware_error"
+    assert not list((host.tmp / "state").rglob("big.tgz"))          # nothing was fetched
+    assert not any(h[0] == gpio.resolve("P15").gpio and h[1] == "out" for h in gpio.backend.inner.history)
+    assert not [j for j in _call(host, "job_list") if j["kind"] == "flash"]
+
+    # reset and boot-from-files say the same before they start a job
+    e = _call(host, "dut_reset", dut="mock-board", lease=token, fdl=True)
+    assert e["code"] == "hardware_error" and "reset line (P15) cannot be driven now" in e["message"]
+    e = _call(host, "dut_boot_files", dut="mock-board", files="a" * 64, lease=token, reset=True)
+    assert e["code"] == "hardware_error" and "reset line (P15) cannot be driven now" in e["message"]
+
+    gpio.backend.inner.held.clear()                                    # line free: the flash starts
+    (web.root / "p.zip").write_bytes(_zip({"fastboot.yaml": b"actions: []\n"}))
+    r = _call(host, "dut_flash", dut="mock-board", package=f"{web.url}/p.zip", flasher="fake", lease=token,
+              reset=False)
+    assert r["job"], r
+
+
+def test_no_reset_flash_fails_before_the_job_when_the_board_is_in_another_stage(host, web, monkeypatch):
+    """--no-reset: the device on the bus is not the SoC's download mode: refused before anything is fetched, naming
+    what is there."""
+    fb = host.tmp / "bin" / "fastboot"
+    fb.write_text("#!/bin/sh\n[ \"$1\" = devices ] && printf 'abc\\tAndroid Fastboot\\n    usb:0-0\\n'\necho OKAY\n")
+    (web.root / "big.tgz").write_bytes(b"x" * 10)
+    token = _call(host, "dut_acquire", dut="mock-board", holder="t", ttl=60)["token"]
+    e = _call(host, "dut_flash", dut="mock-board", package=f"{web.url}/big.tgz", flasher="fake", lease=token,
+              reset=False)
+    assert e["code"] == "hardware_error", e
+    assert "'Android Fastboot'" in e["message"] and "not the download mode" in e["message"]
+    assert "drop --no-reset" in e["hint"]
+    assert not list((host.tmp / "state").rglob("big.tgz"))

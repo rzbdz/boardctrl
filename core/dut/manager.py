@@ -597,6 +597,9 @@ class DutManager:
         media = None if fdl else b.media(self)
         media = media if media and media.available() else None
 
+        if not media:              # a media boot may find the board waiting and reset nothing
+            b.control.preflight()  # a line that cannot be driven fails now, not as a job's EBUSY
+
         def body(log) -> dict[str, Any]:
             booted = None
             if fdl:
@@ -644,7 +647,10 @@ class DutManager:
             raise InvalidRequest(f"{dut} ({b.spec.board}) is not declared to run sdk {sdk}",
                                  hint=f"supported: {', '.join(self.effective_sdks(b.spec))}; "
                                       f"change with `bsp dut set {dut} --sdks ...` (empty = all SDKs of its SoC)")
-        inst.boot_plan(method, variant, brk)  # validate first: todo methods fail here with their notes
+        plan = inst.boot_plan(method, variant, brk)  # validate first: todo methods fail here with their notes
+        if any(st.get("do") == "enter-fdl" or (st.get("do") == "reset" and not st.get("when"))
+               for st in plan["steps"]):
+            b.control.preflight()  # before the artifacts are pulled: a line that cannot be driven fails now
         runner = b.runner(self)
         rev, broken = self.loaded_rev, self._catalog_error
 
@@ -823,6 +829,8 @@ class DutManager:
                 p, sha = self.store.get(path), path
             return {"sha256": sha, "path": str(p), "name": p.name, "size": p.stat().st_size}
 
+        if reset:
+            b.control.preflight()  # before any file is fetched
         runner = b.runner(self)
         names = " ".join(Path(ref["path"]).name for ref in refs)
 
@@ -951,6 +959,10 @@ class DutManager:
                              "args": expand(dict(self.flash_cfg.get("args") or {}), self.ctx.env)})
         else:
             name, why = provider.provider_name, f"{dut}'s flash provider"
+        if hook_based and reset:
+            b.control.preflight()  # the reset this flash starts with can happen: known before the download
+        elif hook_based:
+            b.runner(self).require_download_port()   # --no-reset: the board is in download mode now, or no download
         max_bytes = int(self.flash_cfg.get("max_package_bytes") or flashpkg.DEFAULT_MAX_BYTES)
         package = (package or "").strip()
         url = None

@@ -259,6 +259,13 @@ class ControlBackend(ABC):
     def setup(self) -> None:
         """Called at host start: prepare lines, register aliases."""
 
+    def preflight(self) -> None:
+        """Check, without acting, that `reset` and `enter_fdl` can do their work now (their lines free, say).
+
+        Called before a flash or a boot fetches anything, so a board that cannot be reset fails at once rather
+        than after a long download. Raises a BspError saying what is in the way; a backend that cannot check
+        anything has nothing to say, which is the default."""
+
     @abstractmethod
     def reset(self, log: Log, ready: Ready | None = None) -> None: ...
 
