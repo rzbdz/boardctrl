@@ -7,7 +7,7 @@ from typing import Any
 from core.cmdspec import CommandSpec, Param
 from core.commands import Command
 from core.context import HostContext
-from core.sdk.catalog import BOOT_METHODS, SdkCatalog
+from core.sdk.catalog import BOOT_METHODS, SdkCatalog, signature
 
 
 def _render_list(items: list[dict[str, Any]]) -> str:
@@ -46,8 +46,19 @@ class SdkService:
         ctx.bus.on("catalog.updated", lambda ev: self._reload())
         ctx.bus.on("site.updated", lambda ev: self._reload(reread_site=True))
 
+    def _paths(self) -> list:
+        return self._roots + ([self._layer] if self._layer.is_dir() else [])
+
     def _load(self) -> SdkCatalog:
-        return SdkCatalog(self._roots + ([self._layer] if self._layer.is_dir() else []))
+        roots = self._paths()
+        self._sig = signature(roots)
+        return SdkCatalog(roots)
+
+    def current(self) -> SdkCatalog:
+        """The catalog as its files are now (a file edited on this host counts at once, no restart)."""
+        if signature(self._paths()) != self._sig:
+            self._reload()
+        return self.catalog
 
     def _reload(self, reread_site: bool = False) -> None:
         try:
@@ -57,11 +68,11 @@ class SdkService:
                 self._roots = layered("sdk", self._site)
             self.catalog = self._load()
         except Exception:  # noqa: BLE001 - keep the catalog that loads
-            pass
+            self._sig = signature(self._paths())
 
     def commands(self) -> list[Command]:
         def c_():
-            return self.catalog
+            return self.current()
         sdk = Param("sdk", help=f"sdk instance id ({', '.join(c_().instances.names())})")
         return [
             Command(CommandSpec("sdk.list", "List SDK instances, their build server and boot-method status",

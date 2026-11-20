@@ -25,7 +25,7 @@ from core.jobs import current_token
 from core.hooks import HookRunner
 from core.context import HostContext
 from core.net import local_addresses
-from core.sdk.catalog import SdkCatalog
+from core.sdk.catalog import SdkCatalog, signature
 from core.dut.boot import BootRunner
 from core.dut.records import DutRegistry, DutSpec
 from core.dut.commands import build_commands
@@ -188,6 +188,7 @@ class DutManager:
         # them (catalog_follow.py)
         self._site = site
         self._files_layer = ctx.state_dir / "catalog-files"
+        self._catalog_error: str | None = None
         self.sdks = self._load_catalog()
         ctx.bus.on("catalog.updated", lambda ev: self.reload_catalog())
         self._hook_dirs = tuple(str((base / d).resolve()) for d in config.get("hook_dirs", []))
@@ -274,16 +275,51 @@ class DutManager:
         hooks = layered("hooks", self._site) + ([files[1]] if files[1].is_dir() else [])
         self.hooks = HookRunner(self._hook_dirs + tuple(str(d) for d in reversed(hooks)), env=self.ctx.env)
 
+    def _catalog_roots(self) -> list[Path]:
+        return self._sdk_roots + ([self._catalog_layer] if self._catalog_layer.is_dir() else [])
+
+    def _disk_signature(self) -> tuple:
+        """The SDK catalog's files and the SoC profiles as they are on disk (see current_catalog)."""
+        from core.site import layered
+
+        socs = layered("socs", self._site) + ([self._files_layer / "socs"] if (self._files_layer / "socs").is_dir() else [])
+        out = []
+        for d in socs:
+            for p in sorted(d.glob("*/soc.yaml")):
+                try:
+                    st = p.stat()
+                except OSError:
+                    continue
+                out.append((str(p), st.st_size, st.st_mtime_ns))
+        return signature(self._catalog_roots()) + tuple(out)
+
     def _load_catalog(self) -> SdkCatalog:
-        return SdkCatalog(self._sdk_roots + ([self._catalog_layer] if self._catalog_layer.is_dir() else []))
+        roots = self._catalog_roots()
+        sig = self._disk_signature()
+        cat = SdkCatalog(roots)
+        self._catalog_sig = sig
+        return cat
+
+    def current_catalog(self) -> SdkCatalog:
+        """The SDK catalog as its files are now: a site file edited on this host (or a registry copy written behind
+        the event) takes effect at the next boot without a restart. A boot already running keeps the recipe it
+        started with; a catalog that no longer loads leaves the one in use, and says why."""
+        if self._disk_signature() != getattr(self, "_catalog_sig", None):
+            log.info("catalog: files changed on disk, reloading")
+            self.reload_catalog()
+        return self.sdks
 
     def reload_catalog(self) -> None:
         """Take the registry's new catalog; a catalog that does not load leaves the old one in place."""
         try:
             self.sdks = self._load_catalog()
             self._load_socs()
+            self._catalog_error = None
             self._event("catalog", sdks=len(self.sdks.instances.names()), socs=sorted(self.socs.profiles))
         except BspError as e:
+            # remember what is on disk, so a broken file is reported once, not reloaded before every use
+            self._catalog_sig = self._disk_signature()
+            self._catalog_error = e.message
             self._event("error", error=e.to_dict(), what="catalog reload")
             log.warning("catalog reload failed, keeping the previous one: %s", e.message)
 
@@ -306,6 +342,7 @@ class DutManager:
         registry = DutRegistry(self.ctx.host_id, self._site / "duts", self.registry.state_file)
         self._load_socs()
         self._sdk_roots, self.sdks = roots, sdks
+        self._catalog_sig, self._catalog_error = self._disk_signature(), None
         self.registry = registry
         self._rebuild()
         self.ctx.bus.publish("site.updated", site=str(self._site))
@@ -596,7 +633,7 @@ class DutManager:
         b = self.board(dut)
         self.leases.check(dut, lease)
         self._guard_busy(dut)
-        inst = self.sdks.get(sdk)
+        inst = self.current_catalog().get(sdk)
         if inst.soc and b.spec.soc and inst.soc != b.spec.soc:
             raise InvalidRequest(f"sdk {sdk} is for {inst.soc}, but {dut} is a {b.spec.soc} board ({b.spec.board})",
                                  hint=f"SDKs for {b.spec.soc}: {', '.join(self.effective_sdks(b.spec)) or '(none)'}")
@@ -606,13 +643,15 @@ class DutManager:
                                       f"change with `bsp dut set {dut} --sdks ...` (empty = all SDKs of its SoC)")
         inst.boot_plan(method, variant, brk)  # validate first: todo methods fail here with their notes
         runner = b.runner(self)
-        rev = self.catalog_rev()
+        rev, broken = self.catalog_rev(), self._catalog_error
 
         hub_follower = self.ctx.services.get("catalog_follower")
         overridden = [x for x in (hub_follower.shadowed if hub_follower else []) if x["ref"] == sdk]
 
         def body(log):
             log(f"recipe from catalog revision {rev}" if rev else "recipe from the site's catalog")
+            if broken:
+                log(f"NOTE: the catalog on disk does not load, so the last one that did is used: {broken}")
             for x in overridden:
                 log(f"NOTE: {x['file']} on this host differs from the registry's {sdk} and is NOT used; "
                     f"publish it with `bsp catalog put {sdk} -f <file>` if it is the newer one")

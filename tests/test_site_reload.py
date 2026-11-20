@@ -102,3 +102,39 @@ def test_site_reload_is_refused_while_the_host_is_busy(tmp_path, monkeypatch):
         assert "board-1" in r.json()["error"]["message"] and "job list" in r.json()["error"]["hint"]
         dut._busy.clear()
         assert c.post("/api/v1/tools/site_reload", json={}).json()["ok"]
+
+
+def test_a_catalog_file_edited_on_the_host_counts_at_its_next_use(tmp_path, monkeypatch):
+    """A recipe changed in the site's sdk/ on a running host is what the next plan and boot use, without a restart or
+    a reload; a file that stops loading leaves the last catalog that did, and the boot says so."""
+    import os
+    import time
+
+    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    site = tmp_path / "site"
+    p = site / "hosts" / "h.yaml"
+    p.parent.mkdir(parents=True)
+    p.write_text("host: {id: h}\nserver: {state_dir: ../state}\nmodules:\n  sdk: {}\n"
+                 "  dut: {probe: {pulse_ms: 200}, slots: {auto_console: false}}\n")
+    shutil.copytree(SITE / "sdk", site / "sdk")
+    doc = site / "sdk" / "instances" / "bsp-a.yaml"
+
+    def plan(c):
+        return c.post("/api/v1/tools/sdk_boot-plan", json={"sdk": "bsp-a", "method": "load"}).json()
+
+    with TestClient(create_app(HostConfig.load(p))) as c:
+        dut = c.app.state.hub.modules["dut"]
+        before = plan(c)
+        assert before["ok"], before
+        text = doc.read_text()
+        doc.write_text(text.replace("timeout: 60", "timeout: 61", 1))
+        st = doc.stat()
+        os.utime(doc, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))   # a coarse clock still sees it
+        after = plan(c)
+        assert after["ok"] and after != before, (before, after)
+        assert "61" in str(dut.current_catalog().get("bsp-a").boot["load"].steps)
+        doc.write_text("id: bsp-a\nfamily: make-bsp\n")                       # broken: no boot methods
+        os.utime(doc, ns=(time.time_ns() + 2_000_000_000,) * 2)
+        assert plan(c)["ok"]                                                   # the last catalog that loaded
+        assert "61" in str(dut.current_catalog().get("bsp-a").boot["load"].steps)
+        assert dut._catalog_error and "boot" in dut._catalog_error

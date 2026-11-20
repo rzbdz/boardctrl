@@ -371,3 +371,17 @@ def _validate_step(path: Path, method: str, step: dict[str, Any]) -> None:
 def sharing(cat: "SdkCatalog", ws_id: str) -> list[str]:
     """SDK instances that build in the same workspace."""
     return sorted(i for i, inst in cat.instances.items() if inst.workspace.id == ws_id)
+
+
+def signature(roots: "list[Path]") -> tuple:
+    """What the catalog files under `roots` look like on disk (name, size, mtime): a catalog read when this was
+    different is out of date. Cheap enough to check before every use."""
+    out = []
+    for r in roots:
+        for p in [r / "REV", r / "removed.json"] + [p for kind in CATALOG_KINDS for p in sorted((r / kind).glob("*.yaml"))]:
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            out.append((str(p), st.st_size, st.st_mtime_ns))
+    return tuple(out)
