@@ -210,3 +210,37 @@ def test_the_gpio_backend_is_chosen_by_a_python_that_has_gpiod_not_whatever_is_f
     assert "RELAY=gpiod" in run.stdout, run.stdout
     assert str(system) in run.stdout                              # it says which python has the bindings
 
+
+
+def test_a_gpio_backend_the_host_file_states_is_kept_over_detection(tmp_path):
+    """gpiod and sysfs cannot share a line: a line exported through sysfs is busy for gpiod, so every reset fails with
+    EBUSY. A backend the site's copy of the host file (or the machine's own file) names is kept on reinstall, even where
+    gpiod would be detected; `--relay` still chooses, and a file that names none leaves it to detection."""
+    system = tmp_path / "system-python"
+    system.write_text("#!/bin/sh\nexit 0\n")                  # gpiod importable: detection alone would say gpiod
+    system.chmod(0o755)
+    shipped, site = tmp_path / "shipped", tmp_path / "site"
+    (shipped).mkdir()
+    (site / "hosts").mkdir(parents=True)
+    script = (ROOT / "deploy" / "bspd-install.sh").read_text()
+    start = script.index('[[ $BOARD == none ]] && BOARD=""')
+    end = script.index("# The code: a fresh venv", start)
+
+    def relay(relay="auto", site_hosts=""):
+        run = subprocess.run(
+            ["bash", "-c", f'ls() {{ return 0; }}; {script[start:end].strip()}; echo "RELAY=$RELAY"'],
+            env={"PATH": "/usr/bin:/bin", "BOARD": "spacemit-k3-com260", "RELAY": relay, "ID": "test-host",
+                 "SITE": str(site), "SITE_HOSTS": site_hosts, "SYSTEM_PYTHON": str(system)},
+            capture_output=True, text=True)
+        assert run.returncode == 0, run.stderr
+        return run.stdout.strip().splitlines()[-1]
+
+    assert relay() == "RELAY=gpiod"                                         # nothing stated: detected
+    (site / "hosts/test-host.yaml").write_text(
+        "host: {id: test-host}\nproviders:\n  ec:\n    backend: other\n  gpio:\n    board: b\n    backend: gpiod\n")
+    (shipped / "test-host.yaml").write_text(
+        "host: {id: test-host}\nproviders:\n  gpio:\n    board: b\n    backend: sysfs   # lines stay exported\n")
+    assert relay(site_hosts=str(shipped)) == "RELAY=sysfs"                  # the site's copy decides
+    (site / "hosts/test-host.yaml").write_text("host: {id: test-host}\nmodules:\n  gpio_relay:\n    backend: sysfs\n")
+    assert relay() == "RELAY=sysfs"                                         # the machine's own (older) file
+    assert relay(relay="gpiod", site_hosts=str(shipped)) == "RELAY=gpiod"   # --relay still chooses

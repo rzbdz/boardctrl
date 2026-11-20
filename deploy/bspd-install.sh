@@ -128,6 +128,20 @@ gpiod_python() {
   done
   return 1
 }
+# The gpio backend a hosts file names (`backend:` inside its `gpio:` block, `gpio_relay:` in older files), if any.
+stated_backend() {
+  [[ -f $1 ]] || return 0
+  awk '/^[^[:space:]#]/ { top = $1 } top ~ /^(providers|modules):/ && /^  [^[:space:]#]/ { gpio = ($1 == "gpio:" || $1 == "gpio_relay:") }
+       top ~ /^(providers|modules):/ && gpio && /^    backend:/ { v = $2; sub(/#.*/, "", v); print v; exit }' "$1"
+}
+# A detected backend is a guess; a stated one is a decision. gpiod and sysfs cannot share a line (a line exported
+# through sysfs is busy for gpiod, EBUSY on every pulse), so without `--relay` the site's copy of this host's file
+# decides, then what this machine's file already says, and only then detection.
+if [[ $RELAY == auto && -n $BOARD ]]; then
+  stated=$(stated_backend "${SITE_HOSTS:+$SITE_HOSTS/$ID.yaml}")
+  [[ -n $stated ]] || stated=$(stated_backend "$SITE/hosts/$ID.yaml")
+  if [[ -n $stated ]]; then RELAY=$stated; echo "--> gpio backend: $RELAY, as the host's file says (--relay to change it)"; fi
+fi
 if [[ $RELAY == auto ]]; then
   if [[ -z $BOARD ]]; then RELAY=none; elif ls /dev/gpiochip* >/dev/null 2>&1 && gpiod_python >/dev/null; then RELAY=gpiod; else RELAY=sysfs; fi
 fi
