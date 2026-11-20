@@ -488,3 +488,19 @@ def test_a_backend_that_cannot_tell_lets_the_line_pass(make_service):
     svc = make_service()
     svc.backend = Unsure()
     assert svc.check("J40:11")
+
+
+def test_gpiod_ebusy_names_a_sysfs_export_or_the_holder(tmp_path):
+    """EBUSY from gpiod says why: the line is exported through sysfs (use the sysfs backend, or unexport it), or
+    which consumer holds it."""
+    from providers.gpio.backends.gpiod_backend import busy_error
+
+    (tmp_path / "gpio127").mkdir()
+    e = busy_error(127, None, sysfs_root=tmp_path)
+    assert "exported through sysfs" in e.message and str(tmp_path / "gpio127") in e.message
+    assert "providers.gpio.backend: sysfs" in e.hint and f"echo 127 > {tmp_path / 'unexport'}" in e.hint
+    assert e.details["holder"] == "sysfs"
+    e = busy_error(119, "other-tool", sysfs_root=tmp_path)
+    assert "held by 'other-tool'" in e.message and "gpioinfo" in e.hint and "sysfs" not in e.hint
+    e = busy_error(119, None, sysfs_root=tmp_path)
+    assert "another process holds the line" in e.message
