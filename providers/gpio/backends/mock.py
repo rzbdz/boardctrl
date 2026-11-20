@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 
+from core.errors import HardwareError
 from providers.gpio.backends import BACKENDS
 from providers.gpio.backends.base import GpioBackend, LineStatus
 
@@ -17,8 +18,21 @@ class MockBackend(GpioBackend):
         self._lines: dict[int, tuple[str, int]] = {}
         self._lock = threading.Lock()
         self.history: list[tuple[int, str, int | None]] = []
+        # Lines something else holds (gpio -> holder), as another program looks to a character-device backend:
+        # driving one fails busy, as it would there.
+        self.held: dict[int, str] = {}
+
+    def busy(self, gpio: int) -> HardwareError | None:
+        holder = self.held.get(gpio)
+        if not holder:
+            return None
+        return HardwareError(f"GPIO{gpio}: Device or resource busy: the line is held by {holder!r}",
+                             hint="free the line there, or choose another pin")
 
     def set_output(self, gpio: int, value: int) -> None:
+        why = self.busy(gpio)
+        if why:
+            raise why
         with self._lock:
             self._lines[gpio] = ("out", 1 if value else 0)
             self.history.append((gpio, "out", 1 if value else 0))

@@ -454,3 +454,37 @@ def test_a_site_cannot_ship_code_under_a_kernel_services_name(tmp_path):
     plain = Providers([tmp_path / "nowhere"])
     plain.load(Ctx(), {"sdk": {}, "registry": {}, "dut": {}})
     assert plain.errors == {}
+
+
+def test_check_says_a_line_cannot_be_driven_without_driving_it(make_service):
+    """`check` raises what driving a line would fail with (another holder), and changes nothing on any line."""
+    from providers.gpio.backends.mock import MockBackend
+    from core.errors import HardwareError
+
+    svc = make_service()
+    mock = MockBackend()
+    svc.backend = mock
+    gpio = svc.resolve("J40:11").gpio
+    assert svc.check("J40:11").key == svc.resolve("J40:11").key
+    mock.held[gpio] = "other-tool"
+    with pytest.raises(HardwareError) as e:
+        svc.check("J40:11")
+    assert "held by 'other-tool'" in e.value.message
+    assert mock.history == []                         # never claimed, pulsed or switched
+    svc.claim("swd", {"swclk": "J40:13"})
+    with pytest.raises(Conflict):                     # a usage's claim is what driving it would hit, too
+        svc.check("J40:13")
+
+
+def test_a_backend_that_cannot_tell_lets_the_line_pass(make_service):
+    """`busy` that fails to answer (a guard's timeout) is not a refusal: driving the line is the only way to know."""
+    from providers.gpio.backends.mock import MockBackend
+    from core.errors import HardwareTimeout
+
+    class Unsure(MockBackend):
+        def busy(self, gpio):
+            raise HardwareTimeout("busy did not complete")
+
+    svc = make_service()
+    svc.backend = Unsure()
+    assert svc.check("J40:11")

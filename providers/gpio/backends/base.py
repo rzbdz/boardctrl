@@ -85,6 +85,11 @@ class GpioBackend(ABC):
     def status(self, gpio: int) -> LineStatus:
         """Inspect the line without claiming it or changing anything."""
 
+    def busy(self, gpio: int) -> HardwareError | None:
+        """Why this backend could not drive the line now (something else holds it), as the error driving it would
+        raise; None when it can, or when the backend cannot tell. Never claims or changes the line."""
+        return None
+
     @abstractmethod
     def free(self, gpio: int) -> None:
         """Give the line back (input first, then unexport/release)."""

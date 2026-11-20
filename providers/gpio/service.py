@@ -355,6 +355,20 @@ class GpioService:
     def get(self, target: str | int) -> dict[str, Any]:
         return self.snapshot(self.resolve(target))
 
+    def check(self, target: str | int) -> HeaderPin:
+        """Raise what driving `target` would fail with now (a usage claim, protection, a muxed pad, a line another
+        holder has), without driving it or changing its level. A backend that cannot tell lets the line pass."""
+        ch = self.channel(target)
+        self._guard(ch, False)
+        busy = getattr(self.backend, "busy", None)
+        try:
+            why = busy(ch.gpio) if busy else None
+        except BspError:
+            return ch.pin                  # cannot tell: driving it is the only way to find out
+        if why is not None:
+            raise why
+        return ch.pin
+
     def board_info(self) -> dict[str, Any]:
         d = self.board.to_dict()
         d["backend"] = self.backend.info()
