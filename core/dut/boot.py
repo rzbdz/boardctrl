@@ -15,6 +15,18 @@ from core.dut.artifacts import ArtifactStore
 
 Log = Callable[[str], None]
 
+# Hook argument names whose values never reach a boot log.
+_SECRET = re.compile(r"token|secret|passw|credential|private|auth(?!or)|(^|[_-])key$|api[_-]?key", re.I)
+
+
+def redact(value: Any) -> Any:
+    """A hook's arguments as a boot log may show them: values under secret-like names hidden."""
+    if isinstance(value, dict):
+        return {k: "***" if _SECRET.search(str(k)) and v not in (None, "") else redact(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact(v) for v in value]
+    return value
+
 
 class BootRunner:
     def __init__(self, dut_id: str, control: ControlBackend, fastboot: Any, console: Any,
@@ -247,6 +259,8 @@ class BootRunner:
                     req["product_dir"] = self.product_dir
                 elif artifacts_dir is not None:      # nothing configured: the artifact directory is the product
                     req["product_dir"] = artifacts_dir
+                # what the hook really gets, after ${VAR} expansion (secrets hidden)
+                log(f"{label}: {step.get('kind', 'flash')}/{step['name']} args {redact(req['args'])}")
                 res = self.hooks.run(step.get("kind", "flash"), step["name"], req,
                                      timeout=float(step.get("timeout", 1800)), log=log,
                                      progress=getattr(log, "progress", None))

@@ -126,6 +126,22 @@ def test_a_boot_hook_request_has_env_network_sdk_artifacts_and_product_dir(tmp_p
     assert req["args"] == {"tftp": "192.0.2.20/img.itb", "d": "none"}
 
 
+def test_the_boot_log_shows_each_hooks_expanded_args_with_secrets_hidden(tmp_path, monkeypatch):
+    monkeypatch.setenv("CAPTURE", str(tmp_path / "req.json"))
+    runner = BootRunner("b1", None, _Fastboot(), _Console(), None, hooks=_capture_hook(tmp_path),
+                        env={"BSP_TFTP_SERVER": "192.0.2.20", "LAB_TOKEN": "s3cret"})
+    lines: list[str] = []
+    runner.run_steps([{"do": "hook", "kind": "flash", "name": "capture",
+                       "args": {"tftp": "${BSP_TFTP_SERVER}/img.itb", "api_token": "${LAB_TOKEN}",
+                                "login": {"user": "dev", "password": "pw"}, "author": "me", "keymap": "us"}}],
+                     lines.append)
+    shown = [x for x in lines if " args " in x]
+    assert len(shown) == 1 and "flash/capture args" in shown[0], lines
+    assert "192.0.2.20/img.itb" in shown[0] and "'author': 'me'" in shown[0] and "'keymap': 'us'" in shown[0]
+    assert "s3cret" not in shown[0] and "pw'" not in shown[0] and shown[0].count("***") == 2
+    assert json.loads((tmp_path / "req.json").read_text())["args"]["api_token"] == "s3cret"   # the hook gets it
+
+
 def test_without_a_product_dir_the_artifact_directory_is_the_product(tmp_path, monkeypatch):
     monkeypatch.setenv("CAPTURE", str(tmp_path / "req.json"))
     runner = BootRunner("b1", None, _Fastboot(), _Console(), None, hooks=_capture_hook(tmp_path))
