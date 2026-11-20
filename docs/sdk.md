@@ -188,7 +188,7 @@ the registry once; `boardctrl catalog export --dir DIR` writes the registry's do
 | `boardctrl catalog rm REF --base REV [-m MSG]` | Delete a document |
 | `boardctrl catalog history REF`, `boardctrl catalog rollback REF REV` | Every revision, and writing an earlier one again |
 | `boardctrl catalog status` | The catalog revision, which revision each host has, and site edits it overrides |
-| `boardctrl catalog refresh` | Clear this machine's cached catalog and have every host fetch it again now |
+| `boardctrl catalog refresh` | Clear this machine's cached catalog, have every host fetch it again now, and report what each holds |
 | `boardctrl catalog sync` | Fetch the registry's catalog, SoC facts and hooks to this machine now |
 
 `REF` is an SDK id, or `family/ID`, `server/ID`, `workspace/ID`.
@@ -204,11 +204,17 @@ Anyone may change the catalog; what keeps it safe:
 - **Everything is kept.** Each write is a new revision with its author (`--author`, default
   `$BSP_HOLDER` or `$USER`) and message; `rollback` restores any earlier one.
 
-Hosts learn the catalog revision from the registry's answer to their announcements, and the
-registry nudges them right after a change. A host fetches the new catalog into `<state>/catalog`,
-reloads it without restarting, and keeps it across restarts and outages. Boots already running
-keep the recipe they started with; each boot job's log names the catalog revision its recipe came
-from. Clients (`boardctrl sdk`, `boardctrl catalog`) read the registry's catalog too, keeping the last copy in
+Hosts learn the catalog revision from the registry's answer to their announcements. Right after
+a change, the registry also has every host it knows fetch it, and the change's output lists each
+host: `delivered rev N, verified, in effect`, or `NOT DELIVERED` with the reason and what to run
+(the host is unreachable, has stopped announcing, runs without `server.announce` and so follows no
+registry, or fetched the catalog but cannot load it). `refresh` does the same from scratch, and
+fails with the reasons when no host takes the catalog. A host fetches the new catalog into
+`<state>/catalog`, reloads it without restarting, and keeps it across restarts and outages. A
+catalog file changed on the host itself is also taken at its next use (a plan or a boot), without
+a restart. Boots already running keep the recipe they started with. Each boot job's log names the
+catalog revision its recipe came from, and each hook step logs the arguments it passes after
+`${VAR}` expansion, with secret-like values hidden. Clients (`boardctrl sdk`, `boardctrl catalog`) read the registry's catalog too, keeping the last copy in
 `~/.cache/bsp/` for when the registry cannot be reached. The registry stores the catalog in
 `<state>/registry/catalog.sqlite`.
 

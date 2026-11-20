@@ -162,32 +162,113 @@ class RegistryService:
         items = self.list(all=True)
         return {"hosts": len(items), "fresh": sum(not e["stale"] for e in items)}
 
+    # ------------------------------------------------------------ delivery --
+    def deliver(self, reset: bool = False) -> list[dict[str, Any]]:
+        """Have every known host fetch the catalog now and report what it holds afterwards, checked against this
+        registry's revision and files digest. Hosts that stopped announcing are tried at their last address too: a
+        host is often still there with its announcer broken. What a host reports goes into its entry, so the status
+        shows it at once. One row per host; nothing raises."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        known = sorted(self.list(all=True), key=lambda e: (e["stale"], e["host"]))
+        if not known:
+            return []
+        with ThreadPoolExecutor(max_workers=min(16, len(known))) as pool:
+            rows = list(pool.map(lambda e: self._deliver_one(e, reset), known))
+        with self._lock:
+            for row in rows:
+                entry = self._hosts.get(row["host"])
+                if entry is not None and row["rev"] is not None:
+                    entry["catalog_rev"] = int(row["rev"])
+                    if row.get("files_digest") is not None:
+                        entry["files_digest"] = str(row["files_digest"])[:64]
+                    entry["catalog_shadowed"] = row["shadowed"][:100]
+            self._save()
+        return rows
+
+    def _deliver_one(self, e: dict[str, Any], reset: bool) -> dict[str, Any]:
+        import socket
+        import urllib.error
+        import urllib.request
+
+        rev, files = self.catalog.rev, self.files.digest()
+        row: dict[str, Any] = {"host": e["host"], "stale": e["stale"], "age_s": e["age_s"], "state": "unreachable",
+                               "rev": None, "files_digest": None, "in_effect": None, "error": None, "hint": None,
+                               "shadowed": []}
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        headers = {"Content-Type": "application/json"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        # A host that announces answers within its own fetch; one that stopped is most likely gone: do not wait long.
+        timeout = 5 if e["stale"] else 45
+        errors = []
+        for url in [e["remote"]["url"], *e["remote"]["fallback_urls"]]:
+            req = urllib.request.Request(url + "/api/v1/tools/catalog_sync", data=json.dumps({"reset": reset}).encode(),
+                                         method="POST", headers=headers)
+            try:
+                with opener.open(req, timeout=timeout) as r:
+                    res = json.loads(r.read())
+            except urllib.error.HTTPError as h:
+                try:
+                    err = (json.loads(h.read()).get("error") or {})
+                except ValueError:
+                    err = {}
+                row["error"] = f"{url}: HTTP {h.code} {err.get('message') or h.reason}"
+                if h.code == 404:
+                    row.update(state="not_following", hint=(
+                        "this host's running boardctrld does not follow a registry (its config has no "
+                        "server.announce): put server.announce {url: <this registry>} in its host file, or reinstall "
+                        "the host so its site's host file brings it, then restart boardctrld there"))
+                elif h.code in (401, 403):
+                    row.update(state="refused", hint="the host wants a token this registry does not send: give the "
+                                                     "registry the hosts' token (server.auth_token / BSP_TOKEN)")
+                else:
+                    row["state"] = "failed"
+                return row
+            except (socket.timeout, TimeoutError):
+                row.update(state="pending", error=f"{url}: no answer within {timeout}s", hint=(
+                    "the host may still be fetching (large images); check again in a minute with `bsp catalog status`"))
+                return row
+            except Exception as ex:  # noqa: BLE001 - try the next address
+                errors.append(f"{url}: {getattr(ex, 'reason', ex)}")
+                continue
+            got = res.get("result") or {}
+            row.update(rev=got.get("rev"), files_digest=got.get("files_digest"), shadowed=got.get("shadowed") or [],
+                       in_effect=got.get("in_effect"), error=got.get("load_error"))
+            if not got.get("ok", True):
+                row.update(state="behind", error=f"the host cannot fetch from this registry: {got.get('error')}",
+                           hint="the host fetches from its server.announce url: check that it reaches this registry "
+                                "from there")
+            elif got.get("rev") != rev or (got.get("files_digest") is not None and got.get("files_digest") != files):
+                fe = (got.get("files") or {}).get("error")
+                row.update(state="behind", error=f"holds rev {got.get('rev')} after fetching, the registry has {rev}"
+                                                 + (f"; files: {fe}" if fe else ""),
+                           hint="the host fetches from its server.announce url: it may name another registry")
+            elif got.get("load_error") or (got.get("in_effect") is not None and got.get("in_effect") != rev):
+                row.update(state="not_in_effect", error=f"fetched rev {got.get('rev')}, but boardctrld there uses "
+                                                        f"rev {got.get('in_effect')}"
+                                                        + (f": {got.get('load_error')}" if got.get("load_error") else ""),
+                           hint="its own site files do not load with this catalog: fix them there (or the document), "
+                                "or restart boardctrld there to see the error at start")
+            else:
+                row["state"] = "current"
+            return row
+        row["error"] = "; ".join(errors) or "no address"
+        row["hint"] = (f"it has not announced for {row['age_s']}s; if it is gone: "
+                       f"`bsp -r <registry> registry forget {e['host']}`") if e["stale"] else \
+            "check that boardctrld runs there and its port is open to this registry"
+        return row
+
     # ------------------------------------------------------------- catalog --
     def _changed(self, result: dict[str, Any]) -> dict[str, Any]:
-        """After a write: announce it, and nudge the hosts to fetch the new catalog now (they also notice at
-        their next announcement)."""
+        """After a write: announce it, and deliver the new catalog to every known host now, reporting what each holds
+        afterwards (a host that cannot be reached catches up at its next announcement)."""
         if result.get("checked") or "rev" not in result:
             return result
         self.ctx.bus.publish("catalog.changed", ref=result.get("ref"), rev=self.catalog.rev)
-        known = self.list(all=True)
-        result = {**result, "reaches": [e["host"] for e in known if not e["stale"]],
-                  "not_reached": [e["host"] for e in known if e["stale"]]}
-
-        def nudge() -> None:
-            import urllib.request
-
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            for e in self.list():
-                for url in [e["remote"]["url"], *e["remote"]["fallback_urls"]]:
-                    try:
-                        req = urllib.request.Request(url + "/api/v1/tools/catalog_sync", data=b"{}", method="POST",
-                                                     headers={"Content-Type": "application/json"})
-                        opener.open(req, timeout=5).read()
-                        break
-                    except Exception:  # noqa: BLE001 - the host catches up at its next announcement
-                        continue
-        threading.Thread(target=nudge, name="catalog nudge", daemon=True).start()
-        return result
+        rows = self.deliver()
+        return {**result, "delivery": rows, "reaches": [r["host"] for r in rows if r["state"] == "current"],
+                "not_reached": [r["host"] for r in rows if r["state"] != "current"]}
 
     def startup(self) -> None:
         if self.git:
@@ -211,36 +292,21 @@ class RegistryService:
                                        "duts": e["duts"], "ports": e.get("ports") or {}} for e in self.list(all=True)]}
 
     def refresh(self) -> dict[str, Any]:
-        """Have every host throw its copy of the catalog away and fetch it again now; report what each has."""
-        import urllib.request
-
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        hosts = []
-        known = self.list(all=True)
-        stale = [{"host": e["host"], "age_s": e["age_s"]} for e in known if e["stale"]]
-        # A host that stopped announcing is not reached: saying "done" with nobody reached hides that the catalog goes
-        # nowhere (a host whose file lost its `server.announce`, say).
-        if not any(not e["stale"] for e in known):
+        """Have every known host throw its copy of the catalog away and fetch it again now; report what each holds.
+        Never "done" with nobody reached: no host known, or none that took it, is an error that says why."""
+        rows = self.deliver(reset=True)
+        if not rows:
             raise InvalidRequest(
-                "no board host is announcing to this registry, so the catalog reaches none of them"
-                + (f" (stale: {', '.join(x['host'] for x in stale)})" if stale else ""),
-                hint="a host announces when its host file has server.announce (url of this registry); reinstall it from "
-                     "boardlab (the site's host file carries it), then check `bsp registry list --all`")
-        for e in self.list():
-            row = {"host": e["host"], "rev": None, "error": None, "shadowed": []}
-            for url in [e["remote"]["url"], *e["remote"]["fallback_urls"]]:
-                try:
-                    req = urllib.request.Request(url + "/api/v1/tools/catalog_sync", data=json.dumps({"reset": True}).encode(),
-                                                 method="POST", headers={"Content-Type": "application/json"})
-                    res = json.loads(opener.open(req, timeout=30).read())
-                    if not res.get("ok"):
-                        raise ValueError((res.get("error") or {}).get("message"))
-                    row.update(rev=res["result"].get("rev"), error=None, shadowed=res["result"].get("shadowed") or [])
-                    break
-                except Exception as ex:  # noqa: BLE001 - reported per host
-                    row["error"] = str(ex)
-            hosts.append(row)
-        return {"rev": self.catalog.rev, "hosts": hosts, "stale": stale}
+                "this registry knows no board host, so the catalog reaches none",
+                hint="a host registers when its host file has server.announce {url: <this registry>}; add it (or "
+                     "reinstall the host so its site's host file brings it) and restart boardctrld there, then check "
+                     "`bsp catalog status`")
+        if not any(r["state"] == "current" for r in rows):
+            raise InvalidRequest(
+                "no board host took the catalog: " + "; ".join(f"{r['host']}: {r['state']} ({r['error']})" for r in rows),
+                hint=" | ".join(f"{r['host']}: {r['hint']}" for r in rows if r.get("hint")) or None,
+                details={"rev": self.catalog.rev, "hosts": rows})
+        return {"rev": self.catalog.rev, "files_digest": self.files.digest(), "hosts": rows}
 
     def _git_pull(self) -> dict[str, Any]:
         if not self.git:
@@ -262,10 +328,21 @@ class RegistryService:
         TEXT = Param("text", help="the YAML document", positional=False)
 
         def reach(r: dict[str, Any]) -> str:
-            if "reaches" not in r:
+            if "delivery" not in r:
                 return ""
-            line = f"\n  reaches {', '.join(r['reaches'])}" if r["reaches"] else "\n  WARNING: reaches no board host (none is announcing)"
-            return line + (f"\n  NOT REACHED (not announcing): {', '.join(r['not_reached'])}" if r["not_reached"] else "")
+            return delivered(r["delivery"]) or "\n  WARNING: this registry knows no board host, so the change reaches none " \
+                "(a host registers when its host file has server.announce)"
+
+        def delivered(rows: list[dict[str, Any]]) -> str:
+            out = []
+            for h in rows:
+                if h["state"] == "current":
+                    out.append(f"\n  {h['host']:<16} delivered rev {h['rev']}, verified, in effect")
+                else:
+                    out.append(f"\n  {h['host']:<16} NOT DELIVERED ({h['state']}): {h['error']}"
+                               + (f"\n  {'':<16}   next: {h['hint']}" if h.get("hint") else ""))
+                out += [f"\n    NOT IN EFFECT: {x['file']} differs from {x['ref']} (publish with put)" for x in h["shadowed"]]
+            return "".join(out)
 
         def show(r: dict[str, Any]) -> str:
             if r.get("checked"):
@@ -311,6 +388,10 @@ class RegistryService:
                         + "".join(f"\n  NOT APPLIED from git: {x['ref']} ({x['author']}, {x['commit']}): {x['error']}" for x in r['git']['rejected'][-5:])
                         if r.get("git") else "") + "\n" + "\n".join(
                         f"  {h['host']:<16} rev {h['catalog_rev']:<5} {'ok' if h['current'] else 'BEHIND'}{'' if h.get('files_current', True) else ' (files behind)'}{' (stale)' if h['stale'] else ''}"
+                        + (f"\n    not announcing for {h['age_s']}s, so it gets no changes: check boardctrld there (its host "
+                           f"file needs server.announce); if the host is gone: `registry forget {h['host']}`"
+                           if h["stale"] else "" if h["current"] else
+                           "\n    has not fetched the latest yet: `catalog refresh` delivers it now and says why not")
                         + "".join(f"\n    NOT IN EFFECT: {x['file']} differs from {x['ref']} (publish with put)" for x in h["shadowed"])
                         for h in r["hosts"])),
             Command(CommandSpec("catalog.git_pull", "Take commits pushed to the catalog's git repository in now (validated)", []),
@@ -320,11 +401,7 @@ class RegistryService:
                                         + [f"  NOT APPLIED {x['ref']} ({x['author']}, {x['commit']}): {x['error']}" for x in r["rejected"]])),
             Command(CommandSpec("catalog.refresh", "Every host throws its catalog copy away and fetches it again now", []),
                     self.refresh,
-                    lambda r: f"catalog revision {r['rev']}\n" + "\n".join(
-                        f"  {h['host']:<16} " + (f"rev {h['rev']}" if h["rev"] is not None else f"FAILED: {h['error']}")
-                        + "".join(f"\n    NOT IN EFFECT: {x['file']} differs from {x['ref']} (publish with put)" for x in h["shadowed"])
-                        for h in r["hosts"]) + "".join(
-                        f"\n  {x['host']:<16} NOT REACHED: has not announced for {int(x['age_s'])}s" for x in r.get("stale") or [])),
+                    lambda r: f"catalog revision {r['rev']}" + delivered(r["hosts"])),
         ]
 
     def commands(self) -> list[Command]:

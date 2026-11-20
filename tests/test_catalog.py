@@ -120,11 +120,13 @@ def test_writes_need_no_token_and_hosts_pick_the_catalog_up(tmp_path, monkeypatc
             text = reg.get("/api/v1/catalog/get?ref=bsp-b").json()["result"]["text"]
             # Nobody announces yet: refreshing reaches no host, and says so instead of reporting success.
             nobody = reg.post("/api/v1/tools/catalog_refresh", json={}).json()
-            assert not nobody["ok"] and "no board host is announcing" in nobody["error"]["message"], nobody
+            assert not nobody["ok"] and "knows no board host" in nobody["error"]["message"], nobody
+            assert "server.announce" in nobody["error"]["hint"]
             r = reg.post("/api/v1/tools/catalog_recipe", json={"sdk": "bsp-b", "method": "load", "text": RECIPE,
                                                                "author": "claude:x"}).json()
             assert r["ok"] and r["result"]["rev"] == 1, r
-            assert r["result"]["reaches"] == [] and r["result"]["not_reached"] == []
+            assert r["result"]["reaches"] == [] and r["result"]["delivery"] == []
+            assert "knows no board host" in r["text"]
         monkeypatch.delenv("BSP_TOKEN")
         host_app = _app(tmp_path, "h1", f"host: {{id: h1}}\nserver: {{state_dir: state, announce: {{url: '{url}', interval_s: 3600}}}}\n"
                                         "modules: {gpio_relay: {board: example-40pin, backend: mock, pinmux: false}, sdk: {}, dut: {}}\n")
@@ -319,3 +321,86 @@ def test_hosts_and_clis_share_the_registrys_soc_profiles_hooks_and_images(tmp_pa
         assert (layer / "socs" / "soc-a" / "soc.yaml").exists() and (layer / ".blobs" / sha / "handoff.bin").read_bytes() == image
     finally:
         server.should_exit = True
+
+
+def _serve(app):
+    import socket
+    import threading
+
+    import uvicorn
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+    threading.Thread(target=server.run, daemon=True).start()
+    while not server.started:
+        time.sleep(0.05)
+    return server, port
+
+
+def test_a_change_is_delivered_verified_and_every_host_that_missed_it_says_why(tmp_path, monkeypatch):
+    """A put reaches every host the registry knows at once and reports what each holds afterwards: a following host
+    is verified current (and the status shows it without waiting for its next announcement), a host whose
+    boardctrld follows no registry and a host that is gone are named with why and what to run."""
+    import socket
+
+    import frontends.server.announce as announce
+
+    # The hosts here listen on loopback only, which an announcement cannot carry: the registry's entries are set
+    # below, and the follower's own announcement (no usable address) leaves them as they are.
+    monkeypatch.setattr(announce, "local_addresses", lambda: [])
+    reg_app = _app(tmp_path, "reg", "host: {id: reg}\nserver: {state_dir: state}\nmodules: {registry: {}}\n")
+    reg_srv, reg_port = _serve(reg_app)
+    url = f"http://127.0.0.1:{reg_port}"
+    follower = _app(tmp_path, "h1", f"host: {{id: h1}}\nserver: {{state_dir: state, announce: {{url: '{url}', interval_s: 3600}}}}\n"
+                                    "modules: {gpio_relay: {board: example-40pin, backend: mock, pinmux: false}, sdk: {}, dut: {}}\n")
+    loner = _app(tmp_path, "h2", "host: {id: h2}\nserver: {state_dir: state}\n"
+                                 "modules: {gpio_relay: {board: example-40pin, backend: mock, pinmux: false}, sdk: {}, dut: {}}\n")
+    servers = [reg_srv]
+    try:
+        h1, p1 = _serve(follower)
+        h2, p2 = _serve(loner)
+        servers += [h1, h2]
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            gone = s.getsockname()[1]                     # nothing listens here
+        reg = reg_app.state.hub.modules["registry"]
+        now = time.time()
+
+        def entry(host, port, seen):
+            return {"host": host, "port": port, "addresses": ["127.0.0.1"], "seen_address": "127.0.0.1",
+                    "ssh_user": None, "duts": [], "slots": [], "catalog_rev": 0, "files_digest": "",
+                    "catalog_shadowed": [], "ports": {}, "first_seen": seen, "seen": seen}
+        with reg._lock:
+            reg._hosts.update({"h1": entry("h1", p1, now), "h2": entry("h2", p2, now),
+                               "ghost": entry("ghost", gone, now - 3600)})
+        with TestClient(reg_app) as c:
+            r = c.post("/api/v1/tools/catalog_recipe", json={"sdk": "bsp-b", "method": "load", "text": RECIPE,
+                                                             "author": "x"}).json()
+            assert r["ok"], r
+            rows = {h["host"]: h for h in r["result"]["delivery"]}
+            assert rows["h1"]["state"] == "current" and rows["h1"]["rev"] == 1 and rows["h1"]["in_effect"] == 1, rows
+            assert rows["h2"]["state"] == "not_following" and "server.announce" in rows["h2"]["hint"]
+            assert rows["ghost"]["state"] == "unreachable" and "registry forget ghost" in rows["ghost"]["hint"]
+            assert r["result"]["reaches"] == ["h1"]
+            assert "h1               delivered rev 1, verified, in effect" in r["text"], r["text"]
+            assert "h2               NOT DELIVERED (not_following)" in r["text"] and "restart boardctrld" in r["text"]
+            # the follower now boots with it
+            assert follower.state.hub.dut.current_catalog().get("bsp-b").boot["load"].status == "ready"
+            st = c.post("/api/v1/tools/catalog_status", json={}).json()
+            hosts = {h["host"]: h for h in st["result"]["hosts"]}
+            assert hosts["h1"]["current"] and hosts["h1"]["catalog_rev"] == 1
+            assert "not announcing for" in st["text"] and "registry forget ghost" in st["text"]
+            ref = c.post("/api/v1/tools/catalog_refresh", json={}).json()
+            assert ref["ok"] and {h["host"]: h["state"] for h in ref["result"]["hosts"]} == \
+                {"h1": "current", "h2": "not_following", "ghost": "unreachable"}, ref
+            # nobody that takes it: an error that names each host and what to do, never an empty success
+            with reg._lock:
+                del reg._hosts["h1"]
+            none = c.post("/api/v1/tools/catalog_refresh", json={}).json()
+            assert not none["ok"] and "no board host took the catalog" in none["error"]["message"], none
+            assert "h2: not_following" in none["error"]["message"] and "server.announce" in none["error"]["hint"]
+    finally:
+        for s in servers:
+            s.should_exit = True

@@ -297,7 +297,9 @@ class DutManager:
         roots = self._catalog_roots()
         sig = self._disk_signature()
         cat = SdkCatalog(roots)
-        self._catalog_sig = sig
+        from core.hostregistry.catalog import layer_rev
+
+        self._catalog_sig, self.loaded_rev = sig, layer_rev(self._catalog_layer)
         return cat
 
     def current_catalog(self) -> SdkCatalog:
@@ -343,6 +345,7 @@ class DutManager:
         self._load_socs()
         self._sdk_roots, self.sdks = roots, sdks
         self._catalog_sig, self._catalog_error = self._disk_signature(), None
+        self.loaded_rev = self.catalog_rev()
         self.registry = registry
         self._rebuild()
         self.ctx.bus.publish("site.updated", site=str(self._site))
@@ -643,7 +646,7 @@ class DutManager:
                                       f"change with `bsp dut set {dut} --sdks ...` (empty = all SDKs of its SoC)")
         inst.boot_plan(method, variant, brk)  # validate first: todo methods fail here with their notes
         runner = b.runner(self)
-        rev, broken = self.catalog_rev(), self._catalog_error
+        rev, broken = self.loaded_rev, self._catalog_error
 
         hub_follower = self.ctx.services.get("catalog_follower")
         overridden = [x for x in (hub_follower.shadowed if hub_follower else []) if x["ref"] == sdk]

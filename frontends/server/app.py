@@ -181,14 +181,23 @@ class Hub:
         if self.follower:
             def shown(r: dict[str, Any]) -> str:
                 text = f"catalog revision {r.get('rev')}" + ("" if r.get("ok") else f" (registry unreachable: {r.get('error')})")
+                if r.get("load_error"):
+                    text += f"\nNOT IN EFFECT: the catalog does not load, the last one that did is used: {r['load_error']}"
                 for x in r.get("shadowed") or []:
                     text += f"\nNOT IN EFFECT: {x['file']} differs from the registry's {x['ref']}; publish it: boardctrl catalog put {x['ref']} -f <file>"
                 return text
 
+            def sync(reset: bool) -> dict[str, Any]:
+                # The modules reload on `catalog.updated` while the sync publishes it: say what they now use.
+                r = dict(self.follower.sync(reset))
+                r["in_effect"] = self.dut.loaded_rev
+                r["load_error"] = self.dut._catalog_error
+                return r
+
             follow = [Command(CommandSpec("catalog.sync", "Fetch the registry's SDK catalog now (the registry asks after changes)",
                                           [Param("reset", "boolean", "throw the local copy away and fetch it again",
                                                  required=False, default=False)]),
-                              lambda reset: self.follower.sync(reset), shown)]
+                              sync, shown)]
         return follow + [
             Command(CommandSpec("status", "Service, module and backend health", [], mutating=False),
                     self.status, render_status),
