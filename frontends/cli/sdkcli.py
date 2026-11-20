@@ -261,7 +261,7 @@ def sdk_job(args) -> tuple[Any, str]:
         v = helper(i, "build_poll", id=args.id, offset=0)
         return v, v["chunk"][-20000:]
     if args.follow:
-        return follow_build(i, args.id, False, sys.stdout, 7200)
+        return follow_build(i, args.id, False, sys.stderr if getattr(args, "json", False) else sys.stdout, 7200)
     v = helper(i, "build_poll", id=args.id, offset=10 ** 12)
     v.pop("chunk", None)
     return v, f"job {v['id']}: {v['status']} rc={v['rc']} log={v['log']}"
