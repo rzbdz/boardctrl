@@ -678,8 +678,22 @@ class DutManager:
         self.leases.check(dut, lease)
         running = [j for j in self.ctx.jobs.list() if j.status == "running" and j.meta.get("dut") == b.spec.id]
         if not running:
-            raise InvalidRequest(f"{dut}: no job running",
-                                 hint="`bsp job list` shows the host's jobs; `bsp job cancel <id>` stops one by id")
+            # Say what the board's last job did: a caller that came to stop one learns it already ended (and how).
+            last = next((j for j in self.ctx.jobs.list() if j.meta.get("dut") == b.spec.id), None)
+            if last is None:
+                raise InvalidRequest(f"{dut}: no job running, and none has run on it since the host started",
+                                     hint="`bsp job list` shows the host's jobs; `bsp job cancel <id>` stops one by id",
+                                     details={"running": False, "last_job": None})
+            err = last.error or {}
+            ended = f"its last job {last.id} ({last.kind}) {last.status}"
+            if err.get("message"):
+                ended += f": {err['message']}"
+            raise InvalidRequest(
+                f"{dut}: no job running; {ended}",
+                hint=f"nothing to cancel. `bsp job get {last.id}` shows that job's log",
+                details={"running": False,
+                         "last_job": {"id": last.id, "kind": last.kind, "title": last.title, "status": last.status,
+                                      "finished": last.finished, "error": last.error}})
         for job in running:
             self.ctx.jobs.cancel(job.id, lease, reason=f"dut cancel {dut}")
         self._event("cancel", dut=dut, jobs=[j.id for j in running])

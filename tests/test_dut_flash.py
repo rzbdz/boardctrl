@@ -474,3 +474,27 @@ def test_no_reset_flash_fails_before_the_job_when_the_board_is_in_another_stage(
     assert "'Android Fastboot'" in e["message"] and "not the download mode" in e["message"]
     assert "drop --no-reset" in e["hint"]
     assert not list((host.tmp / "state").rglob("big.tgz"))
+
+
+def test_cancel_with_nothing_running_names_the_boards_last_job(host):
+    """Nothing to cancel: the answer says so and what the board's last job did, so a caller knows it already ended."""
+    token = _call(host, "dut_acquire", dut="mock-board", holder="t", ttl=60)["token"]
+    e = _call(host, "dut_cancel", dut="mock-board", lease=token)
+    assert e["code"] == "invalid_request" and "no job running, and none has run on it" in e["message"]
+    assert e["details"] == {"running": False, "last_job": None}
+
+    from core.errors import HardwareError
+
+    mod = host.app.state.hub.modules["dut"]
+
+    def body(log):
+        raise HardwareError("GPIO127: Device or resource busy", hint="free the line")
+
+    job = mod._start_job("mock-board", "flash", body, kind="flash")
+    host.app.state.hub.jobs.wait(job.id, 10)
+    e = _call(host, "dut_cancel", dut="mock-board", lease=token)
+    assert e["code"] == "invalid_request", e
+    assert e["message"] == f"mock-board: no job running; its last job {job.id} (flash) failed: GPIO127: Device or resource busy"
+    assert f"bsp job get {job.id}" in e["hint"]
+    last = e["details"]["last_job"]
+    assert last["id"] == job.id and last["status"] == "failed" and last["error"]["hint"] == "free the line"
