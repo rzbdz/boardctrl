@@ -45,6 +45,29 @@ This stashes the owner's local changes in the dev repos (listed by `boardctrl sd
 out a fresh branch `bsp/<task>`. Nobody else can build or write the tree while you hold it.
 `boardctrl sdk release` later restores the owner's branch and stashed work.
 
+### Start from the latest upstream, unless told otherwise
+
+`acquire` branches from whatever commit the tree has checked out, which may be days behind its
+remote. Unless the user explicitly said to work on the local branch as it is, check each dev repo
+before you change anything:
+
+```bash
+boardctrl sdk exec <sdk> --cwd <repo> -- git fetch origin
+boardctrl sdk exec <sdk> --cwd <repo> -- git status -sb                 # "behind N" against its upstream
+boardctrl sdk exec <sdk> --cwd <repo> -- git log --oneline HEAD..@{u}   # what the remote has that the tree lacks
+boardctrl sdk exec <sdk> --cwd <repo> -- git log --oneline @{u}..HEAD   # local commits the remote lacks
+```
+
+- Up to date: go on.
+- Behind, no local-only commits: tell the user and ask whether to base the task on the remote; on
+  yes, `git merge --ff-only @{u}` on the fresh `bsp/<task>` branch (before any of your commits).
+- Behind with local-only commits, diverged, or no upstream set: do not rebase or reset on your own;
+  say what you found and ask which base to use.
+- `fetch` fails (no network or credentials on the build server): say so and ask before going on
+  with the local state.
+
+Never move the owner's own branch; only the task branch follows the remote.
+
 ## 2. Edit code (remotely)
 
 Paths are relative to the SDK root (see `boardctrl sdk show`).

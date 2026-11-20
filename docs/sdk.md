@@ -77,6 +77,13 @@ What `boardctrl sdk acquire SDK --task NAME` does in each dev repository:
 recorded branch and pops the stash from step 2. The task branch and its commits are kept.
 Commit your work before releasing.
 
+The task branch starts from the commit the tree has checked out, not from its remote. Unless told to
+work on the local state, fetch each dev repo after `acquire` and compare it with its upstream
+(`git fetch origin`, `git log HEAD..@{u}` and `@{u}..HEAD` through `boardctrl sdk exec`). When the
+tree is only behind, `git merge --ff-only @{u}` on the fresh task branch brings it up to date; when
+it has commits of its own or has diverged, choose the base with the tree's owner. The owner's own
+branch is never moved.
+
 Lease state lives in the tree, in `TREE/.bsp/`:
 
 | Path | Contents |
