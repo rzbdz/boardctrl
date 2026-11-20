@@ -846,8 +846,8 @@ def add_parsers(sub) -> None:
     fl.add_argument("dut")
     fl.add_argument("--package", required=True, metavar="PATH|URL")
     fl.add_argument("--sha256", help="expected sha256 of the package (checked by the host after a download)")
-    fl.add_argument("--flasher", help="flash hook to use (default: the board's flash.flasher, its SoC's, the "
-                                      "host's, then spacemit-pkg)")
+    fl.add_argument("--flasher", help="flash hook to use (default: the first ready one of the board's flash.flasher, "
+                                      "its SoC's, the host's, then spacemit-pkg; a wrong name lists the ones here)")
     fl.add_argument("--lease")
     fl.add_argument("--timeout", type=float, default=3600, help="seconds the flasher may take (default 3600)")
     fl.add_argument("--no-reset", action="store_true", help="the board is already in download mode")

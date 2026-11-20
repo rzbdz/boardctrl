@@ -816,6 +816,64 @@ class DutManager:
             return host, "the host's flash.flasher"
         return self.DEFAULT_FLASHER, "the default"
 
+    def flasher_chain(self, b: Board) -> list[tuple[str, str]]:
+        """Every flasher this board could use, in order: its own `flash.flasher`, its `flash.fallback` list, its
+        SoC's, the host's, then the default. The first that is ready on this host writes the package."""
+        chain: list[tuple[str, str]] = []
+
+        def add(block: Any, where: str) -> None:
+            block = block or {}
+            if block.get("flasher"):
+                chain.append((str(block["flasher"]), f"{where} flash.flasher"))
+            fb = block.get("fallback") or []
+            for n in ([fb] if isinstance(fb, str) else fb):
+                chain.append((str(n), f"{where} flash.fallback"))
+
+        add(b.spec.raw.get("flash"), f"{b.spec.id}'s")
+        if b.spec.soc:
+            add(self.socs.get(b.spec.soc).get("flash"), f"SoC {b.spec.soc}'s")
+        add(self.flash_cfg, "the host's")
+        chain.append((self.DEFAULT_FLASHER, "the default"))
+        seen: set[str] = set()
+        return [(n, w) for n, w in chain if not (n in seen or seen.add(n))]
+
+    def choose_flasher(self, b: Board, asked: str | None, request: dict[str, Any],
+                       log: Any = None) -> tuple[str, str, list[str]]:
+        """The flasher to use and why, checked before anything is fetched: each candidate's hook must be here and,
+        when it can say, ready (its tool installed, say). One asked for by name is that one or an error; otherwise
+        the first ready one of `flasher_chain`, with a note for each one passed over. Raises listing what is
+        ready when none is."""
+        from core.errors import NotFound
+
+        available = self.hooks.names("flash")
+        notes: list[str] = []
+        if asked:
+            if asked not in available:
+                raise NotFound(f"no flasher {asked!r} on {self.ctx.host_id}",
+                               hint=f"可用 flasher（available flashers）: {', '.join(available) or '(none)'}")
+            st = self.hooks.check("flash", asked, request)
+            if not st["ready"]:
+                ready = [n for n in available if n != asked and self.hooks.check("flash", n, request)["ready"]]
+                raise HardwareError(f"flasher {asked!r} cannot run on {self.ctx.host_id}: {st['reason']}",
+                                    hint=(st["hint"] + "; " if st["hint"] else "")
+                                    + f"ready flashers here: {', '.join(ready) or '(none)'}")
+            return asked, "asked for", notes
+        tried: list[str] = []
+        for name, why in self.flasher_chain(b):
+            if name not in available:
+                tried.append(f"{name} ({why}): not on this host")
+                continue
+            st = self.hooks.check("flash", name, request)
+            if st["ready"]:
+                if tried:
+                    notes = [f"passed over {t}" for t in tried]
+                    why = f"{why}; " + "; ".join(t.split(" (")[0] + " unavailable" for t in tried)
+                return name, why, notes
+            tried.append(f"{name} ({why}): {st['reason']}" + (f" — {st['hint']}" if st["hint"] else ""))
+        raise HardwareError(f"no flasher can write {b.spec.id}'s package on {self.ctx.host_id}",
+                            hint="; ".join(tried) + f". flashers here: {', '.join(available) or '(none)'}",
+                            details={"tried": tried})
+
     def flash(self, dut: str, package: str, sha256: str | None, flasher: str | None, lease: str | None,
               timeout: float, reset: bool) -> dict[str, Any]:
         """Write a package to the board.
@@ -828,7 +886,6 @@ class DutManager:
         import tempfile
         from pathlib import Path
 
-        from core.errors import NotFound
         from core.dut import flashpkg
         from core.dut.defaults import HookFlash
 
@@ -842,14 +899,15 @@ class DutManager:
             raise InvalidRequest(f"{dut} has no download port (fastboot.usb) recorded",
                                  hint=f"set it: `bsp dut set {dut} --usb usb:<bus>-<port>` "
                                       "(the path `fastboot devices -l` shows in download mode)")
-        name, why = (self.flasher_for(b, flasher) if hook_based
-                     else (provider.provider_name, f"{dut}'s flash provider"))
+        images = {k: v["path"] for k, v in (self.socs.get(b.spec.soc).get("images") or {}).items() if v.get("path")}
+        passed_over: list[str] = []
         if hook_based:
-            available = self.hooks.names("flash")
-            if name not in available:
-                raise NotFound(f"no flasher {name!r} on {self.ctx.host_id} ({why})",
-                               hint=f"flashers here: {', '.join(available) or '(none)'}; choose one with --flasher, or set "
-                                    "flash.flasher on the board or its SoC profile")
+            # Before any transfer: a flasher that cannot run here is known now, not after a 2 GB download.
+            name, why, passed_over = self.choose_flasher(
+                b, flasher, {"dut": dut, "usb": b.spec.usb, "fastboot": b.fastboot.binary, "images": images,
+                             "args": expand(dict(self.flash_cfg.get("args") or {}), self.ctx.env)})
+        else:
+            name, why = provider.provider_name, f"{dut}'s flash provider"
         max_bytes = int(self.flash_cfg.get("max_package_bytes") or flashpkg.DEFAULT_MAX_BYTES)
         package = (package or "").strip()
         url = None
@@ -866,12 +924,13 @@ class DutManager:
                 raise InvalidRequest("sha256 does not match the uploaded package's")
             label = self.store.get(package).name
         runner = b.runner(self)
-        images = {k: v["path"] for k, v in (self.socs.get(b.spec.soc).get("images") or {}).items() if v.get("path")}
 
         def body(log) -> dict[str, Any]:
             import time
 
             t0 = time.monotonic()
+            for note in passed_over:
+                log(f"flash {dut}: {note}")
             log(f"flash {dut} with {name} ({why}): package {label}")
             token = current_token()
             token.at("fetch the package")

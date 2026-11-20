@@ -324,3 +324,82 @@ def test_a_running_job_can_be_cancelled(host):
     job.cancel()
     jobs.wait(job.id, 5)
     assert job.status == "cancelled" and step["n"] < 100
+
+
+NOT_READY = """#!/usr/bin/env python3
+# bsp-hook: check
+import json, os, sys
+req = json.load(sys.stdin)
+if req.get('check'):
+    open(os.environ['CHECK_LOG'], 'a').write(json.dumps(req) + '\\n')
+    print(json.dumps({'ready': False, 'reason': 'no vendortool for riscv64 on this host', 'hint': 'install vendortool'}))
+    sys.exit(2)
+open(os.environ['CHECK_LOG'], 'a').write('RAN\\n')
+sys.exit(1)
+"""
+
+
+def _not_ready(host, name="vendortool"):
+    h = host.tmp / "hooks" / "flash" / name
+    h.write_text(NOT_READY)
+    h.chmod(0o755)
+    os.environ["CHECK_LOG"] = str(host.tmp / "check.log")
+    return host.tmp / "check.log"
+
+
+def test_an_unready_flasher_is_passed_over_before_anything_is_fetched(host, web, monkeypatch):
+    # The SoC prefers a flasher whose tool this host lacks; its fallback is ready: the package is written by that,
+    # the job says which was passed over and why, and the unready hook is only ever asked, never run.
+    log = _not_ready(host)
+    mod = host.app.state.hub.modules["dut"]
+    mod.socs.profiles.setdefault("soc-b", {})["flash"] = {"flasher": "vendortool", "fallback": ["fake"]}
+    data = _zip({"fastboot.yaml": b"actions: []\n", "u-boot.itb": b"u"})
+    (web.root / "p.zip").write_bytes(data)
+    token = _call(host, "dut_acquire", dut="mock-board", holder="t", ttl=60)["token"]
+    r = _call(host, "dut_flash", dut="mock-board", package=f"{web.url}/p.zip", lease=token, reset=False)
+    assert r["flasher"] == "fake", r
+    job = _call(host, "job_get", id=r["job"], wait=20)
+    assert job["status"] == "succeeded", job
+    assert any("passed over vendortool" in l and "no vendortool for riscv64" in l for l in job["lines"])
+    calls = log.read_text().splitlines()
+    assert calls and "RAN" not in calls and json.loads(calls[0])["check"] is True
+
+
+def test_no_ready_flasher_fails_at_once_and_says_what_is_there(host, web):
+    # Nothing ready: the call fails before the job starts (no download), naming each candidate's reason.
+    _not_ready(host)
+    mod = host.app.state.hub.modules["dut"]
+    mod.socs.profiles.setdefault("soc-b", {})["flash"] = {"flasher": "vendortool"}
+    mod.hooks.dirs = [d for d in mod.hooks.dirs if (d / "flash" / "vendortool").exists()]   # only that hook here
+    (web.root / "big.tgz").write_bytes(b"x" * 10)
+    token = _call(host, "dut_acquire", dut="mock-board", holder="t", ttl=60)["token"]
+    e = _call(host, "dut_flash", dut="mock-board", package=f"{web.url}/big.tgz", lease=token, reset=False)
+    assert e["code"] == "hardware_error", e
+    assert "no vendortool for riscv64" in e["hint"] and "spacemit-pkg (the default): not on this host" in e["hint"]
+    assert not list((host.tmp / "state").rglob("big.tgz"))          # nothing was fetched
+
+
+def test_a_flasher_asked_for_by_name_is_checked_and_the_ready_ones_listed(host):
+    _not_ready(host)
+    token = _call(host, "dut_acquire", dut="mock-board", holder="t", ttl=60)["token"]
+    sha = "a" * 64
+    e = _call(host, "dut_flash", dut="mock-board", package=sha, flasher="bogus", lease=token)
+    assert e["code"] == "not_found" and "可用 flasher" in e["hint"] and "fake" in e["hint"]
+    e = _call(host, "dut_flash", dut="mock-board", package=sha, flasher="vendortool", lease=token)
+    assert e["code"] == "hardware_error" and "no vendortool" in e["message"]
+    assert "install vendortool" in e["hint"] and "fake" in e["hint"] and "vendortool" not in e["hint"].split("ready flashers here:")[1]
+
+
+def test_hooks_declare_check_explicitly(tmp_path):
+    from core.hooks import HookRunner
+    d = tmp_path / "flash"
+    d.mkdir()
+    (d / "plain").write_text("#!/bin/sh\nexit 1\n")
+    (d / "plain").chmod(0o755)
+    hr = HookRunner((str(tmp_path),))
+    assert not hr.declares("flash", "plain", "check")
+    assert hr.check("flash", "plain", {})["ready"] is True              # never run in a mode it does not know
+    assert hr.check("flash", "missing", {})["ready"] is False
+    shipped = HookRunner((str(ROOT / "platforms" / "spacemit" / "hooks"),))
+    assert shipped.declares("flash", "spacemit-pkg", "check")
+    assert shipped.check("flash", "spacemit-pkg", {"fastboot": "no-such-fastboot-binary"})["reason"].startswith("no no-such")

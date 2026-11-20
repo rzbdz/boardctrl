@@ -112,8 +112,8 @@ def build_commands(mod: "DutModule") -> list[Command]:
                         positional=False),
              Param("sha256", help="expected sha256 of the package at the URL (checked after download)",
                    required=False),
-             Param("flasher", help="flash hook to use (default: the board's, its SoC's, the host's, then "
-                                   "spacemit-pkg)",
+             Param("flasher", help="flash hook to use (default: the first ready one of the board's, its SoC's, "
+                                   "the host's, then spacemit-pkg; checked before anything is fetched)",
                    required=False),
              LEASE,
              Param("timeout", "number", "seconds the flasher may take", required=False, default=3600),

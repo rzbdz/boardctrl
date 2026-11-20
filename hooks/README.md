@@ -82,5 +82,13 @@ passed as `product_dir` (that package is the product), `artifacts.package` the p
 many seconds the hook has before it gets SIGTERM (a flasher with a time limit of its own can
 stop a little earlier, cleanly). The board is already in download mode on `usb` unless the
 caller asked for `--no-reset`. A flasher reports progress with `{"progress": N}` lines and fails
-by exiting non-zero or with an `"error"` (and `"hint"`) in its result. The flasher a board uses
-is its `flash.flasher`, else its SoC's `flash.flasher`, else the host's, else `spacemit-pkg`.
+by exiting non-zero or with an `"error"` (and `"hint"`) in its result.
+
+Which flasher writes a package: the one asked for (`--flasher`), else the first ready one of the
+board's `flash.flasher` and `flash.fallback`, its SoC's, the host's, then `spacemit-pkg`. Before
+anything is downloaded or the board is reset, each candidate is checked: a hook that declares
+`bsp-hook: check` (a line in its first 8 KB, e.g. in a comment) is run with `"check": true` and the
+same `usb`, `fastboot`, `images` and `args`; it must touch nothing and answer `{"ready": true}`, or
+`{"ready": false, "reason", "hint"}` (say, its vendor tool is not installed). An unready one is passed
+over (the job says so); a hook that declares nothing is taken as ready. A flasher asked for by name is
+used or refused, never replaced, and the refusal lists the ready ones.

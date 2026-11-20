@@ -69,6 +69,50 @@ class HookRunner:
                         seen.setdefault(p.name)
         return list(seen)
 
+    def declares(self, kind: str, name: str, capability: str) -> bool:
+        """Whether the hook says it has `capability`: a line `bsp-hook: <capability> ...` in its first 8 KB (a
+        comment or docstring line). A hook that says nothing has none, so it is never called in a mode it does
+        not know."""
+        try:
+            head = self.find(kind, name).read_bytes()[:8192].decode("utf-8", "replace")
+        except (NotFound, OSError):
+            return False
+        for line in head.splitlines():
+            s = line.strip().lstrip("#").strip()
+            if s.startswith("bsp-hook:") and capability in s[len("bsp-hook:"):].replace(",", " ").split():
+                return True
+        return False
+
+    def check(self, kind: str, name: str, request: dict[str, Any], timeout: float = 30) -> dict[str, Any]:
+        """Ask a hook whether it can run here, before anything is fetched or a board is touched:
+        `{"ready": bool, "reason": str, "hint": str}`. A hook that declares `bsp-hook: check` gets the request with
+        `"check": true`, must not touch hardware, and answers `{"ready": true}` (exit 0) or `{"ready": false,
+        "reason", "hint"}`; one that declares nothing is taken as ready once it is found."""
+        try:
+            self.find(kind, name)
+        except NotFound:
+            return {"ready": False, "reason": f"no hook {kind}/{name} on this host", "hint": ""}
+        if not self.declares(kind, name, "check"):
+            return {"ready": True, "reason": "", "hint": ""}
+        try:
+            r = proc.run([str(self.find(kind, name))], input=json.dumps({**request, "check": True}), timeout=timeout,
+                         grace=2, env={**os.environ, **self.env, "BSP_HOOK_KIND": kind, "BSP_HOOK_NAME": name,
+                                       "BSP_HOOK_CHECK": "1", "PYTHONUNBUFFERED": "1"})
+        except proc.TimedOut:
+            return {"ready": False, "reason": f"its check did not answer in {timeout:g}s", "hint": ""}
+        except OSError as e:
+            return {"ready": False, "reason": f"cannot run it: {e.strerror or e}", "hint": ""}
+        data: dict[str, Any] = {}
+        for line in reversed((r.stdout or "").splitlines()):
+            obj = _json_object(line)
+            if obj is not None:
+                data = obj
+                break
+        ready = r.returncode == 0 and data.get("ready", True) is not False and not data.get("error")
+        reason = "" if ready else str(data.get("reason") or data.get("error")
+                                      or ((r.stderr or "").strip().splitlines() or [f"its check exited {r.returncode}"])[-1])
+        return {"ready": ready, "reason": reason, "hint": "" if ready else str(data.get("hint") or "")}
+
     def run(self, kind: str, name: str, request: dict[str, Any], timeout: float = 120,
             log: Optional[Callable[[str], None]] = None,
             progress: Optional[Callable[[float], None]] = None) -> HookResult:

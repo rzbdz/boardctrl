@@ -138,7 +138,12 @@ mode (skip with `--no-reset`) and runs the flash hook `flash/<flasher>` on the d
 The flasher is `--flasher`, else the board's `flash.flasher`, else its SoC's
 `flash.flasher`, else the host's (`providers.dut.flash.flasher`), else `spacemit-pkg` (the SpacemiT
 package: `fastboot.yaml` and `partition_*.json` layouts, or a flash zip). A board whose SoC facts
-name their flasher uses that one, so a site on another vendor's hardware sets it once per SoC. The
+name their flasher uses that one, so a site on another vendor's hardware sets it once per SoC.
+Each level can add a `flash.fallback` list. Before anything is downloaded or the board is reset, the
+host checks the candidates in that order and uses the first one that is ready (a hook can say its
+vendor tool is missing; see hooks/README.md). The job's log names each one passed over and why. When
+none is ready, the command fails at once and lists the reasons. A `--flasher` name is used or
+refused, never replaced; a refusal lists the flashers this host has. The
 flash runs as a background job of kind `flash` under your lease;
 when the flasher reports progress the job has a percent (`boardctrl job get`, `boardctrl job list`) and the
 CLI prints it as it comes. With `--json` the result is `{"job", "lines", "elapsed_s", "flasher",

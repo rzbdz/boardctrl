@@ -14,6 +14,10 @@ result  : {"flashed": [{"layout": "partition_4M.json", "partition": "fsbl", "ima
 Layout files follow fastboot.yaml `multi_flash`: partition_<getvar mtd-size>.json for NOR (format mtd)
 and partition_<getvar blk-size>.json for block media (format gpt); a layout is written first
 (`fastboot flash mtd|gpt <json>`), then every partition that has an image in the package.
+
+bsp-hook: check
+With `"check": true` it only says whether it can run here (fastboot found), touching nothing:
+{"ready": true} or {"ready": false, "reason", "hint"}.
 """
 import json
 import os
@@ -104,8 +108,20 @@ def bring_up(work, binary, usb, args):
     return None
 
 
+def check(req):
+    binary = req.get("fastboot") or "fastboot"
+    if not (shutil.which(binary) or (os.path.isfile(binary) and os.access(binary, os.X_OK))):
+        print(json.dumps({"ready": False, "reason": f"no {binary} on this host",
+                          "hint": "apt install fastboot (or android-sdk-platform-tools)"}))
+        return 2
+    print(json.dumps({"ready": True}))
+    return 0
+
+
 def main():
     req = json.loads(sys.stdin.read())
+    if req.get("check"):
+        return check(req)
     usb, binary = req["usb"], req.get("fastboot", "fastboot")
     args = req.get("args") or {}
     media = args.get("media", ["mtd", "gpt"])
