@@ -11,14 +11,25 @@ from __future__ import annotations
 
 import contextvars
 import itertools
+import json
+import os
+import re
 import threading
 import time
 import traceback
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 from core.errors import Cancelled, NotFound, BspError
 from core.events import EventBus
+
+# A job's record on disk keeps its last lines and a small result; a record is rewritten at most this often while
+# the job logs, so a job the service died in still says how far it got.
+RECORD_LINES = 50
+RECORD_RESULT_BYTES = 16384
+RECORD_EVERY_S = 5.0
+INTERRUPTED = "interrupted by a service restart"
 
 
 class CancelToken:
@@ -175,8 +186,9 @@ class Job:
 class JobLog:
     """Handed to job bodies: ``log("...")`` appends a timestamped progress line."""
 
-    def __init__(self, job: Job, bus: EventBus):
+    def __init__(self, job: Job, bus: EventBus, saved: Callable[[Job, bool], None] | None = None):
         self._job, self._bus = job, bus
+        self._saved = saved
         self.stop = job.cancel_event
         self.token = job.token
 
@@ -188,6 +200,8 @@ class JobLog:
         line = f"[{time.time() - self._job.created:6.1f}s] {msg}"
         self._job.lines.append(line)
         self._bus.publish("job.log", job=self._job.id, line=line)
+        if self._saved is not None:
+            self._saved(self._job, False)
 
     def progress(self, percent: float) -> None:
         """Set how far the job is (0-100); `job get` and `job list` show it."""
@@ -198,26 +212,39 @@ class JobLog:
 
 
 class JobManager:
-    def __init__(self, bus: EventBus, keep: int = 200):
+    """The host's jobs. With a `record_dir`, each job is also kept on disk (its state, meta and last lines), written
+    when it starts, while it logs and when it ends: after a restart, a job the old process was running is reported
+    as failed with code `interrupted` instead of being unknown."""
+
+    def __init__(self, bus: EventBus, keep: int = 200, record_dir: Path | None = None):
         self.bus = bus
         self.keep = keep
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
         self._seq = itertools.count(1)
+        self._records = record_dir
+        self._written: dict[str, float] = {}
+        if record_dir is not None:
+            self._load()
 
     def start(self, kind: str, title: str, body: Callable[[JobLog], Any],
               guard: Callable[[str | None], Any] | None = None, **meta: Any) -> Job:
-        job = Job(f"{kind}-{int(time.time())}-{next(self._seq)}", kind, title, meta=meta, guard=guard)
         with self._lock:
+            job_id = f"{kind}-{int(time.time())}-{next(self._seq)}"
+            while job_id in self._jobs:     # a record kept from before a restart may hold the same id
+                job_id = f"{kind}-{int(time.time())}-{next(self._seq)}"
+            job = Job(job_id, kind, title, meta=meta, guard=guard)
             self._jobs[job.id] = job
             for old in sorted(self._jobs.values(), key=lambda j: j.created)[:-self.keep]:
                 if old.status != "running":
                     del self._jobs[old.id]
+                    self._forget(old.id)
+        self._save(job, True)
         self.bus.publish("job.started", job=job.id, kind=kind, title=title, **meta)
 
         def run() -> None:
             bind_token(job.token)
-            log = JobLog(job, self.bus)
+            log = JobLog(job, self.bus, self._save)
             last_line = lambda: job.lines[-1] if job.lines else None  # noqa: E731
             try:
                 job.result = body(log)
@@ -239,6 +266,7 @@ class JobManager:
                 log(f"FAILED: {e}")
             finally:
                 job.finished = time.time()
+                self._save(job, True)
                 self.bus.publish("job.finished", job=job.id, status=job.status, error=job.error)
 
         threading.Thread(target=run, name=job.id, daemon=True).start()
@@ -283,3 +311,83 @@ class JobManager:
 
     def list(self) -> list[Job]:
         return sorted(self._jobs.values(), key=lambda j: j.created, reverse=True)
+
+    # --- records on disk -------------------------------------------------------------------------------------
+
+    def _path(self, job_id: str) -> Path:
+        return self._records / (re.sub(r"[^A-Za-z0-9_.-]", "_", job_id) + ".json")  # type: ignore[operator]
+
+    def _save(self, job: Job, now: bool) -> None:
+        """Write the job's record (atomically). Log lines write it at most every RECORD_EVERY_S seconds (the
+        first one at once); a start and an end always do."""
+        if self._records is None:
+            return
+        if not now:
+            t = time.monotonic()
+            last = self._written.get(job.id)
+            if last is not None and t - last < RECORD_EVERY_S:
+                return
+            self._written[job.id] = t
+        elif job.status != "running":
+            self._written.pop(job.id, None)
+        rec = {k: v for k, v in job.view().items() if k not in ("elapsed_s", "next")}
+        rec["lines"] = job.lines[-RECORD_LINES:]
+        try:
+            if len(json.dumps(rec["result"], default=str)) > RECORD_RESULT_BYTES:
+                rec["result"] = None
+            path = self._path(job.id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(f".{path.name}.{threading.get_ident()}.tmp")
+            tmp.write_text(json.dumps(rec, default=str))
+            os.replace(tmp, path)
+        except (OSError, TypeError, ValueError):
+            pass    # a record is a convenience: a full disk must not fail the job
+
+    def _forget(self, job_id: str) -> None:
+        if self._records is None:
+            return
+        self._written.pop(job_id, None)
+        try:
+            self._path(job_id).unlink()
+        except OSError:
+            pass
+
+    def _load(self) -> None:
+        """Read the records kept on disk. One still `running` belonged to a process that is gone: it is failed
+        with code `interrupted`, and its record says so from now on."""
+        try:
+            files = list(self._records.glob("*.json"))  # type: ignore[union-attr]
+        except OSError:
+            return
+        jobs: list[Job] = []
+        for f in files:
+            try:
+                rec = json.loads(f.read_text())
+                job = Job(str(rec["id"]), str(rec.get("kind") or "job"), str(rec.get("title") or rec["id"]),
+                          status=str(rec.get("status") or "failed"), created=float(rec.get("created") or 0),
+                          finished=rec.get("finished"), lines=list(rec.get("lines") or []),
+                          result=rec.get("result"), error=rec.get("error"), meta=dict(rec.get("meta") or {}),
+                          progress=rec.get("progress"))
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            if job.status == "running":
+                try:
+                    heard = f.stat().st_mtime
+                except OSError:
+                    heard = time.time()
+                last = job.lines[-1] if job.lines else None
+                job.status, job.finished = "failed", heard
+                job.error = {"code": "interrupted", "message": INTERRUPTED,
+                             "hint": "boardctrld stopped while this job ran (an upgrade, a restart or a crash); "
+                                     "what it did up to then stays done: check the board, then run it again",
+                             "details": {"last_line": last}}
+                job.lines.append(f"[{max(0.0, heard - job.created):6.1f}s] FAILED: {INTERRUPTED}")
+                jobs.append(job)
+                self._save(job, True)
+            else:
+                jobs.append(job)
+        jobs.sort(key=lambda j: j.created)
+        for old in jobs[:-self.keep] if self.keep else jobs:
+            self._forget(old.id)
+        for job in jobs[-self.keep:] if self.keep else []:
+            self._jobs[job.id] = job

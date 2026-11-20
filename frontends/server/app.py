@@ -52,9 +52,10 @@ class Hub:
     def __init__(self, config: HostConfig):
         self.config = config
         self.bus = EventBus()
-        self.jobs = JobManager(self.bus)
         self.started = time.time()
         config.state_dir.mkdir(parents=True, exist_ok=True)
+        # Job records outlive the process: after a restart, a job it was running reads `interrupted`.
+        self.jobs = JobManager(self.bus, record_dir=config.state_dir / "jobs")
         ctx = HostContext(config.host_id, self.bus, config.state_dir, config.config_dir, jobs=self.jobs,
                           port=config.port, auth_token=config.auth_token, env=dict(config.env),
                           bind=config.bind, announce=config.announce)
