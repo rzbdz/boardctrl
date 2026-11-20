@@ -346,8 +346,49 @@ def op_put(req):
     return {"file": req["file"], "size": len(data)}
 
 
+def _sha256(path):
+    """The file's sha256, by `sha256sum` when the server has it (fast on large files), else in chunks here."""
+    if shutil.which("sha256sum"):
+        rc, out = sh(["sha256sum", path], check=False)
+        if rc == 0 and out:
+            return out.split()[0]
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def op_artifacts(req):
+    """The SDK's build products as they are now: role -> {path, sha256, size, mtime} for each file that exists (a
+    glob takes its newest match), and with `job` that build job's start and end on this server's clock."""
+    import glob as globmod
+    out = {}
+    for role, pattern in sorted((req.get("files") or {}).items()):
+        if any(c in pattern for c in "*?["):
+            found = sorted(globmod.glob(pattern), key=lambda f: os.stat(f).st_mtime)
+            path = found[-1] if found else None
+        else:
+            path = pattern
+        if not path or not os.path.isfile(path):
+            continue
+        st = os.stat(path)
+        out[role] = {"path": path, "sha256": _sha256(path), "size": st.st_size, "mtime": int(st.st_mtime)}
+    job = None
+    if req.get("job"):
+        d = os.path.join(req["path"], ".bsp", "jobs", req["job"])
+        if os.path.isdir(d):
+            rc = os.path.join(d, "rc")
+            script = os.path.join(d, "script")
+            job = {"id": req["job"], "started": int(os.stat(script).st_mtime) if os.path.exists(script) else None,
+                   "ended": int(os.stat(rc).st_mtime) if os.path.exists(rc) else None}
+    return {"artifacts": out, "job": job, "now": int(time.time())}
+
+
 OPS = {"exec": op_exec, "get": op_get, "put": op_put, "status": op_status, "acquire": op_acquire, "release": op_release,
-       "build_start": op_build_start, "build_poll": op_build_poll, "jobs": op_jobs}
+       "build_start": op_build_start, "build_poll": op_build_poll, "jobs": op_jobs,
+       "artifacts": op_artifacts}
 
 
 def main():

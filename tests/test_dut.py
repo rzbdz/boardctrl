@@ -129,7 +129,7 @@ class FakeControl:
 
 
 class FakeStore:
-    def pull(self, ssh, files, log):
+    def pull(self, ssh, files, log, jobs=None):
         return {r: {"path": p, "remote": p, "sha256": "x", "size": 1, "age_s": 0} for r, p in files.items()}
 
 

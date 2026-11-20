@@ -390,7 +390,9 @@ class BootRunner:
                        | {r for s in plan["steps"] for r in s.get("artifacts", [])})
         log(f"boot {self.dut_id} with {sdk.id} [{method}{'/' + variant if variant else ''}]: {len(plan['steps'])} steps"
             + (f", stopping at {brk}" if brk else ""))
-        arts = self.store.pull(sdk.server.ssh, {r: sdk.artifacts()[r] for r in roles}, log)
+        # The SDK's build jobs live in its tree (`.bsp/jobs`): each artifact then says which build wrote it.
+        arts = self.store.pull(sdk.server.ssh, {r: sdk.artifacts()[r] for r in roles}, log,
+                               jobs=f"{sdk.path.rstrip('/')}/.bsp/jobs" if getattr(sdk, "path", None) else None)
         t0 = time.monotonic()
         # The board's SoC images too, so `stage image:` and hook steps (a flasher shipped as an image) find theirs.
         images = (self.media.profile.get("images") or {}) if self.media is not None else {}
@@ -398,5 +400,6 @@ class BootRunner:
         self.run_steps(plan["steps"], log, arts=arts, images=images, sdk=sdk.id, artifacts_dir=artifacts_dir)
         log(f"done in {time.monotonic() - t0:.1f}s")
         return {"dut": self.dut_id, "sdk": sdk.id, "method": method, "variant": variant,
-                "artifacts": {r: {k: a[k] for k in ("remote", "sha256", "size", "age_s")} for r, a in arts.items()},
+                "artifacts": {r: {k: a.get(k) for k in ("remote", "sha256", "size", "age_s", "mtime", "built", "source",
+                                                        "build")} for r, a in arts.items()},
                 "elapsed_s": round(time.monotonic() - t0, 1)}

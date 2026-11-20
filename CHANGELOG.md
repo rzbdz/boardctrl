@@ -52,6 +52,12 @@ All notable changes to this project are documented here. The format follows
   `<site>/.blobs/<sha256>/`; `deploy.sh` syncs them before shipping the site.
 
 ### Changed
+- A boot says where each SDK artifact came from: one line per file with its sha256, a fresh copy from the
+  build server or a host cache hit, the file's time on the build server, and the build job that wrote it
+  (or a WARNING when the latest successful build did not rewrite it, or a build is still running). The
+  boot result carries the same facts (`artifacts.<role>.source`, `built`, `build`). The host's copy is
+  used only when its sha256 and size match the build server's current file. `bsp sdk build` ends with
+  one `artifact <file> sha256 <12 hex> <size> built <time> job <id>` line per artifact.
 - Probe tries the reset lines slots had before first (`probe.pin_order`), presses a line that made
   several consoles speak again (`probe.retry_ambiguous`), skips consoles whose adapter is gone,
   and says why a slot found nothing. `bsp probe --yes` registers each board as it is found.

@@ -42,8 +42,14 @@ class ArtifactStore:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 
-    def pull(self, ssh: str, files: dict[str, str], log: Log) -> dict[str, dict[str, Any]]:
-        """files: role -> absolute remote path. Returns role -> {path, sha256, size, mtime}."""
+    def pull(self, ssh: str, files: dict[str, str], log: Log, jobs: str | None = None) -> dict[str, dict[str, Any]]:
+        """files: role -> absolute remote path. Returns role -> {path, remote, sha256, size, mtime, age_s, source,
+        build}.
+
+        The build server's file is the truth: its sha256 is computed there (`sha256sum` over ssh) on every pull, and
+        the host's copy is used only when it has that content (same sha256 and size); otherwise the file is copied
+        again. `jobs` is the SDK's build-job directory on the server (`<sdk>/.bsp/jobs`): with it, each artifact says
+        whether the latest successful build wrote it, and a build still running is named."""
         globs = {r: p for r, p in files.items() if any(c in p for c in "*?[")}
         if globs:
             script = "; ".join(f"echo {shlex.quote(r)} $(ls -t {p} 2>/dev/null | head -1)" for r, p in globs.items())
@@ -53,16 +59,35 @@ class ArtifactStore:
                 if found.strip():
                     files = {**files, role: found.strip()}
         paths = list(files.values())
-        script = "for f in " + " ".join(shlex.quote(p) for p in paths) + \
-                 '; do if [ -f "$f" ]; then echo "$(sha256sum "$f" | cut -d" " -f1) $(stat -c "%s %Y" "$f") $f"; else echo "MISSING - - $f"; fi; done'
+        script = (_jobs_script(jobs) + "; " if jobs else "") + \
+            "for f in " + " ".join(shlex.quote(p) for p in paths) + \
+            '; do if [ -f "$f" ]; then echo "$(sha256sum "$f" | cut -d" " -f1) $(stat -L -c "%s %Y" "$f") $f"; ' \
+            'else echo "MISSING - - $f"; fi; done; echo "NOW $(date +%s)"'
         r = _run(["ssh", *self.SSH_OPTS, ssh, script], 120)
         if r.returncode != 0:
             raise HardwareError(f"cannot reach build server {ssh}: {r.stderr.strip()[-300:]}",
                                 hint="this host needs an SSH key accepted by the build server")
-        meta = {}
+        meta: dict[str, tuple[str, str, str]] = {}
+        builds: list[dict[str, Any]] = []          # the SDK's build jobs, newest first
+        now = None
         for line in r.stdout.splitlines():
-            sha, size, mtime, path = line.split(" ", 3)
-            meta[path] = (sha, size, mtime)
+            word = line.split(" ", 1)[0]
+            if word == "JOB":
+                job = _job_line(line)
+                if job is not None:
+                    builds.append(job)
+                continue
+            if word == "NOW":
+                now = _int(line.split(" ", 1)[1])
+                continue
+            parts = line.split(" ", 3)
+            if len(parts) == 4:
+                meta[parts[3]] = (parts[0], parts[1], parts[2])
+        now = now or int(time.time())
+        for j in builds:
+            if j["status"] == "running" and j["log_mtime"] is not None and now - j["log_mtime"] < RUNNING_FRESH_S:
+                log(f"WARNING: build {j['id']} ({j['component'] or '?'}) is still running on {ssh}: the files below "
+                    f"may be replaced by it; boot again once it has ended")
         out: dict[str, dict[str, Any]] = {}
         for role, path in files.items():
             current_token().check()                 # a cancelled boot stops before the next artifact
@@ -70,9 +95,13 @@ class ArtifactStore:
             if sha == "MISSING":
                 raise InvalidRequest(f"artifact '{role}' missing on {ssh}: {path}",
                                      hint="build it first: `bsp sdk build <sdk> <component>`")
+            if not SHA256.fullmatch(sha) or not size.isdigit() or not mtime.isdigit():
+                raise HardwareError(f"build server {ssh} answered {sha!r} {size!r} {mtime!r} for {path}",
+                                    hint="it needs sha256sum and GNU stat")
+            size_i, mtime_i = int(size), int(mtime)
             local = self.root / sha / Path(path).name
-            if local.exists():
-                log(f"artifact {role}: {Path(path).name} cached ({int(size):,} B, sha {sha[:12]})")
+            if local.is_file() and local.stat().st_size == size_i:
+                source, took = "host cache", None
             else:
                 local.parent.mkdir(parents=True, exist_ok=True)
                 tmp = local.with_suffix(local.suffix + ".part")
@@ -83,6 +112,7 @@ class ArtifactStore:
                     tmp.unlink(missing_ok=True)     # a cancelled or timed-out copy leaves no part behind
                     raise
                 if rr.returncode != 0:
+                    tmp.unlink(missing_ok=True)
                     raise HardwareError(f"scp {path} failed: {rr.stderr.strip()[-300:]}")
                 got = _sha256(tmp)
                 if got != sha:
@@ -90,9 +120,12 @@ class ArtifactStore:
                     raise HardwareError(f"checksum mismatch pulling {path} (changed during copy?)",
                                         hint="retry once the build has finished writing it")
                 os.replace(tmp, local)
-                log(f"artifact {role}: pulled {Path(path).name} ({int(size):,} B in {time.monotonic() - t0:.1f}s, sha {sha[:12]})")
-            out[role] = {"path": str(local), "remote": path, "sha256": sha, "size": int(size),
-                         "mtime": int(mtime), "age_s": int(time.time()) - int(mtime)}
+                source, took = "build server", time.monotonic() - t0
+            build = build_of(mtime_i, builds, now) if jobs else None
+            log(provenance_line(role, Path(path).name, sha, size_i, mtime_i, source, took, build))
+            out[role] = {"path": str(local), "remote": path, "sha256": sha, "size": size_i,
+                         "mtime": mtime_i, "built": when(mtime_i), "age_s": now - mtime_i, "source": source,
+                         "build": build}
         return out
 
     # ------------------------------------------------- uploaded files --
@@ -271,6 +304,89 @@ class Upload:
         if self.tmp is not None:
             self.tmp.unlink(missing_ok=True)
             self.tmp = None
+
+
+# ------------------------------------------------------- provenance --
+# A build job left without an `rc` whose log has not moved for this long is not running any more (a reboot, a kill).
+RUNNING_FRESH_S = 1800
+SLACK_S = 2                                         # mtimes are whole seconds; a job's own files bracket it
+
+
+def _jobs_script(jobs: str) -> str:
+    """Shell that prints the newest build jobs in `jobs` (an SDK's `.bsp/jobs`), newest first, one per line:
+    `JOB <id> <rc|-> <started> <ended|-> <log mtime|-> <component>`. Started is the job script's mtime, ended its
+    `rc` file's: what the build server's own clock said, like the artifacts' mtimes."""
+    d = shlex.quote(jobs)
+    return (f'd={d}; if [ -d "$d" ]; then for j in $(ls -1 "$d" 2>/dev/null | sort -r | head -20); do '
+            'rc=$(tr -dc 0-9- 2>/dev/null < "$d/$j/rc"); '
+            'echo "JOB $j ${rc:--} $(stat -c %Y "$d/$j/script" 2>/dev/null || echo -) '
+            '$(stat -c %Y "$d/$j/rc" 2>/dev/null || echo -) $(stat -c %Y "$d/$j/log" 2>/dev/null || echo -) '
+            '$(sed -n \'s/.*"component": *"\\([^"]*\\)".*/\\1/p\' "$d/$j/meta.json" 2>/dev/null)"; '
+            'done; fi')
+
+
+def _int(v: str) -> int | None:
+    v = (v or "").strip()
+    return int(v) if v.lstrip("-").isdigit() else None
+
+
+def _job_line(line: str) -> dict[str, Any] | None:
+    parts = line.split(" ", 6)
+    if len(parts) < 6:
+        return None
+    rc = _int(parts[2])
+    started = _int(parts[3])
+    if started is None:
+        return None
+    return {"id": parts[1], "status": "running" if parts[2] == "-" else ("succeeded" if rc == 0 else "failed"),
+            "started": started, "ended": _int(parts[4]), "log_mtime": _int(parts[5]),
+            "component": (parts[6].strip() if len(parts) > 6 else "") or None}
+
+
+def build_of(mtime: int, builds: list[dict[str, Any]], now: int) -> dict[str, Any]:
+    """Which build job wrote a file with this mtime (the newest whose run brackets it), and how that relates to the
+    SDK's latest successful build."""
+    latest = next((j for j in builds if j["status"] == "succeeded"), None)
+    by = next((j for j in builds
+               if j["started"] - SLACK_S <= mtime <= (j["ended"] if j["ended"] is not None else now) + SLACK_S), None)
+    return {"job": by["id"] if by else None, "job_status": by["status"] if by else None,
+            "job_component": by["component"] if by else None,
+            "latest": latest["id"] if latest else None, "latest_component": latest["component"] if latest else None,
+            "latest_ended": when(latest["ended"]) if latest and latest["ended"] is not None else None,
+            "is_latest": bool(by and latest and by["id"] == latest["id"]),
+            "older_than_latest": bool(latest and mtime < latest["started"] - SLACK_S)}
+
+
+def when(t: int | None) -> str | None:
+    """A build-server mtime as local ISO time with its offset."""
+    return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(t)) if t is not None else None
+
+
+def _job(jid: str, component: str | None, status: str | None = None) -> str:
+    what = ", ".join(x for x in (component, None if status in (None, "succeeded") else status) if x)
+    return f"job {jid}" + (f" ({what})" if what else "")
+
+
+def provenance_line(role: str, name: str, sha: str, size: int, mtime: int, source: str, took: float | None,
+                     build: dict[str, Any] | None) -> str:
+    """One line per artifact a boot uses: what it is, where it came from, when the build server wrote it, and which
+    build that was."""
+    where = f"fresh copy from the build server ({took:.1f}s)" if source == "build server" else "host cache hit"
+    line = f"artifact {role}: {name} sha256 {sha[:12]} {size:,} B, {where}, built {when(mtime)} on the build server"
+    if build is None:
+        return line
+    latest = _job(build["latest"], build["latest_component"]) if build["latest"] else None
+    if build["is_latest"]:
+        return f"{line}, {_job(build['job'], build['job_component'])} (the latest successful build)"
+    if build["job"]:
+        line += f", {_job(build['job'], build['job_component'], build['job_status'])}"
+        return line + (f"; the latest successful build is {latest}" if latest else "")
+    if build["older_than_latest"]:
+        return (f"WARNING: {line}; OLDER than the latest successful build, {latest}, ended {build['latest_ended']}: "
+                f"that build did not rewrite this file")
+    if latest:
+        return f"{line}; not written by a recorded build job (latest successful build: {latest})"
+    return f"{line}; no successful build job on record"
 
 
 

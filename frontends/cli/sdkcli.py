@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from core.errors import InvalidRequest, NotFound, BspError
+from core.dut.artifacts import SLACK_S, when
 from core.sdk.catalog import SdkCatalog, sharing
 
 HELPER = Path(__file__).resolve().parents[2] / "core" / "sdk" / "helper.py"
@@ -227,8 +228,31 @@ def follow_build(i, job_id: str, verbose: bool, out, timeout: float) -> tuple[An
                        hint=f"full log: {i.server.ssh}:{v['log']}  (bsp sdk job {i.id} {job_id} --log)",
                        details={"tail": tail[-25:]})
     arts = i.artifacts()
+    v["artifacts"] = built_artifacts(i, job_id, out)
     return v, f"build {job_id} succeeded in {v['elapsed_s']}s; artifacts in {i.artifact_dir()}" + (
         f" (kernel-fit: {arts.get('kernel-fit')})" if "kernel-fit" in arts else "")
+
+
+def built_artifacts(i, job_id: str, out) -> dict[str, Any]:
+    """After a build: one line per artifact of the SDK as the build server has it now (sha256 computed there), and
+    whether this job wrote it, so a boot's `artifact ...` lines can be matched against it. A server that cannot
+    answer leaves the build's success alone."""
+    try:
+        r = helper(i, "artifacts", timeout=300, files=i.artifacts(), job=job_id)
+    except BspError as e:
+        print(f"  (artifact checksums unavailable: {e.message})", file=out, flush=True)
+        return {}
+    job = r.get("job") or {}
+    lo, hi = job.get("started"), job.get("ended") or r.get("now")
+    res: dict[str, Any] = {}
+    for role, a in r.get("artifacts", {}).items():
+        by_job = lo is not None and hi is not None and lo - SLACK_S <= a["mtime"] <= hi + SLACK_S
+        a = {**a, "built": when(a["mtime"]), "job": job_id if by_job else None}
+        res[role] = a
+        line = (f"artifact {Path(a['path']).name} sha256 {a['sha256'][:12]} {a['size']:,} B "
+                f"built {a['built']}")
+        print(f"  {line} job {job_id}" if by_job else f"  {line} (not rewritten by job {job_id})", file=out, flush=True)
+    return res
 
 
 def sdk_job(args) -> tuple[Any, str]:
