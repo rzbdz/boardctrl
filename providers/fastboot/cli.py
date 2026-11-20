@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Callable
 
 from core import proc
@@ -92,6 +93,18 @@ class FastbootDownload(DownloadPort):
 
     def state(self):
         return self.fb.state()
+
+    # Where Linux lists the bus's devices: a device's `devnum` there is new each time it enumerates.
+    USB_DEVICES = Path("/sys/bus/usb/devices")
+
+    def enumeration(self) -> str | None:
+        port = self.fb.usb[4:] if self.fb.usb.startswith("usb:") else ""
+        if not port:
+            return None
+        try:
+            return (self.USB_DEVICES / port / "devnum").read_text().strip() or None
+        except OSError:
+            return None
 
     def cmd(self, *args: str, timeout: float = 120) -> str:
         return self.fb.cmd(*args, timeout=timeout)

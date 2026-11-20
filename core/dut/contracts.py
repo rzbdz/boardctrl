@@ -195,6 +195,11 @@ class DownloadPort(ABC):
     def state(self) -> dict[str, str] | None:
         """This board's download device when it is on the bus (its product name decides download mode), else None."""
 
+    def enumeration(self) -> str | None:
+        """A value that changes each time the device enumerates on the bus (Linux's USB devnum), or None when the
+        provider cannot tell. It tells a device that came back after a reset from one that never went away."""
+        return None
+
     @abstractmethod
     def cmd(self, *args: str, timeout: float = 120) -> str:
         """One verb on the port (`stage <file>`, `flash <part> <file>`, `continue`, `oem <x>`, `getvar <name>`)."""

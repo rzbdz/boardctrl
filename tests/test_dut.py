@@ -517,19 +517,113 @@ def test_human_probe_starts_from_a_running_board_not_one_already_in_download_mod
     assert sum("ACTION NEEDED" in line for line in lines) == 2
 
 
-def test_enter_fdl_accepts_a_board_already_in_download_mode(tmp_path):
-    """A board already in download mode prints no new boot-ROM banner; its USB download device is enough."""
+def test_enter_fdl_accepts_a_board_already_in_download_mode_when_a_person_resets_it(tmp_path):
+    """A board already in download mode prints no new boot-ROM banner; for a person, its USB download device is
+    enough (they may find it already waiting)."""
     con = FakeConsole(tmp_path)
     fb = FakeFastboot(con)                       # on the bus as "DFU download" already
 
-    class Quiet:
+    class Person:
+        needs_human = True
+        def human_timeout(self):
+            return 5.0
         def enter_fdl(self, log, ready=None):
             assert ready() == "download-mode device on usb:2-1.2 (DFU download)"
 
     lines = []
-    BootRunner("b1", Quiet(), fb, con, FakeStore(), download_mode={"console": "download handler", "fastboot": "DFU"}) \
+    BootRunner("b1", Person(), fb, con, FakeStore(), download_mode={"console": "download handler", "fastboot": "DFU"}) \
         .enter_fdl(lines.append, timeout=2)
     assert lines[-1] == "board in download mode on usb:2-1.2 (DFU download)"
+
+
+def test_a_relay_reset_needs_fresh_download_mode_evidence(tmp_path):
+    """A wired reset must show: a download device that was on the bus before the pulse and never went away is not
+    evidence by itself (the pulse may not have reached the board). It counts once it re-enumerates, or the console
+    shows the ROM's download line after the action."""
+    con = FakeConsole(tmp_path)
+    fb = FakeFastboot(con)                       # already there before the reset
+    dm = {"console": "download handler", "fastboot": "DFU"}
+
+    class Quiet:                                 # the pulse did nothing
+        def enter_fdl(self, log, ready=None):
+            assert ready() is None
+
+    with pytest.raises(HardwareTimeout) as e:
+        BootRunner("b1", Quiet(), fb, con, FakeStore(), download_mode=dm).enter_fdl([].append, timeout=0.5)
+    assert "already there before the reset and did not re-enumerate" in e.value.message
+    assert "--no-reset" in e.value.hint and e.value.details["device"]["usb"] == "usb:2-1.2"
+
+    class Bounce:                                # the device leaves the bus and comes back
+        def enter_fdl(self, log, ready=None):
+            fb.product = None
+            assert ready() is None
+            fb.product = "DFU download"
+
+    lines = []
+    BootRunner("b1", Bounce(), fb, con, FakeStore(), download_mode=dm).enter_fdl(lines.append, timeout=2)
+    assert lines[-1] == "board in download mode on usb:2-1.2 (DFU download)"
+
+    class Enumerated(FakeFastboot):              # a provider that reports each enumeration (USB devnum)
+        devnum = "7"
+        def enumeration(self):
+            return self.devnum
+
+    fe = Enumerated(con)
+
+    class Renumber:
+        def enter_fdl(self, log, ready=None):
+            assert ready() is None               # same devnum: the same device
+            fe.devnum = "8"
+
+    BootRunner("b1", Renumber(), fe, con, FakeStore(), download_mode=dm).enter_fdl(lines.append, timeout=2)
+    assert lines[-1] == "board in download mode on usb:2-1.2 (DFU download)"
+
+    class Banner:                                # the ROM's line after the action is evidence on its own
+        def enter_fdl(self, log, ready=None):
+            con.emit("ROM: usb download handler\n")
+            assert ready() == "download mode on the console (/download handler/)"
+
+    BootRunner("b1", Banner(), fb, con, FakeStore(), download_mode=dm).enter_fdl(lines.append, timeout=2)
+
+    class Retained:                              # a banner printed before the action does not count
+        def enter_fdl(self, log, ready=None):
+            assert ready() is None
+
+    with pytest.raises(HardwareTimeout):
+        BootRunner("b1", Retained(), fb, con, FakeStore(), download_mode=dm).enter_fdl([].append, timeout=0.5)
+
+    # Neither the console nor the port can tell a fresh device: the device as it is still counts (availability).
+    class Silent:
+        def enter_fdl(self, log, ready=None):
+            pass
+
+    BootRunner("b1", Silent(), fb, con, FakeStore(), download_mode={"fastboot": "DFU"}).enter_fdl(lines.append, timeout=2)
+    assert lines[-1] == "board in download mode on usb:2-1.2 (DFU download)"
+
+
+def test_no_reset_needs_the_declared_download_mode_on_the_bus(tmp_path):
+    """--no-reset: what is on the bus must be the download mode the SoC declares, else it fails naming it."""
+    con = FakeConsole(tmp_path)
+    fb = FakeFastboot(con)
+    runner = BootRunner("b1", FakeControl(con), fb, con, FakeStore(), download_mode={"fastboot": "DFU"})
+    assert runner.require_download_port()["product"] == "DFU download"
+    fb.product = "Android Fastboot"
+    with pytest.raises(HardwareError) as e:
+        runner.require_download_port()
+    assert "'Android Fastboot'" in e.value.message and "not the download mode /DFU/" in e.value.message
+    assert "drop --no-reset" in e.value.hint
+    fb.product = None
+    with pytest.raises(HardwareError) as e:
+        runner.require_download_port()
+    assert "no download port on usb:2-1.2" in e.value.message
+    fb.product = "Android Fastboot"                # nothing declared: any device on the port will do
+    assert BootRunner("b1", FakeControl(con), fb, con, FakeStore()).require_download_port()
+
+
+def test_enter_fdl_names_both_signs_when_neither_shows(tmp_path):
+    con = FakeConsole(tmp_path)
+    fb = FakeFastboot(con)
+    lines = []
     class Nothing:
         def enter_fdl(self, log, ready=None):
             pass
@@ -564,8 +658,8 @@ def test_a_person_gets_the_whole_window_to_put_a_board_in_download_mode(tmp_path
     runner = BootRunner("b1", Person(), fb, con, FakeStore(), download_mode={"console": "download handler", "fastboot": "DFU"})
     real_seen = runner.download_evidence
 
-    def late(mark):
-        check = real_seen(mark)
+    def late(mark, fresh=False):
+        check = real_seen(mark, fresh)
         def seen():
             if clock[0] >= 1100 and fb.product is None:     # pressed 100 s in: a relay's 30 s would have failed
                 fb.product = "DFU download"

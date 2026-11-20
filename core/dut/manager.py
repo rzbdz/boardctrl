@@ -1006,9 +1006,8 @@ class DutManager:
                 token.check()
                 if reset:
                     runner.enter_fdl(log)
-                elif not b.fastboot.state():
-                    raise HardwareError(f"{dut}: no download port on {b.spec.usb}",
-                                        hint=f"put it in download mode first (`bsp dut reset {dut}`), or drop --no-reset")
+                else:
+                    runner.require_download_port()   # still there, and still in download mode
                 token.at(f"flash/{name}")
                 token.check()
                 artifacts = {"package": str(path)}

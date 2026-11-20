@@ -504,3 +504,15 @@ def test_gpiod_ebusy_names_a_sysfs_export_or_the_holder(tmp_path):
     assert "held by 'other-tool'" in e.message and "gpioinfo" in e.hint and "sysfs" not in e.hint
     e = busy_error(119, None, sysfs_root=tmp_path)
     assert "another process holds the line" in e.message
+
+
+def test_fastboot_reports_the_devices_enumeration(tmp_path, monkeypatch):
+    """The fastboot port reads Linux's USB devnum for its path, which changes on each re-enumeration."""
+    from providers.fastboot.cli import FastbootDownload
+
+    port = FastbootDownload(None, {"usb": "usb:2-1.2"})
+    monkeypatch.setattr(FastbootDownload, "USB_DEVICES", tmp_path)
+    assert port.enumeration() is None                 # not on the bus: cannot tell
+    (tmp_path / "2-1.2").mkdir()
+    (tmp_path / "2-1.2" / "devnum").write_text("7\n")
+    assert port.enumeration() == "7"

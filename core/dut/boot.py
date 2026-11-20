@@ -67,26 +67,74 @@ class BootRunner:
             details={"console_tail": "\n".join(self.console.tail(15))},
         )
 
-    def download_evidence(self, mark) -> "Callable[[], str | None]":
-        """A check that reports how the board shows it is in download mode (console or USB)."""
+    def _port(self) -> dict[str, str] | None:
+        try:
+            return self.fb.state()
+        except Exception:  # noqa: BLE001 - no fastboot yet is just "not seen"
+            return None
+
+    def _enumeration(self) -> str | None:
+        try:
+            return self.fb.enumeration() if hasattr(self.fb, "enumeration") else None
+        except Exception:  # noqa: BLE001 - cannot tell is not a change
+            return None
+
+    def download_evidence(self, mark, fresh: bool = False) -> "Callable[[], str | None]":
+        """A check that reports how the board shows it is in download mode (console or USB).
+
+        `fresh`: only what follows the action counts. A download device that was on the bus before it is evidence
+        only once it re-enumerated (its enumeration changed, or it was seen gone and back); the console's download
+        line since `mark` always counts. Without it, a board the reset never reached passes for one it put in
+        download mode. Taken before the action, since it looks at the bus as it is now."""
         con_rx = re.compile(self.download_mode["console"]) if self.download_mode.get("console") else None
         fb_rx = re.compile(self.download_mode.get("fastboot") or ".")
+        before = self._port() if fresh else None
+        before_enum = self._enumeration() if before else None
+        # Nothing else could ever count when neither the console nor the port can say: then the device as it is.
+        if before and before_enum is None and con_rx is None:
+            before = None
+        gone = [False]
 
         def seen() -> str | None:
             if con_rx and con_rx.search(self.console.read_since(mark)):
                 return f"download mode on the console (/{con_rx.pattern}/)"
-            try:
-                st = self.fb.state()
-            except Exception:  # noqa: BLE001 - no fastboot yet is just "not seen"
-                st = None
+            st = self._port()
+            if before and not gone[0]:
+                if st is None:
+                    gone[0] = True          # it left the bus: whatever comes back is the board's answer
+                    return None
+                now = self._enumeration() if before_enum is not None else None
+                if now is None or now == before_enum:
+                    return None             # the same device as before the action: not evidence by itself
+                gone[0] = True
             if st and fb_rx.search(st.get("product", "")):
-                return f"download-mode device on {self.fb.usb} ({st['product']})"
+                return f"download-mode device on {self.fb.usb} ({st['product']})" + (" (re-enumerated)" if before else "")
             return None
+        seen.stale = lambda: bool(before) and not gone[0]   # type: ignore[attr-defined]
         return seen
+
+    def require_download_port(self) -> dict[str, str]:
+        """The board's download device as it is now, for work that does not reset it first (`--no-reset`): on the
+        bus, and in the download mode its SoC declares when it declares one."""
+        st = self._port()
+        if not st:
+            raise HardwareError(f"{self.dut_id}: no download port on {self.fb.usb}",
+                                hint=f"put it in download mode first (`bsp dut reset {self.dut_id}`), or drop --no-reset")
+        want = self.download_mode.get("fastboot")
+        if want and not re.search(want, st.get("product", "")):
+            raise HardwareError(
+                f"{self.dut_id}: {self.fb.usb} has {st.get('product') or '(no product)'!r} on it "
+                f"({st.get('serial') or 'no serial'}), not the download mode /{want}/",
+                hint=f"the board is in another stage: put it in download mode first (`bsp dut reset {self.dut_id}`), "
+                     "or drop --no-reset", details={"device": st, "download_mode": want})
+        return st
 
     def enter_fdl(self, log: Log, timeout: float = 30) -> None:
         mark = self.console.mark()
-        seen = self.download_evidence(mark)
+        human = getattr(self.control, "needs_human", False)
+        # A relay's pulse must show: a device already on the bus counts only once it re-enumerated. A person may
+        # find the board already waiting, and the device that is there is then the answer.
+        seen = self.download_evidence(mark, fresh=not human)
         started = time.monotonic()
         self.control.enter_fdl(log, seen)
         # Either sign will do: the boot ROM's banner on the console, or its download device on USB. A board that was
@@ -94,7 +142,6 @@ class BootRunner:
         # A relay switches at once, so its board shows download mode within `timeout`. A person may confirm before
         # the board is there (or press it a moment later): the board gets the rest of the person's window, and at
         # least a minute after they confirmed.
-        human = getattr(self.control, "needs_human", False)
         if human:
             confirmed = time.monotonic()
             deadline = max(started + self.control.human_timeout(), confirmed + 60)
@@ -114,6 +161,15 @@ class BootRunner:
                              "button not held), or its download cable may be out; the console tail shows which. "
                              "Ask the person to try again, then retry",
                         details={"console_tail": "\n".join(self.console.tail(15))})
+                if getattr(seen, "stale", lambda: False)():
+                    raise HardwareTimeout(
+                        f"{self.dut_id}'s download device on {self.fb.usb} was already there before the reset and "
+                        f"did not re-enumerate within {timeout:g}s, and the console showed no boot-ROM banner"
+                        + (f" (/{self.download_mode['console']}/)" if self.download_mode.get("console") else "")
+                        + ": the reset may not have reached the board",
+                        hint="check the reset wiring (`bsp dut status <dut>` shows the reset line); if the board is "
+                             "already in download mode, run with --no-reset",
+                        details={"console_tail": "\n".join(self.console.tail(15)), "device": self._port()})
                 raise HardwareTimeout(
                     f"no sign of download mode within {timeout:g}s: neither the boot ROM's banner on the console"
                     + (f" (/{self.download_mode['console']}/)" if self.download_mode.get("console") else "")
@@ -298,9 +354,8 @@ class BootRunner:
             log(f"file {i}/{len(files)}: {f['name']} ({f['size']:,} B, sha256 {f['sha256']})")
         if reset:
             self.enter_fdl(log)
-        elif not self.fb.state():
-            raise HardwareError(f"{self.dut_id}: no download port on {self.fb.usb}",
-                                hint=f"put it in download mode first (`bsp dut reset {self.dut_id}`), or drop --no-reset")
+        else:
+            self.require_download_port()
         token = current_token()
         for i, f in enumerate(files, 1):
             label = f"file {i}/{len(files)} {f['name']}"
