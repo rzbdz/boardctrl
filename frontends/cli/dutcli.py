@@ -43,7 +43,8 @@ def hosts(fleet: Fleet, _args) -> tuple[Any, str]:
         mods = h.status.get("modules", {})
         duts = (mods.get("dut") or {}).get("duts", [])
         rows.append((h.id, h.transport.label, ",".join(mods), ",".join(duts) or "-"))
-        out.append({"host": h.id, "via": h.transport.label, "modules": list(mods), "duts": duts})
+        # What the host's artifact cache holds against its bounds (None from a host without the policy).
+        out.append({"host": h.id, "via": h.transport.label, "modules": list(mods), "duts": duts, "cache": (mods.get("dut") or {}).get("cache")})
     for name, err in fleet.errors.items():
         rows.append((name, "UNREACHABLE", "", err[:60]))
         out.append({"host": name, "error": err})
