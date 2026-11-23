@@ -855,6 +855,91 @@ exit 0
     assert not any("flash gpt" in l for l in calls)
 
 
+def _spacemit_pkg_dir(tmp_path):
+    """A package as pack_image makes it: a NOR layout and a block one, offsets as the vendor writes them."""
+    pkg = tmp_path / "pkg"
+    (pkg / "factory").mkdir(parents=True)
+    (pkg / "fastboot.yaml").write_text("version: 1\nactions:\n- multi_flash: {relate_partition: [mtd, gpt]}\n")
+    for name, size in (("factory/FSBL.bin", 400), ("env.bin", 100), ("u-boot.itb", 900), ("bootfs.vfat", 3000)):
+        (pkg / name).write_bytes(b"x" * size)
+    (pkg / "partition_4M.json").write_text(json.dumps({"version": "1.0", "format": "mtd", "partitions": [
+        {"name": "fsbl", "offset": "128K", "size": "512K", "image": "factory/FSBL.bin"},
+        {"name": "env", "offset": "640K", "size": "64K", "image": "env.bin"},
+        {"name": "uboot", "offset": "2112K", "size": "-", "image": "u-boot.itb"}]}))
+    (pkg / "partition_universal.json").write_text(json.dumps({"version": "1.0", "format": "gpt", "partitions": [
+        {"name": "env", "hidden": True, "offset": "640K", "size": "64K", "image": "env.bin"},
+        {"name": "bootfs", "offset": "12M", "size": "256M", "image": "bootfs.vfat", "compress": "gzip-5"},
+        {"name": "rootfs", "size": "-"}]}))
+    (pkg / "partition_notes.json").write_text("{}")          # not a layout: no medium format
+    return pkg
+
+
+def test_spacemit_pkg_plans_a_package_without_touching_the_board(tmp_path):
+    """`plan: true` reads the layouts: every medium, its partitions in bytes, which ones have an image here."""
+    import subprocess
+
+    pkg = _spacemit_pkg_dir(tmp_path)
+    hook = ROOT / "platforms" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
+    req = {"plan": True, "package_dir": str(pkg), "usb": "usb:9-9", "fastboot": str(tmp_path / "no-fastboot")}
+    r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stdout + r.stderr
+    plan = json.loads(r.stdout.strip().splitlines()[-1])["plan"]
+    assert plan["package"] == "pkg" and plan["partial"] is True
+    K, M = 1024, 1 << 20
+    nor, block = plan["media"]
+    assert (nor["id"], nor["size"], block["id"], block["size"]) == ("partition_4M.json", 4 * M, "partition_universal.json", None)
+    assert nor["label"].startswith("NOR") and block["label"].startswith("block")
+    assert nor["partitions"] == [
+        {"name": "fsbl", "offset": 128 * K, "size": 512 * K, "image": "factory/FSBL.bin", "payload": 400, "selectable": True},
+        {"name": "env", "offset": 640 * K, "size": 64 * K, "image": "env.bin", "payload": 100, "selectable": True},
+        {"name": "uboot", "offset": 2112 * K, "size": None, "image": "u-boot.itb", "payload": 900, "selectable": True}]
+    rootfs = block["partitions"][-1]
+    assert rootfs == {"name": "rootfs", "offset": 12 * M + 256 * M, "size": None, "image": None, "payload": None,
+                      "selectable": False}
+    assert not (tmp_path / "fastboot.log").exists()
+
+
+def test_spacemit_pkg_flashes_only_the_partitions_asked_for(tmp_path):
+    """`args.only`: each medium with one of them gets its layout and those partitions; the others are left alone;
+    a name no layout has is refused before the board is touched, with the names there are."""
+    import subprocess
+
+    pkg = _spacemit_pkg_dir(tmp_path)
+    log = tmp_path / "fastboot.log"
+    fb = tmp_path / "fastboot"
+    fb.write_text(f"""#!/bin/sh
+echo "$*" >> {log}
+if [ "$1" = devices ]; then printf 'x\\tfastboot usb:2-1.1\\n'; exit 0; fi
+case "$3 $4" in
+  "getvar mtd-size") echo "mtd-size: 4M" >&2 ;;
+  "getvar blk-size") echo "blk-size: universal" >&2 ;;
+  *) echo OKAY >&2 ;;
+esac
+""")
+    fb.chmod(0o755)
+    hook = ROOT / "platforms" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
+    req = {"usb": "usb:2-1.1", "fastboot": str(fb), "package_dir": str(pkg), "artifacts": {}, "args": {"only": ["bootfs"]}}
+    r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stdout + r.stderr
+    result = json.loads(r.stdout.strip().splitlines()[-1])
+    assert [(f["layout"], f["partition"]) for f in result["flashed"]] == [
+        ("partition_universal.json", "gpt"), ("partition_universal.json", "bootfs")]
+    assert "partition_4M.json: none of bootfs is on this medium; leaving it alone" in r.stdout
+
+    req["args"] = {"only": ["env"]}            # on both media
+    r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)
+    assert [f["partition"] for f in json.loads(r.stdout.strip().splitlines()[-1])["flashed"]] == ["mtd", "env", "gpt", "env"]
+
+    log.write_text("")
+    req["args"] = {"only": ["bootfs", "nope"]}
+    r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 1
+    err = json.loads(r.stdout.strip().splitlines()[-1])
+    assert err["error"] == "no partition nope in this package"
+    assert err["hint"] == "partitions with an image here: bootfs, env, fsbl, uboot"
+    assert " flash " not in log.read_text()
+
+
 def test_a_board_whose_fdl_is_not_known_says_what_to_set():
     import pytest
 

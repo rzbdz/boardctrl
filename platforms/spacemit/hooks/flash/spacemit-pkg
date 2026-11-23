@@ -15,9 +15,15 @@ Layout files follow fastboot.yaml `multi_flash`: partition_<getvar mtd-size>.jso
 and partition_<getvar blk-size>.json for block media (format gpt); a layout is written first
 (`fastboot flash mtd|gpt <json>`), then every partition that has an image in the package.
 
-bsp-hook: check
+bsp-hook: check plan only
 With `"check": true` it only says whether it can run here (fastboot found), touching nothing:
 {"ready": true} or {"ready": false, "reason", "hint"}.
+With `"plan": true` it reads the unpacked package (`package_dir`) and says what flashing it would write, touching
+nothing: {"plan": {"package", "media": [{"id", "label", "size", "partitions": [{"name", "offset", "size",
+"image", "payload", "selectable"}]}], "partial": true, "notes": [...]}} (bytes; null where the layout leaves it
+open). Every layout in the package is listed: which one is written is chosen from the sizes the board reports.
+`args.only` (partition names) flashes only those partitions, on each medium whose layout has one; a medium with
+none of them is left alone. A name no layout has is refused with the names there are.
 """
 import json
 import os
@@ -118,14 +124,85 @@ def check(req):
     return 0
 
 
+UNITS = {"": 1, "K": 1 << 10, "M": 1 << 20, "G": 1 << 30, "T": 1 << 40}
+
+
+def nbytes(v):
+    """A layout's offset or size ("640K", "4M", "0", 1024) in bytes; None for "-" (the rest) or none given."""
+    if v is None or v == "-" or v == "":
+        return None
+    if isinstance(v, int):
+        return v
+    m = re.fullmatch(r"\s*(\d+)\s*([KMGT]?)i?B?\s*", str(v), re.I)
+    return int(m.group(1)) * UNITS[m.group(2).upper()] if m else None
+
+
+def layouts_in(work):
+    """The package's partition layouts that name a medium format: (file name, table)."""
+    out = []
+    for name in sorted(os.listdir(work)):
+        if name.startswith("partition_") and name.endswith(".json"):
+            try:
+                table = json.load(open(os.path.join(work, name)))
+            except (OSError, ValueError):
+                continue
+            if isinstance(table, dict) and table.get("format") in ("mtd", "gpt"):
+                out.append((name, table))
+    return out
+
+
+def image_of(work, p):
+    """The file a partition is written from, as flash() picks it: its image, or the last of a list that is here."""
+    image = p.get("image")
+    names = [image] if isinstance(image, str) else [str(x) for x in image or []]
+    return next((n for n in reversed(names) if os.path.exists(os.path.join(work, n))), None)
+
+
+def plan(req):
+    """What flashing the package would write, read from its layouts: nothing is touched."""
+    work = req.get("package_dir")
+    if not work or not os.path.isdir(work):
+        print(json.dumps({"error": "plan needs package_dir, the unpacked package"}))
+        return 1
+    media = []
+    for name, table in layouts_in(work):
+        fmt = table["format"]
+        parts, at = [], 0
+        for p in table.get("partitions") or []:
+            size, given = nbytes(p.get("size")), nbytes(p.get("offset"))
+            offset = given if given is not None else at
+            chosen = image_of(work, p)
+            parts.append({"name": str(p.get("name")), "offset": offset, "size": size,
+                          "image": chosen, "payload": os.path.getsize(os.path.join(work, chosen)) if chosen else None,
+                          "selectable": bool(chosen)})
+            at = offset + size if offset is not None and size is not None else None
+        sized = name[len("partition_"):-len(".json")]
+        medium = nbytes(sized) if re.fullmatch(r"\d+[KMGT]", sized) else None
+        label = ("NOR" if fmt == "mtd" else "block") + f" ({fmt}) · {name}"
+        media.append({"id": name, "label": label, "size": medium, "partitions": parts})
+    notes = []
+    kinds = [m["label"].split(" ", 1)[0] for m in media]
+    if any(kinds.count(kind) > 1 for kind in kinds):
+        notes.append("the package carries several layouts: the one written to each medium is chosen from the size "
+                     "the board reports for it (getvar mtd-size / blk-size) when it is flashed")
+    notes.append("with chosen partitions, each medium holding one has its layout written again first; the other "
+                 "media are left alone")
+    print(json.dumps({"plan": {"package": os.path.basename(os.path.normpath(work)), "media": media,
+                               "partial": True, "notes": notes}}))
+    return 0
+
+
 def main():
     req = json.loads(sys.stdin.read())
     if req.get("check"):
         return check(req)
+    if req.get("plan"):
+        return plan(req)
     usb, binary = req["usb"], req.get("fastboot", "fastboot")
     args = req.get("args") or {}
     media = args.get("media", ["mtd", "gpt"])
     skip = set(args.get("skip", []))
+    only = [str(x) for x in args.get("only") or []]
     t0 = time.monotonic()
     pkg_dir = req.get("package_dir")
     if pkg_dir:
@@ -148,13 +225,22 @@ def main():
             z.extractall(work)
         print(f"unpacked {os.path.basename(pkg)} ({len(os.listdir(work))} entries)")
     try:
-        return flash(req, work, pkg, binary, usb, args, media, skip, t0)
+        if only:
+            # Before the board is touched: a name no layout has is a mistake, said with the names there are.
+            known = sorted({str(p.get("name")) for _, t in layouts_in(work) for p in t.get("partitions") or []
+                            if image_of(work, p)})
+            unknown = [n for n in only if n not in known]
+            if unknown:
+                print(json.dumps({"error": f"no partition {', '.join(unknown)} in this package",
+                                  "hint": f"partitions with an image here: {', '.join(known) or '(none)'}"}))
+                return 1
+        return flash(req, work, pkg, binary, usb, args, media, skip, t0, set(only))
     finally:
         if work != pkg_dir:
             shutil.rmtree(work, ignore_errors=True)
 
 
-def flash(req, work, pkg, binary, usb, args, media, skip, t0):
+def flash(req, work, pkg, binary, usb, args, media, skip, t0, only=frozenset()):
 
     sizes = {"mtd": getvar(binary, usb, "mtd-size"), "gpt": getvar(binary, usb, "blk-size")}
     print(f"device reports mtd-size={sizes['mtd']} blk-size={sizes['gpt']}")
@@ -207,10 +293,15 @@ def flash(req, work, pkg, binary, usb, args, media, skip, t0):
             image = p.get("image")
             names = [image] if isinstance(image, str) else [str(x) for x in image or []]
             chosen = next((n for n in reversed(names) if os.path.exists(os.path.join(work, n))), None)
+            if only and p["name"] not in only:
+                continue
             if chosen:
                 parts.append((p["name"], os.path.join(work, chosen)))
             elif names and p["name"] not in skip:
                 skipped.append((name, p["name"], names))
+        if only and not parts:
+            print(f"{name}: none of {', '.join(sorted(only))} is on this medium; leaving it alone")
+            continue
         plans.append((name, [(fmt, os.path.join(work, name))] + [x for x in parts if x[1]]))
     for name, part, names in skipped:
         print(f"skip {part}: none of {', '.join(names)} is in the package ({name})")
