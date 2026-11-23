@@ -92,3 +92,14 @@ same `usb`, `fastboot`, `images` and `args`; it must touch nothing and answer `{
 `{"ready": false, "reason", "hint"}` (say, its vendor tool is not installed). An unready one is passed
 over (the job says so); a hook that declares nothing is taken as ready. A flasher asked for by name is
 used or refused, never replaced, and the refusal lists the ready ones.
+
+Two more capabilities a flasher can declare on that line. `plan` (`bsp-hook: check plan`): run with
+`"plan": true`, `package_dir` (the unpacked package), `images` and `args`, it reads the package and
+touches nothing, answering `{"plan": {"package", "media": [{"id", "label", "size", "partitions":
+[{"name", "offset", "size", "image", "payload", "selectable"}]}], "partial", "notes": [...]}}`: each
+medium the package lays out, its partitions in bytes (`null` where the layout leaves it open),
+the file each is written from and that file's size, whether a partition can be written alone, and
+anything the reader should know. `only`: the flash request's `args.only` is a list of partition
+names to write instead of the whole package; a name the package does not have is refused before the
+board is touched. A flasher that declares neither is never asked to plan or given `only`: `dut
+flash --plan` and `--partitions` refuse it before anything is fetched.

@@ -940,12 +940,18 @@ class DutManager:
                             details={"tried": tried})
 
     def flash(self, dut: str, package: str, sha256: str | None, flasher: str | None, lease: str | None,
-              timeout: float, reset: bool, refresh: bool = False) -> dict[str, Any]:
+              timeout: float, reset: bool, refresh: bool = False, plan: bool = False,
+              partitions: list[str] | str | None = None) -> dict[str, Any]:
         """Write a package to the board.
 
         With the flash role's built-in `hook` provider: enter download mode, then run the flash hook on the unpacked
         package. With another provider (a site plugin's image writer): the file is resolved and verified here, and
         the provider writes it; what needs download mode, a hook or a package layout is that provider's business.
+
+        `plan`: fetch and unpack the package as a flash would, then ask the flash hook what it would write (its
+        media and partitions), touching no board; the job's result is `{"plan": ...}`. `partitions`: write only these
+        (names as the plan gives them), passed to the hook as `args.only`; a hook that does not declare `only`
+        refuses before anything is fetched.
         """
         import shutil
         import tempfile
@@ -959,8 +965,12 @@ class DutManager:
         self._guard_busy(dut)
         provider = b.flash_provider
         hook_based = isinstance(provider, HookFlash)
+        only = _partition_names(partitions)
+        if (plan or only) and not hook_based:
+            raise InvalidRequest(f"{dut}'s flash provider {provider.provider_name} writes the whole file",
+                                 hint="it cannot say what a package holds or write only some partitions")
         usb = str(b.spec.fastboot.get("usb") or "")
-        if hook_based and (not usb or "UNKNOWN" in usb.upper()):
+        if hook_based and not plan and (not usb or "UNKNOWN" in usb.upper()):
             raise InvalidRequest(f"{dut} has no download port (fastboot.usb) recorded",
                                  hint=f"set it: `bsp dut set {dut} --usb usb:<bus>-<port>` "
                                       "(the path `fastboot devices -l` shows in download mode)")
@@ -973,7 +983,16 @@ class DutManager:
                              "args": expand(dict(self.flash_cfg.get("args") or {}), self.ctx.env)})
         else:
             name, why = provider.provider_name, f"{dut}'s flash provider"
-        if hook_based and reset:
+        if hook_based and (plan or only):
+            # Before any transfer: the hook must know how to plan, or to write only some partitions.
+            need = "plan" if plan else "only"
+            if not self.hooks.declares("flash", name, need):
+                raise InvalidRequest(f"flasher {name} cannot {'say what a package would write' if plan else 'write only some partitions'}",
+                                     hint=f"it does not declare `bsp-hook: {need}`"
+                                          + ("" if plan else "; flash the whole package"))
+        if plan:
+            pass                    # a plan touches no board: no reset, no download port
+        elif hook_based and reset:
             b.control.preflight()  # the reset this flash starts with can happen: known before the download
         elif hook_based:
             b.runner(self).require_download_port()   # --no-reset: the board is in download mode now, or no download
@@ -1028,6 +1047,20 @@ class DutManager:
                 pkg_dir = flashpkg.unpack(path, work / "pkg", max_bytes=4 * max_bytes)
                 files = sum(1 for p in pkg_dir.rglob("*") if p.is_file())
                 log(f"unpacked {path.name}: {files} file(s)")
+                if plan:
+                    token.at(f"flash/{name} reads the package")
+                    got = self.hooks.run("flash", name, {"plan": True, "dut": dut, "package_dir": str(pkg_dir),
+                                                         "images": images, "env": dict(self.ctx.env),
+                                                         "args": expand(dict(self.flash_cfg.get("args") or {}), self.ctx.env)},
+                                         timeout=min(timeout, 300), log=log)
+                    if got.code != 0 or got.data.get("error") or not isinstance(got.data.get("plan"), dict):
+                        err = got.data.get("error") or "the flasher gave no plan"
+                        raise HardwareError(f"flash/{name}: {err}", hint=got.data.get("hint") or "")
+                    out_plan = {**got.data["plan"], "package": path.name}
+                    log(f"{path.name}: {sum(len(m.get('partitions') or []) for m in out_plan.get('media') or [])} "
+                        f"partition(s) on {len(out_plan.get('media') or [])} medium/media; nothing was written")
+                    return {"dut": dut, "flasher": name, "package": path.name, "plan": out_plan,
+                            "elapsed_s": round(time.monotonic() - t0, 1)}
                 token.at("enter download mode")
                 token.check()
                 if reset:
@@ -1045,6 +1078,8 @@ class DutManager:
                        "env": dict(self.ctx.env),
                        "network": {**self.network(), "console": b.console.alias},
                        "args": expand(dict(self.flash_cfg.get("args") or {}), self.ctx.env)}
+                if only:
+                    req["args"]["only"] = only
                 try:
                     res = self.hooks.run("flash", name, req, timeout=timeout, log=log,
                                          progress=getattr(log, "progress", None))
@@ -1068,9 +1103,16 @@ class DutManager:
             self._event("flashed", dut=dut, flasher=name, package=path.name)
             return out
 
-        job = self._start_job(dut, f"flash {label} [{name}]", body, kind="flash", flasher=name)
+        if plan:
+            # Reading a package is not an operation on the board: it does not make the board busy.
+            job = self.ctx.jobs.start("flash-plan", f"{dut}: plan {label} [{name}]", body,
+                                      guard=lambda lease_: self.leases.check(dut, lease_), dut=dut, flasher=name)
+            return {"job": job.id, "dut": dut, "flasher": name, "package": label, "host": self.ctx.host_id, "plan": True}
+        what = f"flash {label} [{name}]" + (f" only {','.join(only)}" if only else "")
+        job = self._start_job(dut, what, body, kind="flash", flasher=name)
         self._event("flash", dut=dut, flasher=name, package=label, job=job.id)
-        return {"job": job.id, "dut": dut, "flasher": name, "package": label, "host": self.ctx.host_id}
+        return {"job": job.id, "dut": dut, "flasher": name, "package": label, "host": self.ctx.host_id,
+                **({"partitions": only} if only else {})}
 
     def artifact_has(self, sha256: str) -> dict[str, Any]:
         p = self.store.find(sha256)
@@ -1570,3 +1612,22 @@ def _stage(fb: dict | None, download_rx: str | None) -> str:
     if download_rx and re.search(download_rx, fb.get("product", "")):
         return "download-mode"
     return "fastboot"
+
+
+_PARTITION = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}")
+
+
+def _partition_names(value: list[str] | str | None) -> list[str]:
+    """`partitions` as given (a list, or `a,b`): the names, checked, in order, once each."""
+    if not value:
+        return []
+    items = value.split(",") if isinstance(value, str) else [str(v) for v in value]
+    names: list[str] = []
+    for item in (i.strip() for i in items):
+        if not item:
+            continue
+        if not _PARTITION.fullmatch(item):
+            raise InvalidRequest(f"not a partition name: {item!r}", hint="letters, digits, . _ + -")
+        if item not in names:
+            names.append(item)
+    return names

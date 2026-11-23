@@ -318,6 +318,10 @@ def _flash(h: HostHandle, dut: str, args, book: LeaseBook) -> tuple[Any, str]:
     pkg = args.package
     body: dict[str, Any] = {"dut": dut, "lease": _lease(args, book, dut), "flasher": args.flasher,
                             "timeout": args.timeout, "reset": not args.no_reset}
+    if args.plan:
+        body["plan"] = True
+    if args.partitions:
+        body["partitions"] = args.partitions
     if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", pkg):
         if urlsplit(pkg).scheme not in ("http", "https"):
             raise InvalidRequest(f"package URL scheme {urlsplit(pkg).scheme!r} is not allowed",
@@ -335,16 +339,43 @@ def _flash(h: HostHandle, dut: str, args, book: LeaseBook) -> tuple[Any, str]:
             raise InvalidRequest(f"{pkg} hashes to {art['sha256']}, not {args.sha256}")
         body.update(package=art["sha256"])
     r = _ok(h, h.call("dut_flash", body, timeout=120))
-    print(f"{dut} @ {h.id}: flash {r['package']} with {r['flasher']}, job {r['job']}", file=out, flush=True)
+    print(f"{dut} @ {h.id}: {'plan' if args.plan else 'flash'} {r['package']} with {r['flasher']}"
+          + (f" only {', '.join(r['partitions'])}" if r.get("partitions") else "") + f", job {r['job']}",
+          file=out, flush=True)
     if args.no_wait:
         return r, f"follow with: bsp job get {r['job']} -r {h.id} --wait 30"
     lines: list[str] = []
     v, text = follow_job(h, r["job"], out, args.timeout + 300, lines)
     res = v.get("result") or {}
+    if args.plan:
+        plan = res.get("plan") or {}
+        return {"job": r["job"], "lines": lines, "flasher": r["flasher"], "plan": plan}, _plan_text(plan)
     result = {"job": r["job"], "lines": lines, "elapsed_s": v.get("elapsed_s"), "flasher": r["flasher"]}
     if "flashed" in res:
         result["flashed"] = res["flashed"]
     return result, text
+
+
+def _size(n: Any) -> str:
+    if not isinstance(n, int):
+        return "-"
+    for unit, step in (("G", 1 << 30), ("M", 1 << 20), ("K", 1 << 10)):
+        if n >= step and n % step == 0:
+            return f"{n // step}{unit}"
+    return f"{n:,} B" if n < 1024 else f"{n / 1024:.1f}K"
+
+
+def _plan_text(plan: dict[str, Any]) -> str:
+    """A package's plan as a person reads it: each medium, then its partitions."""
+    lines = [f"{plan.get('package', '?')}: " + ("partitions can be chosen (--partitions a,b)" if plan.get("partial")
+                                                 else "written whole")]
+    for m in plan.get("media") or []:
+        lines.append(f"{m.get('label')}" + (f"  {_size(m.get('size'))}" if m.get("size") else ""))
+        for p in m.get("partitions") or []:
+            image = f"{p['image']} ({_size(p.get('payload'))})" if p.get("image") else "(not in the package)"
+            lines.append(f"  {p.get('name', '?'):<12} @{_size(p.get('offset')):<8} {_size(p.get('size')):<8} {image}")
+    lines += [f"note: {n}" for n in plan.get("notes") or []]
+    return "\n".join(lines)
 
 
 def _tar_dir(src: str, tmp: str) -> str:
@@ -855,6 +886,10 @@ def add_parsers(sub) -> None:
     fl.add_argument("--no-reset", action="store_true", help="the board is already in download mode")
     fl.add_argument("--refresh", action="store_true",
                     help="a URL package: download it again even when the host fetched it within its URL cache TTL")
+    fl.add_argument("--plan", action="store_true",
+                    help="only say what the package would write (media and partitions); no board is touched")
+    fl.add_argument("--partitions", metavar="A,B",
+                    help="write only these partitions (names as --plan gives them); the flasher must support it")
     fl.add_argument("--no-wait", action="store_true", help="return the job id instead of following it")
     c = ds.add_parser("console", help="run a shell command on the DUT console (no command: interactive attach)")
     c.add_argument("dut")

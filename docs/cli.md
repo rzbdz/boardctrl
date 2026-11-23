@@ -32,7 +32,7 @@ How hosts are chosen without `-r`/`--url` is described in
 | `boardctrl dut reset DUT [--no-fdl] [--no-wait] [--timeout S]` | Reset into download mode and wait for it (`--no-fdl`: boot the board's own system; a board whose FDL is strapped boots its media through the SoC's media boot when it has one) |
 | `boardctrl dut boot DUT --sdk SDK [--method load\|download] [--variant V] [--no-wait] [--timeout S]` | Run the SDK's boot recipe; streams progress, exit code is the result |
 | `boardctrl dut boot DUT --files FILE… [--no-reset] [--first-wait S] [--later-wait S] [--port-timeout S] [--no-wait]` | Boot from RAM with local files in order (see [Booting local files](#booting-local-files)) |
-| `boardctrl dut flash DUT --package PATH\|URL [--sha256 HEX] [--flasher NAME] [--timeout S] [--no-reset] [--no-wait]` | Write a package (images and their layout) to the board's media (see [Flashing a package](#flashing-a-package)) |
+| `boardctrl dut flash DUT --package PATH\|URL [--sha256 HEX] [--flasher NAME] [--plan] [--partitions A,B] [--timeout S] [--no-reset] [--no-wait]` | Write a package (images and their layout) to the board's media (see [Flashing a package](#flashing-a-package)) |
 | `boardctrl dut stage DUT FILE [--no-continue] [--timeout S]` | Copy a local file to the host with scp (once, by sha256) and load it into RAM: `fastboot stage` + `continue` |
 | `boardctrl dut present DUT` | Whether the board's download/fastboot port is on the USB bus |
 | `boardctrl dut console DUT "CMD" [--expect RE] [--timeout S]` | Run one shell command on the console and print its output |
@@ -165,8 +165,17 @@ CLI prints it as it comes. With `--json` the result is `{"job", "lines", "elapse
 "flashed"}`. `--timeout` (default 3600 s) bounds the flasher; when it runs out the flasher gets
 SIGTERM first so it can let go of the USB device.
 
+`--plan` only says what the package would write: the host fetches and unpacks it as above and asks
+the flasher to read it, and no board is reset, put into download mode or written. It prints each
+medium and its partitions (offset, size, the file each is written from); with `--json` the result
+is `{"job", "lines", "flasher", "plan": {"package", "media", "partial", "notes"}}` (see
+hooks/README.md for the plan's fields). It runs as a job of kind `flash-plan` that does not make
+the board busy. `--partitions a,b` writes only those partitions (names as `--plan` gives them);
+the flasher must declare it can (`spacemit-pkg` does), and a name the package does not have is
+refused before the board is touched.
+
 Over HTTP: upload the package as an artifact (see above), then `dut_flash` with `package` set to
-its sha256, or to the URL.
+its sha256, or to the URL (and `plan: true`, or `partitions`).
 
 ### Console pipe
 

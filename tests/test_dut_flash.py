@@ -257,6 +257,8 @@ def test_cli_flash_sends_a_directory_and_prints_progress(tmp_path, monkeypatch, 
     hooks.mkdir(parents=True)
     (hooks / "fake").write_text("#!/usr/bin/env python3\nimport json,sys\nreq=json.load(sys.stdin)\n" + FAKE_FLASHER)
     (hooks / "fake").chmod(0o755)
+    (hooks / "planner").write_text(PLANNING_FLASHER)
+    (hooks / "planner").chmod(0o755)
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("BSP_HOOKS_PATH", str(tmp_path / "hooks"))
@@ -292,6 +294,18 @@ def test_cli_flash_sends_a_directory_and_prints_progress(tmp_path, monkeypatch, 
         assert main([*url, "dut", "flash", "mock-board", "--package", str(pkg), "--flasher", "fake",
                      "--lease", token, "--no-reset"]) == 0
         assert "my-image.tar already on dev-mock" in capsys.readouterr().out     # same tree, same tar
+        # --plan: the flasher's reading of the package, as JSON and as a table; --partitions reaches the flasher.
+        assert main([*url, "--json", "dut", "flash", "mock-board", "--package", str(pkg), "--flasher", "planner",
+                     "--lease", token, "--plan"]) == 0
+        res = json.loads(capsys.readouterr().out)["result"]
+        assert res["plan"]["package"] == "my-image.tar" and res["plan"]["partial"] is True
+        assert [p["name"] for p in res["plan"]["media"][0]["partitions"]] == ["fastboot.yaml", "img"]
+        assert main([*url, "dut", "flash", "mock-board", "--package", str(pkg), "--flasher", "planner",
+                     "--lease", token, "--plan"]) == 0
+        assert "my-image.tar: partitions can be chosen (--partitions a,b)\ndisk\n  fastboot.yaml" in capsys.readouterr().out
+        assert main([*url, "--json", "dut", "flash", "mock-board", "--package", str(pkg), "--flasher", "planner",
+                     "--lease", token, "--no-reset", "--partitions", "img"]) == 0
+        assert json.loads(capsys.readouterr().out)["result"]["flashed"] == ["img"]
         assert main([*url, "dut", "flash", "mock-board", "--package", "file:///etc/x.tgz", "--lease", token]) == 1
         assert "not allowed" in capsys.readouterr().err
     finally:
@@ -498,3 +512,68 @@ def test_cancel_with_nothing_running_names_the_boards_last_job(host):
     assert f"bsp job get {job.id}" in e["hint"]
     last = e["details"]["last_job"]
     assert last["id"] == job.id and last["status"] == "failed" and last["error"]["hint"] == "free the line"
+
+
+PLANNING_FLASHER = """#!/usr/bin/env python3
+# bsp-hook: plan only
+import json, os, sys
+req = json.load(sys.stdin)
+if req.get('plan'):
+    files = sorted(os.listdir(req['package_dir']))
+    print('reading ' + ', '.join(files), flush=True)
+    print(json.dumps({'plan': {'package': 'x', 'partial': True, 'notes': [], 'media': [{'id': 'disk', 'label': 'disk',
+          'size': None, 'partitions': [{'name': n, 'offset': None, 'size': None, 'image': n, 'payload': 1,
+          'selectable': True} for n in files]}]}}))
+    sys.exit(0)
+with open(os.environ['FLASH_LOG'], 'w') as f:
+    json.dump(req, f)
+print(json.dumps({'flashed': req['args'].get('only') or ['all']}))
+"""
+
+
+def _planning(host):
+    h = host.tmp / "hooks" / "flash" / "planner"
+    h.write_text(PLANNING_FLASHER)
+    h.chmod(h.stat().st_mode | stat.S_IEXEC)
+
+
+def test_a_plan_reads_the_package_and_touches_no_board(host, web, monkeypatch):
+    """`plan`: fetched and unpacked as a flash would be, read by the flasher; no reset, no download port, the
+    board not busy, and a flasher that cannot plan refused before anything is fetched."""
+    _planning(host)
+    data = _zip({"fastboot.yaml": b"actions: []\n", "u-boot.itb": b"u"})
+    (web.root / "p.zip").write_bytes(data)
+    mod = host.app.state.hub.modules["dut"]
+    board = mod.board("mock-board")
+    monkeypatch.setattr(board.control, "preflight", lambda: (_ for _ in ()).throw(AssertionError("no reset")))
+    token = _call(host, "dut_acquire", dut="mock-board", holder="t", ttl=60)["token"]
+    assert _call(host, "dut_flash", dut="mock-board", package=f"{web.url}/p.zip", plan=True, flasher="fake",
+                 lease=token)["code"] == "invalid_request"          # `fake` does not declare plan
+    r = _call(host, "dut_flash", dut="mock-board", package=f"{web.url}/p.zip", plan=True, flasher="planner", lease=token)
+    assert r["plan"] is True and r["job"].startswith("flash-plan-")
+    assert "mock-board" not in mod._busy
+    job = _call(host, "job_get", id=r["job"], wait=20)
+    assert job["status"] == "succeeded", job
+    plan = job["result"]["plan"]
+    assert plan["package"] == "p.zip" and [p["name"] for p in plan["media"][0]["partitions"]] == ["fastboot.yaml", "u-boot.itb"]
+    assert any("nothing was written" in l for l in job["lines"])
+    assert not (host.tmp / "flash.json").exists()
+
+
+def test_chosen_partitions_reach_the_flasher_and_a_flasher_without_them_refuses(host):
+    _planning(host)
+    data = _tgz({"pkg/a.img": b"a", "pkg/b.img": b"b"})
+    sha = _sha(data)
+    assert host.put(f"/api/v1/artifacts/{sha}?name=pkg.tgz", content=data).json()["ok"]
+    token = _call(host, "dut_acquire", dut="mock-board", holder="t", ttl=60)["token"]
+    e = _call(host, "dut_flash", dut="mock-board", package=sha, flasher="fake", lease=token, reset=False, partitions="a")
+    assert e["code"] == "invalid_request" and "only some partitions" in e["message"]
+    e = _call(host, "dut_flash", dut="mock-board", package=sha, flasher="planner", lease=token, reset=False, partitions="a;b")
+    assert e["code"] == "invalid_request" and "not a partition name" in e["message"]
+    r = _call(host, "dut_flash", dut="mock-board", package=sha, flasher="planner", lease=token, reset=False,
+              partitions="boot, rootfs,boot")
+    assert r["partitions"] == ["boot", "rootfs"]
+    job = _call(host, "job_get", id=r["job"], wait=20)
+    assert job["status"] == "succeeded", job
+    assert json.loads((host.tmp / "flash.json").read_text())["args"]["only"] == ["boot", "rootfs"]
+    assert job["result"]["flashed"] == ["boot", "rootfs"]
