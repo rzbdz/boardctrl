@@ -632,3 +632,13 @@ def test_a_package_on_a_build_server_is_pulled_over_ssh_and_only_from_one_the_si
     assert job["status"] == "succeeded", job
     assert json.loads((host.tmp / "flash.json").read_text())["files"] == ["fastboot.yaml", "u-boot.itb"]
     assert (bindir / "ssh.log").read_text().split() == ["dev@192.0.2.10"] * 2
+
+
+def test_a_hook_is_told_the_hook_search_path(host, tmp_path):
+    """$BSP_HOOK_DIRS: a flasher can find another one (to read a package the way the platform's does)."""
+    h = host.tmp / "hooks" / "flash" / "telling"
+    h.write_text("#!/bin/sh\nprintf '{\"dirs\": \"%s\"}\\n' \"$BSP_HOOK_DIRS\"\n")
+    h.chmod(0o755)
+    mod = host.app.state.hub.modules["dut"]
+    got = mod.hooks.run("flash", "telling", {})
+    assert str(host.tmp / "hooks") in got.data["dirs"].split(":")

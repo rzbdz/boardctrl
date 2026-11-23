@@ -11,7 +11,8 @@ A hook is any executable file ``<hooks-dir>/<kind>/<name>`` (any language).
 Search order (first match wins): $BSP_HOOKS_PATH (":"-separated), the caller's dirs
 (host config, then: the site before the shipped platforms), ~/.config/bsp/hooks, then the core
 hooks/ of the repo — so a site or a pack can add or override a hook without
-touching core.
+touching core. A hook gets that search path as $BSP_HOOK_DIRS, so it can hand part of its work to another
+(a site flasher that reads packages the way the platform's does, say).
 """
 
 from __future__ import annotations
@@ -164,7 +165,7 @@ class HookRunner:
         try:
             r = proc.run([str(path)], input=json.dumps(request), timeout=timeout, on_line=on_line, grace=10,
                          env={**os.environ, **self.env, "BSP_HOOK_KIND": kind, "BSP_HOOK_NAME": name,
-                              "PYTHONUNBUFFERED": "1"})
+                              "BSP_HOOK_DIRS": ":".join(map(str, self.dirs)), "PYTHONUNBUFFERED": "1"})
         except proc.TimedOut as t:
             raise HardwareTimeout(f"hook {kind}/{name} timed out after {timeout:g}s",
                                   hint="give it more time (a timeout option of the command, or the recipe step's "
