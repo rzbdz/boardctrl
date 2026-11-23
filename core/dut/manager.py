@@ -1000,7 +1000,12 @@ class DutManager:
         package = (package or "").strip()
         url = None
         if flashpkg.is_url(package):
-            url = flashpkg.check_url(package)
+            # A build server's file (ssh://) is checked against the site's build servers before anything is pulled.
+            if package.lower().startswith("ssh://"):
+                flashpkg.check_ssh(package, self.sdks.servers)
+                url = package
+            else:
+                url = flashpkg.check_url(package)
             if sha256 and not re.fullmatch(r"[0-9a-fA-F]{64}", sha256):
                 raise InvalidRequest(f"not a sha256: {sha256!r}", hint="64 hex digits")
             label = package.rsplit("/", 1)[-1] or package
@@ -1022,7 +1027,10 @@ class DutManager:
             log(f"flash {dut} with {name} ({why}): package {label}")
             token = current_token()
             token.at("fetch the package")
-            if url:
+            if url and url.lower().startswith("ssh://"):
+                got = flashpkg.pull_ssh(self.store, url, self.sdks.servers, sha256, log, max_bytes)
+                path = Path(got["path"])
+            elif url:
                 got = flashpkg.fetch(self.store, url, sha256, log, max_bytes, ttl_s=self.flash_cfg.get("url_cache_ttl_s"),
                                      refresh=refresh)
                 path = Path(got["path"])

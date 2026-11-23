@@ -577,3 +577,58 @@ def test_chosen_partitions_reach_the_flasher_and_a_flasher_without_them_refuses(
     assert job["status"] == "succeeded", job
     assert json.loads((host.tmp / "flash.json").read_text())["args"]["only"] == ["boot", "rootfs"]
     assert job["result"]["flashed"] == ["boot", "rootfs"]
+
+
+FAKE_SSH = """#!/bin/bash
+# fake ssh: drop the options, note the target, run the command here
+while [ "$1" = "-o" ]; do shift 2; done
+echo "$1" >> "$(dirname "$0")/ssh.log"
+shift
+exec bash -c "$*"
+"""
+FAKE_SCP = """#!/bin/bash
+args=()
+while [ $# -gt 0 ]; do case "$1" in -q) shift;; -o) shift 2;; *) args+=("$1"); shift;; esac; done
+exec cp "${args[0]#*:}" "${args[1]}"
+"""
+
+
+def test_a_package_on_a_build_server_is_pulled_over_ssh_and_only_from_one_the_site_declares(host, monkeypatch):
+    """ssh://user@host/path: from a build server in the site's sdk/servers (as its user), hashed there and checked
+    here; another host, another user, a relative or `..` path are refused before anything is fetched."""
+    from core.dut import flashpkg
+
+    bindir = host.tmp / "bin"
+    for name, text in (("ssh", FAKE_SSH), ("scp", FAKE_SCP)):
+        (bindir / name).write_text(text)
+        (bindir / name).chmod(0o755)
+    out = host.tmp / "build-out"
+    out.mkdir()
+    data = _zip({"fastboot.yaml": b"actions: []\n", "u-boot.itb": b"u" * 50})
+    (out / "flash_image.zip").write_bytes(data)
+    servers = host.app.state.hub.modules["dut"].sdks.servers
+    assert flashpkg.check_ssh(f"ssh://dev@192.0.2.10{out}/flash_image.zip", servers) == ("dev@192.0.2.10", f"{out}/flash_image.zip")
+    assert flashpkg.check_ssh(f"ssh://build-b{out}/x.zip", servers)[0] == "dev@192.0.2.11"      # by its id, as its user
+    for bad, why in ((f"ssh://dev@203.0.113.9{out}/x.zip", "not one of the site's build servers"),
+                     (f"ssh://root@192.0.2.10{out}/x.zip", "not one of the site's build servers"),
+                     ("ssh://dev@192.0.2.10/out/../etc/shadow", "not a plain absolute file path"),
+                     ("ssh://dev@192.0.2.10/out/x;reboot", "not a plain absolute file path"),
+                     ("ssh://dev:pw@192.0.2.10/out/x.zip", "not a usable ssh package link")):
+        with pytest.raises(InvalidRequest) as e:
+            flashpkg.check_ssh(bad, servers)
+        assert why in e.value.message, bad
+
+    token = _call(host, "dut_acquire", dut="mock-board", holder="t", ttl=60)["token"]
+    e = _call(host, "dut_flash", dut="mock-board", package=f"ssh://dev@203.0.113.9{out}/flash_image.zip", flasher="fake",
+              lease=token, reset=False)
+    assert e["code"] == "invalid_request" and "dev@192.0.2.10" in e["hint"]
+    assert not (bindir / "ssh.log").exists()                     # refused before anything was asked of a server
+    url = f"ssh://dev@192.0.2.10{out}/flash_image.zip"
+    job = _call(host, "job_get", id=_call(host, "dut_flash", dut="mock-board", package=url, sha256="0" * 64,
+                                          flasher="fake", lease=token, reset=False)["job"], wait=20)
+    assert job["status"] == "failed" and "hashes to" in job["error"]["message"]
+    job = _call(host, "job_get", id=_call(host, "dut_flash", dut="mock-board", package=url, sha256=_sha(data),
+                                          flasher="fake", lease=token, reset=False)["job"], wait=20)
+    assert job["status"] == "succeeded", job
+    assert json.loads((host.tmp / "flash.json").read_text())["files"] == ["fastboot.yaml", "u-boot.itb"]
+    assert (bindir / "ssh.log").read_text().split() == ["dev@192.0.2.10"] * 2

@@ -44,6 +44,50 @@ def check_url(url: str) -> str:
     return url
 
 
+_SSH_PATH = re.compile(r"/[A-Za-z0-9_.+@:/-]*")
+
+
+def check_ssh(url: str, servers: Any) -> tuple[str, str]:
+    """An `ssh://[user@]host/abs/path` package on a build server the site declares: (`user@host`, path).
+
+    `servers` is the site's build servers (`sdk/servers`, each with a host and user): a package comes only from one
+    of them, as their user (the one the host already reaches them as), and from a plain absolute path."""
+    u = urllib.parse.urlsplit(url)
+    if u.scheme != "ssh" or not u.hostname or u.password or u.port or u.query or u.fragment:
+        raise InvalidRequest(f"not a usable ssh package link: {url}", hint="ssh://[user@]host/absolute/path")
+    path = urllib.parse.unquote(u.path)
+    if not _SSH_PATH.fullmatch(path) or ".." in path.split("/") or path.endswith("/"):
+        raise InvalidRequest(f"ssh package path {path!r} is not a plain absolute file path",
+                             hint="letters, digits and . _ + @ : - / only, no '..'")
+    host = u.hostname.lower()
+    known = []
+    for sid, srv in servers.items():
+        known.append(f"{srv.user}@{srv.host}")
+        if host in (str(srv.host).lower(), str(sid).lower()) and (not u.username or u.username == srv.user):
+            return f"{srv.user}@{srv.host}", path
+    raise InvalidRequest(f"{u.username + '@' if u.username else ''}{u.hostname} is not one of the site's build servers",
+                         hint="a package over ssh comes only from a build server the site declares (sdk/servers): "
+                              + (", ".join(sorted(known)) or "it declares none"))
+
+
+def pull_ssh(store: ArtifactStore, url: str, servers: Any, sha256: str | None, log: Log,
+             max_bytes: int = DEFAULT_MAX_BYTES) -> dict[str, Any]:
+    """Copy a package from a declared build server into the artifact cache: its sha256 is computed on the server
+    and checked against the copy (and against `sha256` when given); a copy already here is not copied again."""
+    target, path = check_ssh(url, servers)
+    want = (sha256 or "").lower() or None
+    if want and not SHA256.fullmatch(want):
+        raise InvalidRequest(f"not a sha256: {sha256!r}", hint="64 hex digits")
+    got = store.pull(target, {"package": path}, log)["package"]
+    if want and got["sha256"] != want:
+        raise InvalidRequest(f"{path} on {target} hashes to {got['sha256']}, not {want}",
+                             hint="the file there is not the one meant (rebuilt since?)")
+    if int(got["size"]) > max_bytes:
+        raise InvalidRequest(f"package is {int(got['size']):,} B, more than this host takes ({max_bytes:,} B)",
+                             hint="raise modules.dut.flash.max_package_bytes in the host config")
+    return {"sha256": got["sha256"], "path": got["path"], "size": got["size"], "fetched": got["source"] != "host cache"}
+
+
 def is_url(ref: str) -> bool:
     return bool(re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", ref or ""))
 

@@ -128,7 +128,10 @@ body, because large bodies crash Node on some RISC-V hosts.
 `boardctrl dut flash DUT --package PKG` writes a package to the board's storage. `PKG` is a local
 `.tar.gz`, `.tgz`, `.tar` or `.zip`, or a local directory (sent as a `.tar`), or an `http(s)://`
 URL that the board host downloads itself (into its artifact cache, checked against `--sha256`
-when given; other schemes are refused). A host takes packages up to 16 GiB by default
+when given), or `ssh://[user@]host/absolute/path`: a file on one of the site's build servers
+(`sdk/servers`, by its host or id, as its user), which the host copies with scp after hashing it
+on the server, as it pulls SDK builds. Any other host, user or scheme is refused before anything
+is fetched. A host takes packages up to 16 GiB by default
 (`modules.dut.flash.max_package_bytes` in the host config). The host unpacks the package into a
 fresh directory (entries reaching outside it, links and special files are refused; an archive
 holding a single top-level directory unpacks to that directory), puts the board into download

@@ -323,9 +323,10 @@ def _flash(h: HostHandle, dut: str, args, book: LeaseBook) -> tuple[Any, str]:
     if args.partitions:
         body["partitions"] = args.partitions
     if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", pkg):
-        if urlsplit(pkg).scheme not in ("http", "https"):
+        if urlsplit(pkg).scheme not in ("http", "https", "ssh"):
             raise InvalidRequest(f"package URL scheme {urlsplit(pkg).scheme!r} is not allowed",
-                                 hint="use an http(s) URL the board host can reach, or a local path")
+                                 hint="use an http(s) URL the board host can reach, an ssh:// file on one of the "
+                                      "site's build servers, or a local path")
         body.update(package=pkg, sha256=args.sha256)
         if args.refresh:
             body["refresh"] = True
