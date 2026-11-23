@@ -196,7 +196,12 @@ class DutManager:
         self.registry = DutRegistry(ctx.host_id, site / "duts",
                                     state / "duts.json")
         self.leases = LeaseManager(state / "leases.json")
+        from core.dut.cachepolicy import CachePolicy
+
+        # The cache's size and age policy (`cache:` here); applied now, and after every file that arrives.
         self.store = ArtifactStore(state / "artifacts")
+        self.store.policy = CachePolicy.from_config(self.store.root, config.get("cache"))
+        self._tidy_at_start()
         self._flash_work = state / "flash"
         from core.sessions import Sessions
 
@@ -510,7 +515,20 @@ class DutManager:
     # ----------------------------------------------------------- commands --
     def health(self) -> dict[str, Any]:
         """The module's own status for `/api/v1/status`; `status(dut)` is a board's (`dut status`)."""
-        return {"duts": sorted(self.boards), "hooks": {k: self.hooks.names(k) for k in ("probe", "flash")}}
+        return {"duts": sorted(self.boards), "hooks": {k: self.hooks.names(k) for k in ("probe", "flash")},
+                "cache": self.store.policy.usage()}
+
+    def _tidy_at_start(self) -> None:
+        """Apply the cache policy once at start, in the background (a large cache takes a moment to walk)."""
+        import threading
+
+        def run() -> None:
+            try:
+                self.store.tidy(lambda line: log.info("%s", line))
+            except Exception:                 # a cache that cannot be tidied now is tried after the next file
+                log.exception("artifact cache: tidying at start failed")
+
+        threading.Thread(target=run, name="artifact-cache-tidy", daemon=True).start()
 
     def status(self, dut: str) -> dict[str, Any]:
         b = self.board(dut)
@@ -1036,6 +1054,7 @@ class DutManager:
                 path = Path(got["path"])
             else:
                 path = self.store.get(package)
+                self.store.hold(package)              # kept while this job writes it
             token.check()
             self._flash_work.mkdir(parents=True, exist_ok=True)
             work = Path(tempfile.mkdtemp(prefix=f"{dut}-", dir=self._flash_work))

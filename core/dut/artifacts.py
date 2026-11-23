@@ -38,9 +38,21 @@ class ArtifactStore:
 
     SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"]
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, policy: Any = None):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        # How much it keeps (core.dut.cachepolicy): applied after each file that arrives. None keeps everything.
+        self.policy = policy
+
+    def tidy(self, log: Log | None = None) -> list[str]:
+        """Apply the cache's size and age policy, when it has one."""
+        return self.policy.tidy(log) if self.policy is not None else []
+
+    def hold(self, sha256: str) -> None:
+        """Keep an entry while the calling job runs, whatever the policy says."""
+        from core.dut import cachepolicy
+
+        cachepolicy.hold(self.root, sha256)
 
     def pull(self, ssh: str, files: dict[str, str], log: Log, jobs: str | None = None) -> dict[str, dict[str, Any]]:
         """files: role -> absolute remote path. Returns role -> {path, remote, sha256, size, mtime, age_s, source,
@@ -121,11 +133,14 @@ class ArtifactStore:
                                         hint="retry once the build has finished writing it")
                 os.replace(tmp, local)
                 source, took = "build server", time.monotonic() - t0
+            self.hold(sha)                          # the job that pulled it uses it: kept while it runs
+            _touch(local.parent)
             build = build_of(mtime_i, builds, now) if jobs else None
             log(provenance_line(role, Path(path).name, sha, size_i, mtime_i, source, took, build))
             out[role] = {"path": str(local), "remote": path, "sha256": sha, "size": size_i,
                          "mtime": mtime_i, "built": when(mtime_i), "age_s": now - mtime_i, "source": source,
                          "build": build}
+        self.tidy(log)
         return out
 
     # ------------------------------------------------- uploaded files --
@@ -138,6 +153,7 @@ class ArtifactStore:
             return None
         for p in sorted(d.iterdir()):
             if p.is_file() and not p.name.endswith(".part"):
+                _touch(d)                           # used: the cache's policy keeps it longer
                 return p
         return None
 
@@ -198,6 +214,8 @@ class ArtifactStore:
         final = self.root / sha256 / _clean_name(name)
         final.parent.mkdir(parents=True, exist_ok=True)
         os.replace(tmp, final)
+        self.hold(sha256)
+        self.tidy()
         return final
 
     def put(self, sha256: str, name: str, chunks) -> dict[str, Any]:
@@ -255,6 +273,14 @@ class ArtifactStore:
         return {"sha256": sha256, "path": str(final), "size": final.stat().st_size, "stored": not had}
 
 
+def _touch(entry: Path) -> None:
+    """Mark a cache entry used now (see core.dut.cachepolicy)."""
+    try:
+        os.utime(entry)
+    except OSError:
+        pass
+
+
 def _clean_name(name: str) -> str:
     """A cached file's name: the base name, with only safe characters, never hidden."""
     name = re.sub(r"[^A-Za-z0-9._+-]", "_", Path(name or "file").name)[:120] or "file"
@@ -266,6 +292,7 @@ class Upload:
     that does not match the announced sha256 is discarded. A file already cached is not rewritten."""
 
     def __init__(self, store: ArtifactStore, sha256: str, name: str):
+        self.store = store
         self.sha256, self.name, self.size = sha256, name, 0
         self.have = store.find(sha256)
         self._h = hashlib.sha256()
@@ -296,6 +323,7 @@ class Upload:
             raise InvalidRequest("refusing an empty file")
         os.replace(self.tmp, self.final)
         self.tmp = None
+        self.store.tidy()
         return {"sha256": self.sha256, "path": str(self.final), "size": self.size, "stored": True}
 
     def abort(self) -> None:

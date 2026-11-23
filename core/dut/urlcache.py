@@ -22,6 +22,7 @@ from typing import Any, Callable, Iterator
 
 from core.errors import InvalidRequest
 from core.jobs import current_token
+from core.dut import cachepolicy
 from core.dut.artifacts import SHA256, ArtifactStore
 
 Log = Callable[[str], None]
@@ -29,12 +30,11 @@ Log = Callable[[str], None]
 DEFAULT_TTL_S = 24 * 3600
 INDEX = ".url-cache.json"
 
-# Shared by every UrlCache on the same index (one boardctrld process): the index lock, a lock per URL, and the
-# files running jobs hold (sha256 -> the threads using it).
+# Shared by every UrlCache on the same index (one boardctrld process): the index lock and a lock per URL. The files
+# running jobs hold are the artifact cache's (core.dut.cachepolicy), so its size policy keeps them too.
 _guard = threading.Lock()
 _index_locks: dict[str, threading.Lock] = {}
 _url_locks: dict[tuple[str, str], threading.Lock] = {}
-_holds: dict[str, list[tuple[str, threading.Thread]]] = {}
 
 
 def ttl_from(v: Any) -> float:
@@ -153,15 +153,26 @@ class UrlCache:
             lk.release()
 
     def hold(self, sha256: str, owner: threading.Thread | None = None) -> None:
-        """Keep this file from `prune` while `owner` (the calling job's thread) runs."""
-        with _guard:
-            _holds.setdefault(self._key, []).append((sha256, owner or threading.current_thread()))
+        """Keep this file from `prune` (and the cache's size policy) while `owner` (the calling job's thread) runs."""
+        cachepolicy.hold(self.store.root, sha256, owner)
 
     def held(self) -> set[str]:
-        with _guard:
-            live = [(s, t) for s, t in _holds.get(self._key, []) if t.is_alive()]
-            _holds[self._key] = live
-            return {s for s, _ in live}
+        return cachepolicy.held(self.store.root)
+
+    @classmethod
+    def forget(cls, root: Path, gone: set[str]) -> None:
+        """Drop the entries whose files `gone` (sha256s) were removed by the cache's size policy."""
+        path = Path(root) / INDEX
+        if not path.exists():
+            return
+        cache = cls(ArtifactStore(root))
+        with cache._lock:
+            data = cache._read()
+            urls = {u: e for u, e in data["urls"].items() if e["sha256"] not in gone}
+            owned = [s for s in data["owned"] if s not in gone]
+            if urls != data["urls"] or owned != data["owned"]:
+                data.update(urls=urls, owned=owned)
+                cache._write(data)
 
     # ------------------------------------------------------------ prune --
     def prune(self, log: Log | None = None) -> list[str]:

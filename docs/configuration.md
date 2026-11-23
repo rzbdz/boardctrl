@@ -107,6 +107,11 @@ providers:                       # what this host loads, by name; `modules:` is 
     flash:                       # `dut flash` packages (see cli.md "Flashing a package")
       max_package_bytes: 17179869184  # largest package the host takes, uploaded or downloaded (16 GiB)
       url_cache_ttl_s: 86400     # a server with no ETag/Last-Modified is not asked again for this long; 0 = off
+    cache:                       # the artifact cache (pulled builds, packages): what it keeps; 0 turns a limit off
+      ttl_s: 604800              # an entry unused this long is removed (7 days)
+      max_bytes: 53687091200     # kept under this size (50 GiB), least recently used first
+      min_free_bytes: 5368709120 # and the disk under it keeps this much free (5 GiB)
+                                 # entries a running job uses are never removed; `status` shows modules.dut.cache
     network:                     # what hooks tell a board to use (all keys optional)
       board_subnet: 192.0.2.0/24 # the boards' DHCP subnet (no default: bsp does not run that DHCP)
       host_address: 192.0.2.20   # this host on the board network (default: server.bind or an announced address)
