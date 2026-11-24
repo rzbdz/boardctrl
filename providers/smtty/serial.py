@@ -12,10 +12,7 @@ from core import proc
 from core.jobs import current_token
 from core.errors import Cancelled, HardwareError, HardwareTimeout, InvalidRequest
 from core.dut.contracts import ConsoleProvider
-
-# serial-mux's log lines start with the time they were read
-_STAMP = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]")
-
+from providers.smtty import logfile
 
 def _run(argv: list[str], timeout: float) -> proc.Result:
     try:
@@ -74,39 +71,37 @@ class SerialConsole(ConsoleProvider):
         return out[-lines:]
 
     def range(self, since: str | None, until: str | None, grep: str | None = None, regex: bool = False,
-              limit: int = 20000, first: bool = False) -> dict[str, Any]:
-        """Log lines stamped from `since` to `until` (`YYYY-MM-DD HH:MM:SS`, either may be None), across the day files.
-        A line without a stamp of its own goes with the one before it. `grep` keeps matching lines (case-blind text, or
-        a regex); at most `limit` lines are returned, the last ones (or the first, with `first`), and `truncated` says
-        when some were left out. `matched` counts every line that matched."""
-        lo, hi = (since or "")[:19], (until or "9999")[:19]
-        day_lo, day_hi = lo[:10] or "0000", hi[:10]
-        if grep and regex:
-            rx = re.compile(grep)
-            keep = lambda line: bool(rx.search(line))  # noqa: E731
-        elif grep:
-            needle = grep.casefold()
-            keep = lambda line: needle in line.casefold()  # noqa: E731
-        else:
-            keep = lambda line: True  # noqa: E731
-        out: list[str] = []
-        matched = 0
-        for p in sorted(self.log_dir.glob("*.log")):
-            if not (day_lo <= p.stem <= day_hi):
-                continue
-            inside = False
-            for line in p.read_bytes().decode("utf-8", errors="replace").splitlines():
-                stamp = _STAMP.match(line)
-                if stamp:
-                    inside = lo <= stamp.group(1) <= hi
-                if not inside or not keep(line):
-                    continue
-                matched += 1
-                if not first or len(out) < limit:
-                    out.append(line)
-                    if not first and len(out) > limit:
-                        del out[: len(out) - limit]
-        return {"lines": out, "matched": matched, "truncated": matched > len(out)}
+              limit: int = 20000, first: bool = False, at: str | None = None, before: int = 0, after: int = 0,
+              hits: bool = False, max_hits: int = 200000, marks: list[dict[str, Any]] | None = None,
+              max_marks: int = 100000, from_line: int = 0) -> dict[str, Any]:
+        """The log across its day files, searched or as a window; every line comes with its number (0-based across
+        the kept days, `numbers`) and its position (`<day>:<byte offset>`, `positions`), and `total` counts the log.
+
+        Search (no `at`): lines stamped from `since` to `until` (`YYYY-MM-DD HH:MM:SS`, either may be None). A line
+        without a stamp of its own goes with the one before it. `grep` keeps matching lines (case-blind text, or a
+        regex); at most `limit` lines are returned, the last ones (or the first, with `first`), and `truncated` says
+        when some were left out. `matched` counts every line that matched. With `hits` the answer is where they are,
+        not their text: `hits`, the numbers of up to `max_hits` matching lines, and `hits_truncated`. `marks`
+        ({id, pattern, flags: "" or "i"}) finds the lines a pattern marks (a boot's banners): `marks` in the answer is
+        every such line in order, as {line, id, text cut to 200 characters}, at most `max_marks` (`marks_truncated`);
+        a line matching several takes the first mark. Marks without a grep return no lines. `from_line` searches only
+        from that line on (what a reader following the log has not seen yet).
+
+        Window (`at`): `before` lines before the line `at` names, that line, and `after` lines after it (each at most
+        5000), from the plain log: grep, since and until do not apply. `at` is a position, `line:<n>`, `start` or
+        `end`. A position inside a line names that line; one on a day no longer kept, past its end or past the last
+        line names the next line there is, and says `snapped`. `more_before`/`more_after` say whether the log goes on
+        beyond the window; `at` is the position of the line it names (None for start and end)."""
+        log = logfile.Log(self.log_dir)
+        if at is not None:
+            return logfile.window(log, at, before, after)
+        try:
+            found = logfile.Marks(marks) if marks else None
+        except (re.error, KeyError, TypeError) as e:
+            raise InvalidRequest(f"not a valid mark: {e}",
+                                 hint="marks: [{id, pattern, flags: \"\" or \"i\"}], a regex JS and Python both read") from None
+        return logfile.search(log, since, until, grep, regex, limit, first, hits, max_hits, found, max_marks,
+                              max(0, from_line))
 
     def nudge(self) -> None:
         """Press Enter on the console (best effort). The log is line-based, so a prompt

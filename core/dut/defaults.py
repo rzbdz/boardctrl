@@ -30,8 +30,10 @@ class NoneConsole(ConsoleProvider):
         return []
 
     def range(self, since: str | None, until: str | None, grep: str | None = None, regex: bool = False,
-              limit: int = 20000, first: bool = False) -> dict[str, Any]:
-        return {"lines": [], "matched": 0, "truncated": False}
+              limit: int = 20000, first: bool = False, at: str | None = None, before: int = 0, after: int = 0,
+              hits: bool = False, max_hits: int = 200000, marks: list[dict[str, Any]] | None = None,
+              max_marks: int = 100000, from_line: int = 0) -> dict[str, Any]:
+        return {"lines": [], "positions": [], "numbers": [], "matched": 0, "truncated": False, "total": 0}
 
     def send(self, text: str, pattern: str | None = None, fail: str | None = None, timeout: float = 60,
              mark: Any = None, stall: float | None = None, nudge: float | None = None) -> dict[str, Any]:

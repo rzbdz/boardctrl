@@ -62,9 +62,15 @@ class HelloConsole(ConsoleProvider):
         return [f"{self.greeting} from {self.spec.id}"]
 
     def range(self, since: str | None, until: str | None, grep: str | None = None, regex: bool = False,
-              limit: int = 20000, first: bool = False) -> dict[str, Any]:
+              limit: int = 20000, first: bool = False, at: str | None = None, before: int = 0, after: int = 0,
+              hits: bool = False, max_hits: int = 200000, marks: list[dict[str, Any]] | None = None,
+              max_marks: int = 100000, from_line: int = 0) -> dict[str, Any]:
         """Lines stamped from `since` to `until`, optionally searched."""
-        return {"lines": [f"{self.greeting} (no log kept)"], "matched": 0, "truncated": False}
+        if at is not None:              # no log, so no window of it
+            return {"lines": [], "positions": [], "numbers": [], "at": None, "snapped": False,
+                    "more_before": False, "more_after": False, "total": 0}
+        return {"lines": [f"{self.greeting} (no log kept)"], "positions": [None], "numbers": [None], "matched": 0,
+                "truncated": False, "total": 0}
 
     def send(self, text: str, pattern: str | None = None, fail: str | None = None, timeout: float = 60,
              mark: Any = None, stall: float | None = None, nudge: float | None = None) -> dict[str, Any]:

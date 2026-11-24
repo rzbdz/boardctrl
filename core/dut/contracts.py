@@ -57,8 +57,16 @@ class ConsoleProvider(ABC):
 
     @abstractmethod
     def range(self, since: str | None, until: str | None, grep: str | None = None, regex: bool = False,
-              limit: int = 20000, first: bool = False) -> dict[str, Any]:
-        """Lines stamped from `since` to `until`, optionally searched."""
+              limit: int = 20000, first: bool = False, at: str | None = None, before: int = 0, after: int = 0,
+              hits: bool = False, max_hits: int = 200000, marks: list[dict[str, Any]] | None = None,
+              max_marks: int = 100000, from_line: int = 0) -> dict[str, Any]:
+        """Lines stamped from `since` to `until`, optionally searched: `lines`, `matched`, `truncated`, and for a
+        console that keeps a log, each line's number and position (`numbers`, `positions`) and the log's `total`.
+
+        `at` asks for a window instead: `before` lines before the line it names, that line and `after` lines after
+        it, with `more_before`, `more_after` and `snapped`. `hits` asks for the numbers of the matching lines, `marks`
+        for the lines that match each mark, `from_line` for only the lines from that number on. A console without a
+        log answers with nothing; the manager passes these only when a caller asked for them."""
 
     @abstractmethod
     def send(self, text: str, pattern: str | None = None, fail: str | None = None, timeout: float = 60,
