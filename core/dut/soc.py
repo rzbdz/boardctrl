@@ -10,14 +10,25 @@ everything boardctrl knows about a SoC is data.
                                        (`bsp images sync` fetches it from `source` into <site>/.blobs/<sha256>/)
     media_boot: {name, steps}          booting its media when FDL is strapped (see mediaboot.py)
     identify: {sequence, fields, placeholders, name}   see hooks/probe/identify
+    boot_marks: [{id, title, pattern, flags, stage, tone}, ...]
+                                       console lines that start a boot stage, for a log reader to mark: added to
+                                       the `rom` mark the fingerprint makes, or replacing fields of one by id.
+                                       Missing fields: title = id, flags "" ("i" is case-blind), stage 3, tone
+                                       loader (rom, spl, firmware, loader or kernel). A pattern is read by
+                                       Python and JavaScript both: no lookbehind, named groups or inline flags.
+                                       A mark that breaks these is left out with a warning.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Any
 
+log = logging.getLogger(__name__)
+
+TONES = ("rom", "spl", "firmware", "loader", "kernel")
 
 # What any board prints coming out of reset, profile or not.
 BOOT_BANNERS = (r"U-Boot( SPL)? 20\d\d", r"U-Boot (SPL|TPL)\b", r"Trying to boot from \w", r"Hit any key to stop autoboot",
@@ -62,6 +73,12 @@ class SocFacts:
                             img["path"] = str(cached)
                             break
 
+        self.marks = {soc: _boot_marks(soc, prof) for soc, prof in self.profiles.items()}
+
+    def boot_marks(self, soc: str | None) -> list[dict[str, Any]]:
+        """The lines that start a boot stage on this SoC: its boot ROM (from the fingerprint), then `boot_marks`."""
+        return [dict(m) for m in self.marks.get(soc or "", [])]
+
     def get(self, soc: str | None) -> dict[str, Any]:
         return self.profiles.get(soc or "", {})
 
@@ -101,3 +118,68 @@ class SocFacts:
 
     def usb_vids(self) -> list[str]:
         return sorted({v.lower() for p in self.profiles.values() for v in p.get("usb_vids", [])})
+
+
+def _portable(pattern: str) -> str | None:
+    """Why a pattern is not one Python and JavaScript read alike, or None. Groups are plain, `(?:`, `(?=` or `(?!`:
+    no lookbehind or named groups (`(?<`, `(?P`), and no inline flags (`(?i)`), which a combined pattern cannot
+    carry. It must also compile."""
+    for bad in ("(?<", "(?P"):              # anywhere, even escaped: a mark is better plain than ambiguous
+        if bad in pattern:
+            return f"`{bad}`: no lookbehind or named groups"
+    i, escaped, in_class = 0, False, False
+    while i < len(pattern):
+        ch = pattern[i]
+        if escaped:
+            escaped = False
+        elif ch == "\\":
+            escaped = True
+        elif in_class:
+            in_class = ch != "]"
+        elif ch == "[":
+            in_class = True
+            if pattern[i + 1:i + 2] == "]":       # a `]` first in a class is a literal
+                i += 1
+        elif ch == "(" and pattern[i + 1:i + 2] == "?" and pattern[i + 2:i + 3] not in (":", "=", "!"):
+            return f"`{pattern[i:i + 4]}`: only (?:, (?= and (?! groups"
+        i += 1
+    try:
+        re.compile(pattern)
+    except re.error as e:
+        return str(e)
+    return None
+
+
+def _boot_marks(soc: str, prof: dict[str, Any]) -> list[dict[str, Any]]:
+    """`rom` from the fingerprint, then each `boot_marks` entry: a new id is added, a known one has the fields it
+    gives replaced. A mark that does not hold up is left out, with a warning."""
+    marks: dict[str, dict[str, Any]] = {}
+    prints = []
+    for rx in prof.get("fingerprint") or []:
+        why = _portable(str(rx))
+        if why:
+            log.warning("soc %s: fingerprint %r is left out of the rom mark: %s", soc, rx, why)
+        else:
+            prints.append(f"(?:{rx})")
+    if prints:
+        marks["rom"] = {"id": "rom", "title": "Boot ROM", "pattern": "|".join(prints), "flags": "", "stage": 0,
+                         "tone": "rom"}
+    for raw in prof.get("boot_marks") or []:
+        if not isinstance(raw, dict) or not isinstance(raw.get("id"), str) or not raw["id"]:
+            log.warning("soc %s: boot mark %r is left out: it needs an id", soc, raw)
+            continue
+        mid = raw["id"]
+        base = marks.get(mid) or {"id": mid, "title": mid, "flags": "", "stage": 3, "tone": "loader"}
+        mark = {**base, **{k: raw[k] for k in ("title", "pattern", "flags", "stage", "tone") if raw.get(k) is not None}}
+        why = (None if isinstance(mark.get("pattern"), str) and mark["pattern"] else "it needs a pattern") \
+            or _portable(mark["pattern"]) \
+            or (None if mark["flags"] in ("", "i") else f"flags {mark['flags']!r} is not \"\" or \"i\"") \
+            or (None if isinstance(mark["stage"], int) and not isinstance(mark["stage"], bool)
+                else f"stage {mark['stage']!r} is not a number") \
+            or (None if mark["tone"] in TONES else f"tone {mark['tone']!r} is not one of {', '.join(TONES)}")
+        if why:
+            log.warning("soc %s: boot mark %r is left out: %s", soc, mid, why)
+            continue
+        marks[mid] = {"id": mid, "title": str(mark["title"]), "pattern": mark["pattern"], "flags": mark["flags"],
+                      "stage": mark["stage"], "tone": mark["tone"]}
+    return list(marks.values())

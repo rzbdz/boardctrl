@@ -19,3 +19,5 @@ identify:                      # hooks/probe/identify: stage images, wait, extra
     mem_gib: "DRAM:\\s*(\\d+) GiB"
   placeholders: {serial: ["0", none]}
   name: [product, mem, serial]
+boot_marks:                    # lines that start a boot stage, for a log reader; the fingerprint is the `rom` mark
+  - {id: soc-a-ddr, title: "DDR training", pattern: "^DDR: train(ing)? start", flags: i, stage: 1, tone: firmware}
