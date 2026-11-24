@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `dut boot-marks DUT`: the console lines that start a boot stage on a board, from its SoC: the boot-ROM
+  `fingerprint` as the `rom` mark, then an optional `boot_marks:` list in soc.yaml
+  ({id, title, pattern, flags, stage, tone}) that adds marks or changes one by id. A pattern that does not
+  compile, or that uses lookbehind, named groups or inline flags, is left out with a warning.
 - `dut logs`: every line comes with its number (0-based across the kept day files, with the log's `total`) and its
   position (`<day>:<byte offset>`, stable while that day is kept). `--at POS` / `--line N` with `--before` and
   `--after` return a window of the log around one line, read around it rather than from the start of the day;

@@ -166,6 +166,11 @@ def build_commands(mod: "DutModule") -> list[Command]:
                         "stable while that day is kept). A window (`at`) is the plain log: grep and the time range do "
                         "not apply; a position inside a line or on a day no longer kept moves to the line there is and "
                         "says `snapped`; `more_before`/`more_after` say whether the log goes on beyond it."),
+        cmd("dut.boot_marks", "Console lines that start a boot stage on the DUT, from its SoC (passive)",
+            mod.boot_marks, [DUT], render=_render_boot_marks, mutating=False,
+            description="Each mark is {id, title, pattern, flags, stage, tone}: the SoC's boot-ROM fingerprint as "
+                        "`rom`, then its soc.yaml `boot_marks`. A log reader passes them to `dut.logs` as `marks`. "
+                        "None for a board whose SoC is unknown."),
         cmd("dut.add", "Register a DUT on this host from a JSON spec (what probe writes)", mod.add,
             [Param("spec", "string", "JSON object: id, board, console{alias}, fastboot{usb}, control{...}, sdks"),
              Param("replace", "boolean", "overwrite an existing id", required=False, default=False)],
@@ -353,3 +358,10 @@ def _render_logs(r: dict[str, Any]) -> str:
     if "more_before" in r:
         return text
     return text + (f"\n({r['matched']} matched, showing {len(r['lines'])})" if r["truncated"] else "")
+
+
+def _render_boot_marks(r: dict[str, Any]) -> str:
+    if not r["marks"]:
+        return f"{r['dut']}: no boot marks (soc: {r.get('soc') or 'unknown'})"
+    return "\n".join(f"{m['id']}\t{m['tone']}\t{m['stage']}\t{m['pattern']}" + (" (case-blind)" if m["flags"] == "i" else "")
+                     for m in r["marks"])

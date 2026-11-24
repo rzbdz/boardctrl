@@ -195,6 +195,13 @@ def dut_cmd(fleet: Fleet, args, book: LeaseBook) -> tuple[Any, str]:
         r = _ok(h, h.call("dut_present", {"dut": dut}))
         return r, f"{dut}: " + (f"download port present ({r['fastboot'].get('product')})" if r["present"]
                                 else f"not on the bus ({r['usb']})")
+    if c == "boot-marks":
+        r = _ok(h, h.call("dut_boot_marks", {"dut": dut}))
+        if not r["marks"]:
+            return r, f"{dut}: no boot marks (soc: {r.get('soc') or 'unknown'})"
+        return r, _table([("ID", "TONE", "STAGE", "PATTERN")]
+                         + [(m["id"], m["tone"], str(m["stage"]), m["pattern"] + (" (case-blind)" if m["flags"] == "i" else ""))
+                            for m in r["marks"]])
     if c == "stage":
         art = upload(h, args.file, out=sys.stderr if args.json else sys.stdout)
         r = _ok(h, h.call("dut_stage", {"dut": dut, "sha256": art["sha256"], "lease": _lease(args, book, dut),
@@ -829,6 +836,8 @@ def add_parsers(sub) -> None:
     lg.add_argument("--marks", metavar="JSON", help='lines to mark: [{"id": ..., "pattern": ..., "flags": "" or "i"}]')
     lg.add_argument("--max-marks", type=int, default=100000, metavar="N", help="at most this many marked lines")
     lg.add_argument("--from-line", type=int, default=0, metavar="N", help="search only from this line number on")
+    bm = ds.add_parser("boot-marks", help="console lines that start a boot stage on the DUT, from its SoC")
+    bm.add_argument("dut")
     pr = ds.add_parser("present", help="whether the DUT's download/fastboot port is on the USB bus")
     pr.add_argument("dut")
     rf = ds.add_parser("refresh", help="re-read the board in a slot after swapping it: reset into download "

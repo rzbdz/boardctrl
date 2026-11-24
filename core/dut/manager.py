@@ -791,6 +791,11 @@ class DutManager:
         fb = b.fastboot.state()
         return {"dut": dut, "usb": b.spec.usb, "present": fb is not None, "fastboot": fb}
 
+    def boot_marks(self, dut: str) -> dict[str, Any]:
+        """The console lines that start a boot stage on this board, from its SoC's facts (none for an unknown SoC)."""
+        soc = self.board(dut).spec.soc
+        return {"dut": dut, "soc": soc, "marks": self.socs.boot_marks(soc)}
+
     def stage(self, dut: str, sha256: str, lease: str | None, cont: bool, timeout: float) -> dict[str, Any]:
         """Load one uploaded file into RAM through the download port (fastboot stage [+ continue])."""
         b = self.board(dut)

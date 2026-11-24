@@ -96,3 +96,39 @@ def test_every_shipped_soc_s_fingerprint_makes_a_mark_both_runtimes_read(caplog)
         for m in marks.values():
             re.compile(m["pattern"], re.IGNORECASE if m["flags"] == "i" else 0)
     assert "left out" not in caplog.text
+
+
+def test_hosts_serve_a_board_s_boot_marks_and_the_cli_prints_them(tmp_path, monkeypatch, capsys):
+    import json
+
+    from frontends.cli.main import main
+    from tests.test_logrange import _add, _host
+
+    with _host(tmp_path, monkeypatch) as c:
+        _add(c, monkeypatch)                                            # k1-a, on soc-a
+        r = c.post("/api/v1/tools/dut_boot_marks", json={"dut": "k1-a"}).json()
+        assert r["ok"] and r["result"]["soc"] == "soc-a"
+        assert [m["id"] for m in r["result"]["marks"]] == ["rom", "soc-a-ddr"]
+        assert r["result"]["marks"][0]["pattern"] == "(?:ROMA: boot start)|(?:ROMA: usb init)|(?:ROMA: setup=)"
+        spec = {"id": "odd-1", "board": "k1", "soc": "soc-unknown", "console": {"alias": "s9"},
+                "fastboot": {"usb": "usb:0-9"}, "control": {"backend": "human", "fdl": {"strategy": "strapped"}}}
+        assert c.post("/api/v1/tools/dut_add", json={"spec": json.dumps(spec)}).json()["ok"]
+        none = c.post("/api/v1/tools/dut_boot_marks", json={"dut": "odd-1"}).json()["result"]
+        assert none == {"dut": "odd-1", "soc": "soc-unknown", "marks": []}
+
+        class Host:                                                     # the CLI, talking to this host
+            id = "h"
+
+            def call(self, tool, args, timeout=120):
+                return c.post(f"/api/v1/tools/{tool}", json=args).json()
+
+        monkeypatch.setattr("frontends.cli.fleet.Fleet.find_dut", lambda self, d: Host())
+        assert main(["--stateless", "--json", "dut", "boot-marks", "k1-a"]) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["ok"] and out["result"] == r["result"]
+        assert main(["--stateless", "dut", "boot-marks", "k1-a"]) == 0
+        text = capsys.readouterr().out.splitlines()
+        assert text[0].split() == ["ID", "TONE", "STAGE", "PATTERN"]
+        assert text[2].split()[:3] == ["soc-a-ddr", "firmware", "1"] and text[2].endswith("(case-blind)")
+        assert main(["--stateless", "dut", "boot-marks", "odd-1"]) == 0
+        assert "no boot marks (soc: soc-unknown)" in capsys.readouterr().out
