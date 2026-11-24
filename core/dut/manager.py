@@ -1163,14 +1163,47 @@ class DutManager:
         return {"dut": dut, "lines": self.board(dut).console.tail(lines, grep)}
 
     def logs(self, dut: str, since: str | None = None, until: str | None = None, grep: str | None = None,
-             regex: bool = False, limit: int = 20000, first: bool = False) -> dict[str, Any]:
-        """The console's log over a time range, searched (see SerialConsole.range)."""
+             regex: bool = False, limit: int = 20000, first: bool = False, at: str | None = None,
+             before: int = 0, after: int = 0, hits: bool = False, max_hits: int = 200000, marks: Any = None,
+             max_marks: int = 100000, from_line: int = 0) -> dict[str, Any]:
+        """The console's log over a time range, searched, or a window of it around a line (see SerialConsole.range)."""
         if regex and grep:
             try:
                 re.compile(grep)
             except re.error as e:
                 raise InvalidRequest(f"not a valid regex: {e}") from None
-        return {"dut": dut, **self.board(dut).console.range(since, until, grep, regex, max(1, min(int(limit), 200000)), first)}
+        if at is not None and not _LOG_AT.match(at):
+            raise InvalidRequest(f"not a log position: {at!r}",
+                                 hint="`start`, `end`, `line:<n>` or `<YYYY-MM-DD>:<byte offset>` as a line's position")
+        for name, v in (("before", before), ("after", after), ("max_hits", max_hits), ("max_marks", max_marks),
+                        ("from_line", from_line)):
+            if int(v) < 0:
+                raise InvalidRequest(f"`{name}` must not be negative, got {v}")
+        if isinstance(marks, str):
+            try:
+                marks = json.loads(marks) if marks.strip() else None
+            except ValueError as e:
+                raise InvalidRequest(f"marks is not JSON: {e}", hint='a list: [{"id": "spl", "pattern": "U-Boot SPL", "flags": ""}]') from None
+        if marks is not None and (not isinstance(marks, list) or not all(
+                isinstance(m, dict) and isinstance(m.get("id"), str) and isinstance(m.get("pattern"), str)
+                and m.get("flags", "") in ("", "i", None) for m in marks)):
+            raise InvalidRequest("marks must be a list of {id, pattern, flags}",
+                                 hint='flags is "" or "i": [{"id": "spl", "pattern": "U-Boot SPL", "flags": ""}]')
+        if marks:
+            for m in marks:
+                try:
+                    re.compile(m["pattern"])
+                except re.error as e:
+                    raise InvalidRequest(f"mark {m['id']!r}: not a valid regex: {e}") from None
+        extra: dict[str, Any] = {}
+        if at is not None:
+            extra = {"at": at, "before": min(int(before), 5000), "after": min(int(after), 5000)}
+        elif hits or marks or from_line:
+            extra = {"hits": bool(hits), "max_hits": max(1, min(int(max_hits), 1000000)), "marks": marks or None,
+                     "max_marks": max(1, min(int(max_marks), 1000000)), "from_line": int(from_line)}
+        # Only what the call asked for reaches the provider, so one that predates windows still answers a search.
+        return {"dut": dut, **self.board(dut).console.range(since, until, grep, regex, max(1, min(int(limit), 200000)),
+                                                             first, **extra)}
 
     def _check_providers(self, raw: dict[str, Any]) -> None:
         """Refuse a record naming a provider no one registered, before it is written: a name saved now would be a
@@ -1642,6 +1675,8 @@ def _stage(fb: dict | None, download_rx: str | None) -> str:
 
 
 _PARTITION = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}")
+# Where a log window starts: either end, a line number, or a line's position (`<day>:<byte offset>`)
+_LOG_AT = re.compile(r"^(start|end|line:\d+|\d{4}-\d\d-\d\d:\d+)$")
 
 
 def _partition_names(value: list[str] | str | None) -> list[str]:

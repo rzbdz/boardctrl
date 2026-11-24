@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `dut logs`: every line comes with its number (0-based across the kept day files, with the log's `total`) and its
+  position (`<day>:<byte offset>`, stable while that day is kept). `--at POS` / `--line N` with `--before` and
+  `--after` return a window of the log around one line, read around it rather than from the start of the day;
+  `--hits` returns the numbers of matching lines, `--marks` the lines each pattern marks (a boot's banners), and
+  `--from-line` searches only from a line on. The host keeps a line index per day file and extends it as the
+  file grows.
 - `dut flash --package URL` and `dut boot --files URL`: the host reuses what a URL gave within
   `modules.dut.flash.url_cache_ttl_s` (default 24 h, 0 = off) instead of downloading it again, then asks the
   server with a conditional request. `--refresh` (`refresh` over HTTP) downloads it anyway; a `--sha256` other

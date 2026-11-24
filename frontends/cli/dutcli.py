@@ -30,6 +30,45 @@ def _ok(h: HostHandle, r: dict[str, Any]) -> Any:
     return r["result"]
 
 
+def _logs(h: HostHandle, dut: str, args) -> tuple[Any, str]:
+    """`dut logs`: a search of the console log, or a window of it around a line (`--at`, `--line`)."""
+    if args.line is not None and args.at:
+        raise InvalidRequest("--line and --at both name where the window is", hint="give one of them")
+    at = f"line:{args.line}" if args.line is not None else args.at
+    req: dict[str, Any] = {"dut": dut, "since": args.since, "until": args.until, "grep": args.grep,
+                           "regex": args.regex, "limit": args.limit, "first": args.first}
+    if at is not None:
+        req.update(at=at, before=args.before, after=args.after)
+    # Only what was asked for goes out, so a host from before positions still answers a plain search.
+    if args.hits:
+        req.update(hits=True, max_hits=args.max_hits)
+    if args.marks:
+        try:
+            marks = json.loads(args.marks)
+        except ValueError as e:
+            raise InvalidRequest(f"--marks is not JSON: {e}",
+                                 hint='--marks \'[{"id": "spl", "pattern": "U-Boot SPL", "flags": ""}]\'') from None
+        req.update(marks=marks, max_marks=args.max_marks)
+    if args.from_line:
+        req["from_line"] = args.from_line
+    r = _ok(h, h.call("dut_logs", req, timeout=120))
+    positions = r.get("positions") or [None] * len(r["lines"])
+    shown = [f"{p}\t{l}" if args.positions and p else l for p, l in zip(positions, r["lines"])]
+    if at is not None:
+        notes = [n for n, more in (("older lines before this", r.get("more_before")),
+                                   ("newer lines after this", r.get("more_after"))) if more]
+        if r.get("snapped"):
+            notes.insert(0, f"{at} is not a line now: shown from the nearest one")
+        return r, "\n".join(shown + ([f"({'; '.join(notes)})"] if notes else []))
+    out = shown
+    if r.get("hits") is not None:
+        out = out + [str(n) for n in r["hits"]]
+    if r.get("marks") is not None:
+        out = out + [f"{m['line']}\t{m['id']}\t{m['text']}" for m in r["marks"]]
+    capped = r.get("hits_truncated") or r.get("marks_truncated") or r.get("truncated")
+    return r, "\n".join(out) + (f"\n({r['matched']} matched, showing {len(r['lines'])})" if capped else "")
+
+
 def _lease(args, book: LeaseBook, dut: str) -> str | None:
     return args.lease or naming.get("BOARDCTRL_LEASE") or book.get(f"dut:{dut}")
 
@@ -226,9 +265,7 @@ def dut_cmd(fleet: Fleet, args, book: LeaseBook) -> tuple[Any, str]:
         r = _ok(h, h.call("dut_log", {"dut": dut, "lines": args.lines, "grep": args.grep}))
         return r, "\n".join(r["lines"])
     if c == "logs":
-        r = _ok(h, h.call("dut_logs", {"dut": dut, "since": args.since, "until": args.until, "grep": args.grep,
-                                        "regex": args.regex, "limit": args.limit, "first": args.first}, timeout=120))
-        return r, "\n".join(r["lines"]) + (f"\n({r['matched']} matched, showing {len(r['lines'])})" if r["truncated"] else "")
+        return _logs(h, dut, args)
     if c == "remove":
         r = _ok(h, h.call("dut_remove", {"dut": dut, "force": args.force}))
         return r, f"removed {dut} from {h.id}"
@@ -781,6 +818,17 @@ def add_parsers(sub) -> None:
     lg.add_argument("--regex", action="store_true", help="--grep is a regex")
     lg.add_argument("--limit", type=int, default=20000)
     lg.add_argument("--first", action="store_true", help="keep the first lines rather than the last when capped")
+    lg.add_argument("--at", metavar="POS", help="a window around this line instead of a search: start, end, "
+                                                "line:N, or a line's position YYYY-MM-DD:OFFSET")
+    lg.add_argument("--line", type=int, metavar="N", help="the same as --at line:N")
+    lg.add_argument("--before", type=int, default=0, metavar="N", help="window: lines before it (at most 5000)")
+    lg.add_argument("--after", type=int, default=0, metavar="N", help="window: lines after it (at most 5000)")
+    lg.add_argument("--positions", action="store_true", help="put each line's position and a tab before it")
+    lg.add_argument("--hits", action="store_true", help="the numbers of the matching lines, not their text")
+    lg.add_argument("--max-hits", type=int, default=200000, metavar="N", help="at most this many hits")
+    lg.add_argument("--marks", metavar="JSON", help='lines to mark: [{"id": ..., "pattern": ..., "flags": "" or "i"}]')
+    lg.add_argument("--max-marks", type=int, default=100000, metavar="N", help="at most this many marked lines")
+    lg.add_argument("--from-line", type=int, default=0, metavar="N", help="search only from this line number on")
     pr = ds.add_parser("present", help="whether the DUT's download/fastboot port is on the USB bus")
     pr.add_argument("dut")
     rf = ds.add_parser("refresh", help="re-read the board in a slot after swapping it: reset into download "

@@ -353,3 +353,76 @@ def test_reads_agree_whatever_the_chunk_and_block_sizes(tmp_path, monkeypatch):
             assert w["positions"] == want["positions"][lo:n + a + 1]
     logfile._INDEXES.clear()
 
+
+# -------------------------------------------------------------- over the host --
+def _host(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from frontends.server.app import create_app
+    from frontends.server.config import HostConfig
+
+    root = Path(__file__).resolve().parents[1]
+    hosts = tmp_path / "site" / "hosts"
+    hosts.mkdir(parents=True)
+    for d in ("sdk", "socs", "boards", "duts"):
+        (tmp_path / "site" / d).symlink_to(root / "tests" / "fixtures" / "site" / d)
+    (hosts / "h.yaml").write_text("host: {id: h}\nserver: {state_dir: state}\n"
+                                  "modules: {gpio_relay: {board: example-40pin, backend: mock, pinmux: false}, dut: {serial_log_dir: %s}}\n" % (tmp_path / "logs"))
+    console(tmp_path)
+    return TestClient(create_app(HostConfig.load(hosts / "h.yaml")))
+
+
+def _add(c, monkeypatch):
+    mod = c.app.state.hub.modules["dut"]
+    spec = {"id": "k1-a", "board": "k1", "soc": "soc-a", "console": {"alias": "s1"}, "fastboot": {"usb": "usb:0-5"},
+            "control": {"backend": "human", "fdl": {"strategy": "strapped"}}}
+    monkeypatch.setattr(mod.slots, "_list", lambda: [])
+    assert c.post("/api/v1/tools/dut_add", json={"spec": json.dumps(spec)}).json()["ok"]
+
+
+def test_hosts_serve_a_window_of_the_log_and_refuse_what_is_not_a_position(tmp_path, monkeypatch):
+    with _host(tmp_path, monkeypatch) as c:
+        _add(c, monkeypatch)
+        call = lambda **kw: c.post("/api/v1/tools/dut_logs", json={"dut": "k1-a", **kw}).json()  # noqa: E731
+        r = call(at="end", before=2)["result"]
+        assert r["numbers"] == [4, 5] and r["more_after"] is False and r["total"] == 6 and r["dut"] == "k1-a"
+        assert call(at="2026-11-10:0", after=1)["result"]["positions"] == ["2026-11-10:0", "2026-11-10:42"]
+        assert call(grep="mmc0", hits=True)["result"]["hits"] == [4]
+        m = call(marks=[{"id": "err", "pattern": "error", "flags": "i"}])["result"]
+        assert m["marks"] == [{"line": 4, "id": "err", "text": "[2026-11-10 00:00:05] ERROR: mmc0 timeout"}]
+        assert call(marks=json.dumps([{"id": "spl", "pattern": "U-Boot SPL"}]), from_line=0)["result"]["marks"][0]["line"] == 0
+        for bad in ({"at": "yesterday"}, {"at": "line:-1"}, {"at": "2026-11-10"}, {"at": "end", "before": -1},
+                    {"marks": "[{\"id\": \"x\", \"pattern\": \"(\"}]"}, {"marks": "not json"},
+                    {"marks": [{"id": "x", "pattern": "a", "flags": "g"}]}):
+            e = call(**bad)
+            assert e["ok"] is False and e["error"]["code"] == "invalid_request", bad
+
+
+def test_the_cli_asks_for_a_window_and_shows_positions(monkeypatch, capsys):
+    from frontends.cli.main import main
+
+    called = []
+    answer = {"dut": "k1-a", "lines": ["one", "two"], "positions": ["2026-11-10:0", "2026-11-10:4"], "numbers": [7, 8],
+              "at": "2026-11-10:4", "snapped": False, "more_before": True, "more_after": False, "total": 9}
+
+    class Host:
+        id = "test-host"
+
+        def call(self, tool, args, timeout=120):
+            called.append((tool, args))
+            return {"ok": True, "result": answer}
+
+    monkeypatch.setattr("frontends.cli.fleet.Fleet.find_dut", lambda self, d: Host())
+    assert main(["--stateless", "dut", "logs", "k1-a", "--line", "8", "--before", "1", "--positions"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["2026-11-10:0\tone", "2026-11-10:4\ttwo", "(older lines before this)"]
+    assert called[-1][1]["at"] == "line:8" and called[-1][1]["before"] == 1 and called[-1][1]["after"] == 0
+    assert main(["--stateless", "--json", "dut", "logs", "k1-a", "--at", "2026-11-10:4"]) == 0
+    assert json.loads(capsys.readouterr().out)["result"]["positions"] == answer["positions"]
+    assert main(["--stateless", "dut", "logs", "k1-a", "--grep", "x", "--hits", "--max-hits", "5", "--from-line", "3",
+                 "--marks", '[{"id": "spl", "pattern": "U-Boot SPL"}]']) == 0
+    sent = called[-1][1]
+    assert (sent["hits"], sent["max_hits"], sent["from_line"], sent["marks"][0]["id"]) == (True, 5, 3, "spl")
+    assert "at" not in sent
+    called.clear()
+    assert main(["--stateless", "dut", "logs", "k1-a", "--grep", "x"]) == 0    # a plain search asks only for that
+    assert set(called[-1][1]) == {"dut", "since", "until", "grep", "regex", "limit", "first"}

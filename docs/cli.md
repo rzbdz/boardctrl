@@ -26,6 +26,8 @@ How hosts are chosen without `-r`/`--url` is described in
 | `boardctrl dut status DUT` | Stage, lease, fastboot state, control lines, pending manual action, console tail |
 | `boardctrl dut log DUT [--lines N] [--grep RE]` | Recent console lines, read passively |
 | `boardctrl dut logs DUT [--since T] [--until T] [--grep TEXT [--regex]] [--limit N] [--first]` | The console log over a time range (`YYYY-MM-DD HH:MM:SS`), searched; says when it was capped |
+| `boardctrl dut logs DUT --at POS\|--line N [--before N] [--after N] [--positions]` | A window of the log around one line: `POS` is `start`, `end`, `line:N` or a line's position `YYYY-MM-DD:OFFSET` (its day file and byte offset); every line comes with its number and position, and the answer says whether the log goes on before and after |
+| `boardctrl dut logs DUT [--grep TEXT] [--hits [--max-hits N]] [--marks JSON] [--from-line N]` | Where lines are rather than their text: the numbers of matching lines, and of lines each mark (`[{"id", "pattern", "flags": "" or "i"}]`) matches, from line N on |
 | `boardctrl dut acquire DUT [--holder NAME] [--purpose TEXT] [--ttl S]` | Lease a board (default 3600 s, at most 24 h); the token is remembered |
 | `boardctrl dut renew DUT [--ttl S]` | Extend your lease from now; holder, purpose and token stay the same |
 | `boardctrl dut release DUT [--force]` | Release it |

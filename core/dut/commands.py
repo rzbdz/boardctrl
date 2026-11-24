@@ -142,15 +142,30 @@ def build_commands(mod: "DutModule") -> list[Command]:
             [DUT, Param("lines", "integer", "how many", required=False, default=40),
              Param("grep", help="regex filter", required=False)],
             render=lambda r: "\n".join(r["lines"]), mutating=False),
-        cmd("dut.logs", "Console log over a time range, optionally searched (passive: no keystrokes, no lease)", mod.logs,
+        cmd("dut.logs", "Console log over a time range, optionally searched, or a window of it around a line "
+                        "(passive: no keystrokes, no lease)", mod.logs,
             [DUT, Param("since", help="from this time, YYYY-MM-DD HH:MM:SS (default: the oldest kept)", required=False),
              Param("until", help="up to this time (default: now)", required=False),
              Param("grep", help="keep lines containing this text (case-blind)", required=False),
              Param("regex", "boolean", "grep is a regex", required=False, default=False),
              Param("limit", "integer", "at most this many lines", required=False, default=20000),
-             Param("first", "boolean", "keep the first lines rather than the last when capped", required=False, default=False)],
-            render=lambda r: "\n".join(r["lines"]) + (f"\n({r['matched']} matched, showing {len(r['lines'])})" if r["truncated"] else ""),
-            mutating=False),
+             Param("first", "boolean", "keep the first lines rather than the last when capped", required=False, default=False),
+             Param("at", help="a window around this line instead of a search: start, end, line:<n>, or a line's "
+                              "position <YYYY-MM-DD>:<byte offset>", required=False),
+             Param("before", "integer", "window: lines before the line at `at` (at most 5000)", required=False, default=0),
+             Param("after", "integer", "window: lines after it (at most 5000)", required=False, default=0),
+             Param("hits", "boolean", "search: the numbers of the matching lines rather than their text",
+                   required=False, default=False),
+             Param("max_hits", "integer", "at most this many hits (at most 1000000)", required=False, default=200000),
+             Param("marks", help='search: lines to mark, JSON [{"id", "pattern", "flags": "" or "i"}]', required=False),
+             Param("max_marks", "integer", "at most this many marked lines", required=False, default=100000),
+             Param("from_line", "integer", "search: only from this line number on", required=False, default=0)],
+            render=_render_logs, mutating=False,
+            description="Every line comes with its number (`numbers`: 0-based across the kept day files, for a reader "
+                        "that just counted the log, `total`) and its position (`positions`: `<day>:<byte offset>`, "
+                        "stable while that day is kept). A window (`at`) is the plain log: grep and the time range do "
+                        "not apply; a position inside a line or on a day no longer kept moves to the line there is and "
+                        "says `snapped`; `more_before`/`more_after` say whether the log goes on beyond it."),
         cmd("dut.add", "Register a DUT on this host from a JSON spec (what probe writes)", mod.add,
             [Param("spec", "string", "JSON object: id, board, console{alias}, fastboot{usb}, control{...}, sdks"),
              Param("replace", "boolean", "overwrite an existing id", required=False, default=False)],
@@ -328,3 +343,13 @@ def _render_probe(r: dict[str, Any]) -> str:
 
     return json.dumps(r, indent=2, ensure_ascii=False)
 
+
+def _render_logs(r: dict[str, Any]) -> str:
+    if r.get("hits") is not None or r.get("marks") is not None:
+        out = [f"{n}" for n in r.get("hits") or []]
+        out += [f"{m['line']}\t{m['id']}\t{m['text']}" for m in r.get("marks") or []]
+        return "\n".join(out) + f"\n({r.get('matched', 0)} matched of {r.get('total', 0)} lines)"
+    text = "\n".join(r["lines"])
+    if "more_before" in r:
+        return text
+    return text + (f"\n({r['matched']} matched, showing {len(r['lines'])})" if r["truncated"] else "")

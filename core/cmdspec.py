@@ -74,6 +74,9 @@ class Param:
                         value = [v.strip() for v in text.split(",") if v.strip()]
                 if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                     raise ValueError
+            elif isinstance(value, (list, dict)):
+                import json                 # structured text (a list of marks): its JSON, not Python's repr
+                value = json.dumps(value)
             else:
                 value = str(value)
         except (TypeError, ValueError):
