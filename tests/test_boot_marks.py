@@ -18,12 +18,18 @@ def _facts(tmp_path: Path, soc_yaml: str) -> SocFacts:
     return SocFacts([tmp_path / "socs"])
 
 
-def test_the_fingerprint_is_the_boot_rom_mark(tmp_path):
-    f = _facts(tmp_path, "soc: soc-x\nfingerprint: ['ROMX: hello', 'sys: 0x12\\b']\n")
-    assert f.boot_marks("soc-x") == [{"id": "rom", "title": "Boot ROM", "pattern": r"(?:ROMX: hello)|(?:sys: 0x12\b)",
+def test_the_first_fingerprint_line_is_the_boot_rom_mark(tmp_path):
+    # A ROM prints its first line once per boot and the rest again and again (once per USB request in download mode):
+    # the mark is the first line only.
+    f = _facts(tmp_path, "soc: soc-x\nfingerprint: ['ROMX: hello', 'sys: 0x12\\b', 'SETUP: 0x']\n")
+    assert f.boot_marks("soc-x") == [{"id": "rom", "title": "Boot ROM", "pattern": r"(?:ROMX: hello)",
                                       "flags": "", "stage": 0, "tone": "rom"}]
     rx = re.compile(f.boot_marks("soc-x")[0]["pattern"])
-    assert rx.search("[2026-11-10 08:00:00] sys: 0x12 ok") and not rx.search("sys: 0x123")
+    assert rx.search("[2026-11-10 08:00:00] ROMX: hello") and not rx.search("sys: 0x12 ok")
+    # A site can still give the rom mark a pattern of its own, or a fingerprint line that does not hold up.
+    other = _facts(tmp_path / "b", "soc: soc-x\nfingerprint: ['bad(', 'ROMX: ok']\n")
+    assert other.boot_marks("soc-x") == [{"id": "rom", "title": "Boot ROM", "pattern": "(?:ROMX: ok)",
+                                          "flags": "", "stage": 0, "tone": "rom"}]
 
 
 def test_boot_marks_add_to_it_and_override_by_id_with_defaults(tmp_path):
@@ -90,7 +96,8 @@ def test_every_shipped_soc_s_fingerprint_makes_a_mark_both_runtimes_read(caplog)
         marks = {m["id"]: m for m in f.boot_marks(soc)}
         if prof.get("fingerprint"):
             rom = marks["rom"]
-            assert rom["pattern"] == "|".join(f"(?:{rx})" for rx in prof["fingerprint"]), soc
+            # The ROM's first line only: the rest repeat within one boot.
+            assert rom["pattern"] == f"(?:{prof['fingerprint'][0]})", soc
             re.compile(rom["pattern"])
             assert "(?<" not in rom["pattern"] and "(?P" not in rom["pattern"]
         for m in marks.values():
@@ -109,7 +116,7 @@ def test_hosts_serve_a_board_s_boot_marks_and_the_cli_prints_them(tmp_path, monk
         r = c.post("/api/v1/tools/dut_boot_marks", json={"dut": "k1-a"}).json()
         assert r["ok"] and r["result"]["soc"] == "soc-a"
         assert [m["id"] for m in r["result"]["marks"]] == ["rom", "soc-a-ddr"]
-        assert r["result"]["marks"][0]["pattern"] == "(?:ROMA: boot start)|(?:ROMA: usb init)|(?:ROMA: setup=)"
+        assert r["result"]["marks"][0]["pattern"] == "(?:ROMA: boot start)"
         spec = {"id": "odd-1", "board": "k1", "soc": "soc-unknown", "console": {"alias": "s9"},
                 "fastboot": {"usb": "usb:0-9"}, "control": {"backend": "human", "fdl": {"strategy": "strapped"}}}
         assert c.post("/api/v1/tools/dut_add", json={"spec": json.dumps(spec)}).json()["ok"]

@@ -2,7 +2,8 @@
 everything boardctrl knows about a SoC is data.
 
     soc: <id>
-    fingerprint: [regex, ...]          boot-ROM console lines after a reset (probe: best match wins)
+    fingerprint: [regex, ...]          boot-ROM console lines after a reset (probe: best match wins). Its first line is
+                                       the `rom` boot mark: the rest repeat within one boot
     download_mode: {console: regex, fastboot: regex}   what "FDL / download mode" looks like
     usb_vids: [hex, ...]               USB vendor ids of its download / fastboot gadgets
     images: {key: {file, sha256, source}}   images the host stages (probe, media boot); each resolves to the
@@ -154,6 +155,9 @@ def _boot_marks(soc: str, prof: dict[str, Any]) -> list[dict[str, Any]]:
     """`rom` from the fingerprint, then each `boot_marks` entry: a new id is added, a known one has the fields it
     gives replaced. A mark that does not hold up is left out, with a warning."""
     marks: dict[str, dict[str, Any]] = {}
+    # Only the first line is the ROM's mark: the rest of a fingerprint repeats within one boot (once per USB request
+    # in download mode, say), and a log reader counting every one of them would see a boot per line. The whole list
+    # still identifies the ROM (probe, download mode); `boot_marks` can give a different `rom` pattern.
     prints = []
     for rx in prof.get("fingerprint") or []:
         why = _portable(str(rx))
@@ -162,7 +166,7 @@ def _boot_marks(soc: str, prof: dict[str, Any]) -> list[dict[str, Any]]:
         else:
             prints.append(f"(?:{rx})")
     if prints:
-        marks["rom"] = {"id": "rom", "title": "Boot ROM", "pattern": "|".join(prints), "flags": "", "stage": 0,
+        marks["rom"] = {"id": "rom", "title": "Boot ROM", "pattern": prints[0], "flags": "", "stage": 0,
                          "tone": "rom"}
     for raw in prof.get("boot_marks") or []:
         if not isinstance(raw, dict) or not isinstance(raw.get("id"), str) or not raw["id"]:
