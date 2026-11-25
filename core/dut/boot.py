@@ -28,7 +28,16 @@ def redact(value: Any) -> Any:
     return value
 
 
+class _BackInDownload(Exception):
+    """The board showed its boot ROM again in the middle of a load: a person pressed its download button a
+    second time, most likely. The boot ROM is where a load starts, so the load can be replayed from there."""
+
+
 class BootRunner:
+    # How many times a load is replayed after the board went back to its boot ROM; a person pressing the
+    # download button twice needs one, and a third only hides a board that will not come up.
+    MAX_RESTARTS = 2
+
     def __init__(self, dut_id: str, control: ControlBackend, fastboot: Any, console: Any,
                  store: ArtifactStore, hooks=None, download_mode: dict | None = None, media=None,
                  env: dict[str, Any] | None = None, network: dict[str, Any] | None = None,
@@ -50,7 +59,13 @@ class BootRunner:
         self.product_dir = product_dir
 
     # ------------------------------------------------------------ waits --
-    def wait_fastboot(self, product: str, timeout: float, log: Log) -> dict[str, str]:
+    def wait_fastboot(self, product: str, timeout: float, log: Log,
+                      back: "Callable[[dict[str, str] | None], str | None] | None" = None) -> dict[str, str]:
+        """Wait for a fastboot device whose product matches `product`.
+
+        `back` says when the board is in its boot ROM again (see `rom_watch`): the wait then ends at once with
+        `_BackInDownload` instead of running out, so a load cut short by a second press of the download button is
+        noticed in seconds."""
         rx = re.compile(product)
         deadline = time.monotonic() + timeout
         last = None
@@ -60,6 +75,10 @@ class BootRunner:
             last = self.fb.state()
             if last and rx.search(last["product"]):
                 return last
+            if back is not None:
+                why = back(last)
+                if why:
+                    raise _BackInDownload(why)
             token.sleep(0.3)
         raise HardwareTimeout(
             f"fastboot /{product}/ did not appear on {self.fb.usb} within {timeout:g}s (last: {last})",
@@ -187,24 +206,149 @@ class BootRunner:
         cfg = self.control.cfg if hasattr(self.control, "cfg") else {}
         return (cfg.get("fdl") or {}).get("strategy", "strapped") == "strapped"
 
+    def rom_watch(self, mark) -> "Callable[[dict[str, str] | None], str | None]":
+        """A check for "the board is in its boot ROM again, though nothing asked it to be": its download banner
+        on the console since `mark`, or its download device leaving the bus and coming back. Returns how it
+        says so, or None. The console is read at most once a second (the caller reads the port itself, on
+        every poll)."""
+        fb_rx = re.compile(self.download_mode["fastboot"]) if self.download_mode.get("fastboot") else None
+        left, last_read = False, 0.0
+
+        def check(state: dict[str, str] | None) -> str | None:
+            nonlocal left, last_read
+            if time.monotonic() - last_read >= 1.0:
+                last_read = time.monotonic()
+                why = self._download_banner(mark)
+                if why:
+                    return why
+            if fb_rx is not None:
+                if not state:
+                    left = True                     # the boot ROM's device left the bus: the load got going
+                elif left and fb_rx.search(state.get("product") or ""):
+                    return f"the boot ROM's download device is back on {self.fb.usb} ({state.get('product')})"
+            return None
+
+        return check
+
+    def _download_banner(self, mark) -> str | None:
+        """The boot ROM's download banner on the console since `mark` (None when the console cannot show one)."""
+        rx = self.download_mode.get("console")
+        if not rx:
+            return None
+        try:
+            text = self.console.read_since(mark) or ""
+        except Exception:  # noqa: BLE001 - a console with no log says nothing, which is not a restart
+            return None
+        return f"the console printed its boot ROM's download banner again (/{rx}/)" if re.search(rx, text) else None
+
+    def _with_rom_fail(self, fail: str | None) -> str | None:
+        """A recipe's `fail` pattern with the boot ROM's banner added: a console wait then ends when the board
+        goes back to its boot ROM, instead of waiting out a stage that is gone."""
+        rx = self.download_mode.get("console")
+        if not rx:
+            return fail
+        return f"(?:{fail})|(?:{rx})" if fail else rx
+
+    def _console_wait(self, step: dict[str, Any], mark, timeout: float, watch: bool) -> str:
+        """A `wait` step's console wait; with `watch`, the boot ROM's banner ends it as `_BackInDownload` — unless
+        the step's own `fail` pattern is what ended it, which is the answer the recipe asked for."""
+        try:
+            return self.console.wait(step["serial"], self._with_rom_fail(step.get("fail")) if watch
+                                     else step.get("fail"), timeout, mark=mark,
+                                     stall=step.get("stall"), nudge=step.get("nudge"))
+        except HardwareError:
+            if watch:
+                self._raise_if_rom(step, mark)
+            raise
+
+    def _console_send(self, step: dict[str, Any], timeout: float, watch: bool) -> dict[str, Any]:
+        """A `send` step's console send; with `watch`, as `_console_wait`."""
+        mark = self.console.mark()
+        try:
+            return self.console.send(step["text"], step.get("serial"),
+                                     self._with_rom_fail(step.get("fail")) if watch else step.get("fail"), timeout,
+                                     stall=step.get("stall"), nudge=step.get("nudge"))
+        except HardwareError:
+            if watch:
+                self._raise_if_rom(step, mark)
+            raise
+
+    def _raise_if_rom(self, step: dict[str, Any], mark) -> None:
+        """Raise `_BackInDownload` when what ended a console wait is the boot ROM coming back; a failure the
+        recipe named itself (`fail`) is left to be raised as it is."""
+        rx = self.download_mode.get("console")
+        if not rx:
+            return
+        try:
+            text = self.console.read_since(mark) or ""
+        except Exception:  # noqa: BLE001 - a console with no log cannot say what ended the wait
+            return
+        if step.get("fail") and re.search(step["fail"], text):
+            return
+        if re.search(rx, text):
+            raise _BackInDownload(f"the console printed its boot ROM's download banner again (/{rx}/)") from None
+
     def run_steps(self, steps: list[dict[str, Any]], log: Log, arts: dict[str, Any] | None = None,
                   images: dict[str, Any] | None = None, what: str = "step", since=None,
                   sdk: str | None = None, artifacts_dir: str | None = None) -> None:
         """Run boot steps (an SDK recipe's, or a media boot's) in order. `arts` are pulled artifacts by role,
         `images` the SoC profile's images by key (each with a verified local `path`); `since` a console mark taken
         before what led up to the steps (a reset), which the first `wait` and `check` look from. `sdk` and
-        `artifacts_dir` name the build output a hook step works on, for its request."""
+        `artifacts_dir` name the build output a hook step works on, for its request.
+
+        A board a person puts into download mode can go back to its boot ROM mid-load: their finger slips on the
+        download button a second time, while the load is already staging. The boot ROM is where a load starts, so
+        for such a board the load is replayed from its first `stage` step (the board is already in download mode;
+        nobody is asked again). The watch costs nothing on the way that works: it runs inside waits only, and
+        only when the board is a person's to reset."""
+        first_stage = next((i for i, s in enumerate(steps, 1) if s.get("do") == "stage"), None)
+        watch = first_stage is not None and getattr(self.control, "needs_human", False)
+        begin, restarts = 1, 0
+        while True:
+            try:
+                self._run_steps(steps, log, arts, images, what, since, sdk, artifacts_dir,
+                                begin=begin, watch=watch)
+                return
+            except _BackInDownload as e:
+                if restarts >= self.MAX_RESTARTS:
+                    raise HardwareError(
+                        f"{what}: the board went back to its boot ROM {restarts + 1} times while loading "
+                        f"({e}); nothing is loaded",
+                        hint="something puts it there mid-load: the download button pressed or held too long, "
+                             "a loose reset line, or a stage that does not start. The console shows which",
+                        details={"console_tail": "\n".join(self.console.tail(20))}) from None
+                restarts += 1
+                log(f"{what}: {e}; the board is in its boot ROM, so the load starts over from step {first_stage}")
+                dev = self.wait_fastboot(self.download_mode.get("fastboot") or ".", 30, log)
+                log(f"{what}: download mode on {dev['usb']} ({dev['product']}); replaying (attempt "
+                    f"{restarts + 1} of {self.MAX_RESTARTS + 1})")
+                begin, since = first_stage, None
+
+    def _run_steps(self, steps: list[dict[str, Any]], log: Log, arts, images, what, since, sdk, artifacts_dir,
+                   begin: int = 1, watch: bool = False) -> None:
         arts, images = arts or {}, images or {}
         mark = self.console.mark() if since is None else since   # console output since the last action, for `wait`
         action = mark                                             # ... and since it began, for `check`
         strapped = self.strapped()
         media = self.media if self.media is not None and strapped else None
         token = current_token()
+        # Where a restart is looked for from: the initial run starts it after its first step, so the banner that put
+        # the board in download mode in the first place is not mistaken for one. A replay starts here, since the
+        # banner it is recovering from is already behind this mark.
+        watch_mark = mark if watch and begin > 1 else None
         for i, step in enumerate(steps, 1):
+            if i < begin:
+                continue
             kind = step["do"]
             label = f"{what} {i}/{len(steps)} {kind}"
             token.at(label)                               # where a cancelled job says it stopped
             token.check()                                 # a cancelled job ends before its next step
+            if watch_mark is not None:
+                # A press of the download button during the step before shows its banner now: the load is gone,
+                # whatever this step was about to do to it.
+                fresh = self._download_banner(watch_mark)
+                if fresh:
+                    raise _BackInDownload(fresh)
             # Steps that need the board to boot its own media: on a strapped board they run only when it has a
             # media boot (then `reset` boots through it); otherwise they are skipped and the log says why.
             if step.get("when") == "fdl-not-strapped" and strapped and not (media and media.available()):
@@ -272,17 +416,16 @@ class BootRunner:
                 timeout = float(step.get("timeout", 60))
                 ts = time.monotonic()
                 if step.get("serial"):
-                    self.console.wait(step["serial"], step.get("fail"), timeout, mark=mark,
-                                      stall=step.get("stall"), nudge=step.get("nudge"))
+                    self._console_wait(step, mark, timeout, watch)
                 if step.get("fastboot"):
-                    self.wait_fastboot(step["fastboot"], max(5.0, timeout - (time.monotonic() - ts)), log)
+                    self.wait_fastboot(step["fastboot"], max(5.0, timeout - (time.monotonic() - ts)), log,
+                                       back=self.rom_watch(mark) if watch else None)
                 log(f"{label}: {step.get('serial') or step.get('fastboot')} after {time.monotonic() - ts:.1f}s")
             elif kind == "send":
                 mark = self.console.mark()
                 timeout = float(step.get("timeout", 60))
                 ts = time.monotonic()
-                out = self.console.send(step["text"], step.get("serial"), step.get("fail"), timeout,
-                                        stall=step.get("stall"), nudge=step.get("nudge"))
+                out = self._console_send(step, timeout, watch)
                 log(f"{label}: sent {step['text']!r}"
                     + (f", /{step['serial']}/ seen" if step.get("serial") else "")
                     + (f" after {time.monotonic() - ts:.1f}s" if step.get("serial") else ""))
@@ -327,6 +470,8 @@ class BootRunner:
                 # keep the console mark: the next wait can check what the bootloader printed while flashing
             else:
                 raise InvalidRequest(f"unknown boot step {kind!r}")
+            if watch and watch_mark is None:
+                watch_mark = self.console.mark()
 
     @staticmethod
     def _file(step: dict[str, Any], arts: dict[str, Any], images: dict[str, Any], label: str) -> tuple[str, str]:
@@ -347,7 +492,10 @@ class BootRunner:
                   poll: float = 0.5) -> dict[str, Any]:
         """Boot from RAM with files given in order (e.g. FSBL, U-Boot/OpenSBI, kernel FIT): for each one
         `stage` + `continue`, then wait for the download port to come back before the next. The first
-        wait is longer (the boot ROM hands over to FSBL, which re-enumerates). Never flashes."""
+        wait is longer (the boot ROM hands over to FSBL, which re-enumerates). Never flashes.
+
+        On a board a person resets, a second press of its download button sends it back to the boot ROM
+        mid-load: the load then starts over from the first file, as `run_steps` does for a recipe."""
         t0 = time.monotonic()
         log(f"boot {self.dut_id} from {len(files)} file(s)" + ("" if reset else " (board already in download mode)"))
         for i, f in enumerate(files, 1):
@@ -356,6 +504,37 @@ class BootRunner:
             self.enter_fdl(log)
         else:
             self.require_download_port()
+        watch = getattr(self.control, "needs_human", False)
+        restarts = 0
+        while True:
+            beginning = self.console.mark() if watch else None
+            try:
+                self._load_files(files, log, first_wait=first_wait, later_wait=later_wait,
+                                 port_timeout=port_timeout, stage_timeout=stage_timeout, poll=poll,
+                                 watch=beginning)
+                break
+            except _BackInDownload as e:
+                if restarts >= self.MAX_RESTARTS:
+                    raise HardwareError(
+                        f"boot: the board went back to its boot ROM {restarts + 1} times while loading ({e}); "
+                        "nothing is loaded",
+                        hint="something puts it there mid-load: the download button pressed or held too long, "
+                             "a loose reset line, or a file that does not start. The console shows which",
+                        details={"console_tail": "\n".join(self.console.tail(20))}) from None
+                restarts += 1
+                log(f"boot: {e}; the board is in its boot ROM, so the load starts over from file 1")
+                dev = self.wait_fastboot(self.download_mode.get("fastboot") or ".", 30, log)
+                log(f"boot: download mode on {dev['usb']} ({dev['product']}); replaying (attempt "
+                    f"{restarts + 1} of {self.MAX_RESTARTS + 1})")
+        log(f"done in {time.monotonic() - t0:.1f}s")
+        return {"dut": self.dut_id, "files": [{k: f[k] for k in ("name", "sha256", "size")} for f in files],
+                "elapsed_s": round(time.monotonic() - t0, 1), "restarts": restarts}
+
+    def _load_files(self, files: list[dict[str, Any]], log: Log, first_wait: float,
+                    later_wait: float, port_timeout: float, stage_timeout: float, poll: float,
+                    watch=None) -> None:
+        """The load `run_files` runs, once: `watch` is the console mark a restart is looked for since (None: the
+        board is a relay's, and a board back in its boot ROM is reported, not replayed)."""
         token = current_token()
         for i, f in enumerate(files, 1):
             label = f"file {i}/{len(files)} {f['name']}"
@@ -366,12 +545,20 @@ class BootRunner:
                 token.sleep(settle)
                 deadline = time.monotonic() + port_timeout
                 while not self.fb.state():
+                    fresh = self._download_banner(watch) if watch is not None else None
+                    if fresh:
+                        raise _BackInDownload(fresh)
                     if time.monotonic() > deadline:
                         raise HardwareTimeout(
                             f"download port {self.fb.usb} did not come back within {settle + port_timeout:g}s "
                             f"after file {i - 1}; it may not have started",
                             hint=f"see `bsp dut log {self.dut_id}`", details={"console_tail": "\n".join(self.console.tail(15))})
                     token.sleep(poll)
+            # The port can be there and be the boot ROM again (a second press of the download button): the console
+            # says so, and staging the next file onto a load that is gone would only waste the file.
+            fresh = self._download_banner(watch) if watch is not None else None
+            if fresh:
+                raise _BackInDownload(fresh)
             ts = time.monotonic()
             self.fb.cmd("stage", f["path"], timeout=stage_timeout)
             try:
@@ -379,9 +566,6 @@ class BootRunner:
             except HardwareError:
                 pass  # the responder detaches on purpose; the next wait is the real check
             log(f"{label}: staged and continued in {time.monotonic() - ts:.1f}s")
-        log(f"done in {time.monotonic() - t0:.1f}s")
-        return {"dut": self.dut_id, "files": [{k: f[k] for k in ("name", "sha256", "size")} for f in files],
-                "elapsed_s": round(time.monotonic() - t0, 1)}
 
     # ------------------------------------------------------------- run --
     def run(self, sdk: Instance, method: str, variant: str | None, log: Log, brk: str | None = None) -> dict[str, Any]:

@@ -106,6 +106,16 @@ download mode on its console or USB port (for a plain reset: the SoC's boot-ROM 
 console). If the board is not actually in download mode after a confirmation, the next step
 fails with a fastboot timeout. Scripts and agents should run such commands in the background.
 
+While a load runs, bsp keeps an eye out for that boot-ROM output: a person who presses the download
+button a second time after the first press already worked sends the board back to its boot ROM, and
+the load then starts over from its first `stage` step (a `dut boot --files` from its first file)
+without asking anyone again. The board is already in download mode, so nothing else has to happen,
+and a load that runs normally pays no extra time. The press is noticed while a step waits and before
+the next one starts, or on the USB port when the console keeps no log. After two restarts the load
+stops with a hardware error that names what may be sending the board back (the button held too long,
+a loose reset line, a stage that does not start). Only boards reset by a person are watched this way:
+on a relay the same state is a defect to report, not to work around.
+
 ### Booting local files
 
 `boardctrl dut boot DUT --files FSBL.bin u-boot-opensbi.itb Image.itb` boots a board from RAM with

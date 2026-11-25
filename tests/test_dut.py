@@ -163,6 +163,153 @@ def test_boot_runner_send_step_types_one_line_and_waits(tmp_path):
     assert any("sent 'reboot'" in line and "/READY/ seen" in line for line in lines)
 
 
+# ------------------------------- a person presses the download button once too often --
+class SlippingFastboot(FakeFastboot):
+    """A board whose download button is pressed again mid-load: after `slips` continues it is back in its boot
+    ROM, and the load that was under way is gone. `leave` makes it leave the bus and come back (a re-enumeration),
+    for a console that could not say. `on_stage` slips on the stage command instead of the continue, so the
+    banner lands between two steps and no step's own wait ever sees it."""
+
+    def __init__(self, console, slips=1, leave=False, on_stage=False):
+        super().__init__(console)
+        self.slips, self.leave, self.on_stage, self.continued = slips, leave, on_stage, 0
+        self.gone = False
+
+    def state(self):
+        if self.gone:
+            self.gone = False
+            return None
+        return super().state()
+
+    def slip(self, args):
+        self.continued += 1
+        self.product, self.gone = "DFU download", self.leave
+        self.console.emit("U-Boot SPL 2022.10\nROM: usb download handler\n")
+        self.calls.append(args)
+        return "OKAY"
+
+    def cmd(self, *args, timeout=0):
+        if self.on_stage and args[0] == "stage" and self.continued < self.slips:
+            return self.slip(args)
+        if args[0] == "continue" and self.continued < self.slips:
+            return self.slip(args)
+        return super().cmd(*args, timeout=timeout)
+
+
+class HumanControl(FakeControl):
+    needs_human = True
+
+    def human_timeout(self):
+        return 5.0
+
+    def enter_fdl(self, log, ready=None):
+        super().enter_fdl(log, ready)
+        if ready is not None:
+            ready()
+
+
+def _slipping_runner(tmp_path, control, slips=1, leave=False, download_mode=None, on_stage=False):
+    sdk = SdkCatalog(SITE / "sdk").get("bsp-a")
+    con = FakeConsole(tmp_path)
+    fb = SlippingFastboot(con, slips=slips, leave=leave, on_stage=on_stage)
+    lines = []
+    runner = BootRunner("b1", control(con), fb, con, FakeStore(),
+                        download_mode=download_mode or {"console": "ROM: usb download handler",
+                                                        "fastboot": "DFU download"})
+    runner.run(sdk, "load", None, lines.append)
+    return con, fb, lines
+
+
+def test_a_second_press_of_the_download_button_is_recovered_from(tmp_path):
+    """The person pressed FDL, the load began, they pressed it again: the load starts over from its first stage
+    and finishes, without asking anyone a second time."""
+    con, fb, lines = _slipping_runner(tmp_path, HumanControl)
+    staged = [c[1].rsplit("/", 1)[-1] for c in fb.calls if c[0] == "stage"]
+    assert staged == ["FSBL.bin", "FSBL.bin", "u-boot-opensbi.itb", "Image.itb"]
+    assert any("starts over from step 2" in line for line in lines)
+    assert any("replaying (attempt 2 of 3)" in line for line in lines)
+
+
+def test_the_recovery_is_seen_on_the_usb_port_when_the_console_cannot_say(tmp_path):
+    con, fb, lines = _slipping_runner(tmp_path, HumanControl, leave=True,
+                                      download_mode={"fastboot": "DFU download"})
+    staged = [c[1].rsplit("/", 1)[-1] for c in fb.calls if c[0] == "stage"]
+    assert staged == ["FSBL.bin", "FSBL.bin", "u-boot-opensbi.itb", "Image.itb"]
+    assert any("download device is back" in line for line in lines)
+
+
+def test_a_press_between_steps_is_caught_before_the_next_file_is_staged(tmp_path):
+    """The banner lands while no step is waiting (the next stage command is already under way): it is still a
+    restart, and the next file is not staged onto a load that is gone."""
+    con, fb, lines = _slipping_runner(tmp_path, HumanControl, on_stage=True)
+    staged = [c[1].rsplit("/", 1)[-1] for c in fb.calls if c[0] == "stage"]
+    assert staged == ["FSBL.bin", "FSBL.bin", "u-boot-opensbi.itb", "Image.itb"]
+    assert any("starts over from step 2" in line for line in lines)
+
+
+def test_a_load_that_works_is_never_replayed(tmp_path):
+    con, fb, lines = _slipping_runner(tmp_path, HumanControl, slips=0)
+    staged = [c[1].rsplit("/", 1)[-1] for c in fb.calls if c[0] == "stage"]
+    assert staged == ["FSBL.bin", "u-boot-opensbi.itb", "Image.itb"]
+    assert not any("starts over" in line or "replay" in line for line in lines)
+
+
+def test_a_relay_board_is_not_replayed_it_has_nobody_to_blame(tmp_path):
+    """Only a person's hand slips: on a relay the same board state is a defect to report, not to paper over."""
+    con = FakeConsole(tmp_path)
+    fb = SlippingFastboot(con)
+    control = FakeControl(con)
+    control.enter_fdl = lambda log, ready=None: control.console.emit("ROM: usb download handler\n")
+    lines = []
+    runner = BootRunner("b1", control, fb, con, FakeStore(),
+                        download_mode={"console": "ROM: usb download handler", "fastboot": "DFU download"})
+    steps = [{"do": "enter-fdl"}, {"do": "stage", "artifact": "fsbl"}, {"do": "continue"},
+             {"do": "wait", "fastboot": "Fastboot", "timeout": 5}]
+    with pytest.raises(HardwareTimeout):
+        runner.run_steps(steps, lines.append, arts={"fsbl": {"path": "/tmp/FSBL.bin", "size": 1}})
+    assert not any("starts over" in line for line in lines)
+
+
+def test_a_board_that_keeps_falling_back_gives_up_and_says_why(tmp_path):
+    with pytest.raises(HardwareError) as e:
+        _slipping_runner(tmp_path, HumanControl, slips=99)
+    assert "went back to its boot ROM 3 times" in e.value.message
+    assert "download button" in e.value.hint
+
+
+class FileFastboot(FakeFastboot):
+    """For a file boot: the board comes back after the first file and is slipped once on the way."""
+
+    def __init__(self, console, slips=1):
+        super().__init__(console)
+        self.slips, self.continued, self.product = slips, 0, "DFU download"
+
+    def cmd(self, *args, timeout=0):
+        self.calls.append(args)
+        if args[0] == "continue":
+            self.continued += 1
+            if self.continued <= self.slips:
+                self.product = "DFU download"
+                self.console.emit("ROM: usb download handler\n")
+            else:
+                self.product = "Android Fastboot"
+                self.console.emit("U-Boot SPL 2022.10\n")
+        return "OKAY"
+
+
+def test_a_file_boot_starts_over_after_a_second_press_of_the_download_button(tmp_path):
+    con = FakeConsole(tmp_path)
+    fb = FileFastboot(con)
+    lines = []
+    runner = BootRunner("b1", HumanControl(con), fb, con, FakeStore(),
+                        download_mode={"console": "ROM: usb download handler", "fastboot": "DFU download"})
+    files = [{"name": f"f{i}.bin", "path": f"/tmp/f{i}.bin", "sha256": "x", "size": 1} for i in (1, 2)]
+    res = runner.run_files(files, lines.append, first_wait=0, later_wait=0, port_timeout=0.2, poll=0.02)
+    assert res["restarts"] == 1
+    assert [c[1] for c in fb.calls if c[0] == "stage"] == ["/tmp/f1.bin", "/tmp/f1.bin", "/tmp/f2.bin"]
+    assert any("starts over from file 1" in line for line in lines)
+
+
 # ------------------------------------------------------ serial send (echo) --
 def _console(tmp_path):
     from providers.smtty import serial as hostio

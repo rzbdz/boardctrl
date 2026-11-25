@@ -83,6 +83,12 @@ All notable changes to this project are documented here. The format follows
   `modules.dut.*` are still read, so a site or a script does not have to move in one day.
 
 ### Fixed
+- A board reset by a person that goes back to its boot ROM mid-load — the download button pressed a second time
+  while a recipe's steps (or `dut boot --files`) are staging — now starts the load over from its first `stage`
+  step (or first file) instead of timing out: the board is already in download mode, so nobody is asked again.
+  It is noticed inside a step's own waits, before the next step runs, and on the USB port when the console keeps
+  no log; a load that runs normally pays no extra time. Two replays are allowed; one more is reported as a
+  hardware error naming the likely causes.
 - A media boot (a strapped board's reset) from a board left in a later stage, such as U-Boot's fastboot after a
   flash, resets the board into the boot ROM's download mode first instead of running the ROM's steps against U-Boot.
 - Probe no longer says a SoC has no identify section when it skipped identify because no download
