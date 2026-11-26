@@ -19,6 +19,9 @@ from core.jobs import current_token
 from core.dut.contracts import ControlBackend, Log, Ready
 
 TITLE = "A person's hands"
+# What it reads: a request waits on the DUT manager's attention service. It is published by the kernel before any
+# provider starts, so the declaration is satisfied on every host that has a DUT manager — which is every host.
+REQUIRES = ("dut_attention",)
 
 # How long a board reset by a person waits for them: long enough to see the request and walk to the board.
 HUMAN_TIMEOUT_S = 300.0

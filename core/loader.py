@@ -156,6 +156,9 @@ class Providers:
         self.roots = [Path(r) for r in roots]
         self.loaded: dict[str, Loaded] = {}
         self.errors: dict[str, str] = {}
+        # The host context: its `services` is what a provider's `REQUIRES` is checked against (a kernel service such
+        # as `dut_attention` is published there directly, not by any provider's `api.service`).
+        self.ctx: Any = None
 
     def available(self) -> dict[str, Path]:
         """Every provider directory in the layers, the highest layer's copy winning."""
@@ -176,6 +179,7 @@ class Providers:
         directory named after a kernel service (`dut`, `sdk`, `registry`) is that service's section, and a site that
         ships code under one of those names is told so rather than silently skipped.
         """
+        self.ctx = ctx
         available = self.available()
         config = config or {}
         off = {name for name, cfg in config.items() if isinstance(cfg, dict) and cfg.get("enabled", True) is False}
@@ -194,6 +198,7 @@ class Providers:
 
     def add(self, name: str, setup: Any, ctx: Any, section: dict[str, Any], title: str = "") -> None:
         """Set up a provider the kernel itself carries (no directory): `setup(ctx, api, config)` as for any other."""
+        self.ctx = ctx
         try:
             api = ProviderApi(name, ctx)
             manager = setup(ctx, api, dict(section))
@@ -245,13 +250,10 @@ class Providers:
         Every `setup` has run by now, so the services map is what the host offers: one provider may satisfy another's
         requirement in either order.
         """
+        there = set(getattr(self.ctx, "services", {}) or {})
         for provider in self.loaded.values():
             declared = [str(name) for name in (getattr(provider.module, "REQUIRES", None) or ())]
-            provider.missing = [name for name in declared if name not in self.services()]
-
-    def services(self) -> set[str]:
-        """Every service the loaded providers published, by name."""
-        return {name for provider in self.loaded.values() for name in provider.api.services}
+            provider.missing = [name for name in declared if name not in there]
 
     def startup(self) -> None:
         for m in self.loaded.values():
