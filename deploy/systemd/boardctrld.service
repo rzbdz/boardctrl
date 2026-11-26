@@ -1,5 +1,5 @@
 [Unit]
-Description=bsp hostd - bsp-dev-loop host controller (gpio-relay, ...)
+Description=boardctrld: this machine's boards (reset lines, consoles, download ports, debug), driven by boardlab
 Documentation=file://@INSTALL_DIR@/app/README.md
 After=network-online.target
 Wants=network-online.target
@@ -7,11 +7,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=@INSTALL_DIR@/app
-ExecStart=@INSTALL_DIR@/venv/bin/bsp-hostd --config @INSTALL_DIR@/site/hosts/@HOST_ID@.yaml
+ExecStart=@INSTALL_DIR@/venv/bin/boardctrld --config @INSTALL_DIR@/site/hosts/@HOST_ID@.yaml
 Environment=PYTHONUNBUFFERED=1
 Environment=BOARDCTRL_SITE=@INSTALL_DIR@/site
-# optional, not shipped by deploy.sh: BOARDCTRL_TOKEN=... and other BSP_* overrides
-EnvironmentFile=-/etc/bsp/hostd.env
+# optional, not shipped by deploy.sh: BOARDCTRL_TOKEN=... and other BOARDCTRL_* settings
+EnvironmentFile=-/etc/boardctrl/boardctrld.env
 Restart=on-failure
 RestartSec=2
 # streams end at once on SIGTERM, other requests get 5 s, then the service shuts down
