@@ -270,6 +270,28 @@ def test_a_relay_board_is_not_replayed_it_has_nobody_to_blame(tmp_path):
     assert not any("starts over" in line for line in lines)
 
 
+def test_a_flash_recipe_is_not_started_over_nothing_is_written_twice(tmp_path):
+    """Replaying a RAM load is safe: the board is in its boot ROM and nothing was written. A `download` recipe
+    writes the board, so the same recovery there would repeat its writes without its author asking: it is left as
+    the failure it is (running it again is the person's, or a script's, call)."""
+    import types
+
+    sdk = types.SimpleNamespace(id="pkg-dl", server=types.SimpleNamespace(ssh="u@h"),
+                                artifacts=lambda: {"fsbl": "/out/FSBL.bin"},
+                                boot_plan=lambda method, variant, brk=None: {"steps": [
+                                    {"do": "enter-fdl"}, {"do": "stage", "artifact": "fsbl"},
+                                    {"do": "continue"}, {"do": "wait", "fastboot": "Fastboot", "timeout": 1}]})
+    con = FakeConsole(tmp_path)
+    fb = SlippingFastboot(con)
+    lines = []
+    runner = BootRunner("b1", HumanControl(con), fb, con, FakeStore(),
+                        download_mode={"console": "ROM: usb download handler", "fastboot": "DFU download"})
+    with pytest.raises(HardwareTimeout):
+        runner.run(sdk, "download", None, lines.append)
+    assert [c[1] for c in fb.calls if c[0] == "stage"] == ["/out/FSBL.bin"]
+    assert not any("starts over" in line or "replay" in line for line in lines)
+
+
 def test_a_board_that_keeps_falling_back_gives_up_and_says_why(tmp_path):
     with pytest.raises(HardwareError) as e:
         _slipping_runner(tmp_path, HumanControl, slips=99)

@@ -290,19 +290,21 @@ class BootRunner:
 
     def run_steps(self, steps: list[dict[str, Any]], log: Log, arts: dict[str, Any] | None = None,
                   images: dict[str, Any] | None = None, what: str = "step", since=None,
-                  sdk: str | None = None, artifacts_dir: str | None = None) -> None:
+                  sdk: str | None = None, artifacts_dir: str | None = None, replay: bool = False) -> None:
         """Run boot steps (an SDK recipe's, or a media boot's) in order. `arts` are pulled artifacts by role,
         `images` the SoC profile's images by key (each with a verified local `path`); `since` a console mark taken
         before what led up to the steps (a reset), which the first `wait` and `check` look from. `sdk` and
         `artifacts_dir` name the build output a hook step works on, for its request.
 
-        A board a person puts into download mode can go back to its boot ROM mid-load: their finger slips on the
-        download button a second time, while the load is already staging. The boot ROM is where a load starts, so
-        for such a board the load is replayed from its first `stage` step (the board is already in download mode;
-        nobody is asked again). The watch costs nothing on the way that works: it runs inside waits only, and
-        only when the board is a person's to reset."""
+        `replay`: the steps load the board into RAM and write nothing, so they can start over. A board a person puts
+        into download mode can go back to its boot ROM mid-load: their finger slips on the download button a second
+        time, while the load is already staging. The boot ROM is where a load starts, so for such a board the load is
+        replayed from its first `stage` step (the board is already in download mode; nobody is asked again). The
+        watch costs nothing on the way that works: it runs inside waits only, and only when the board is a person's
+        to reset. A recipe that writes the board (a media boot, a `download` recipe) never passes `replay`: repeating
+        its writes is not something its author asked for, and a write cut short has to be run again."""
         first_stage = next((i for i, s in enumerate(steps, 1) if s.get("do") == "stage"), None)
-        watch = first_stage is not None and getattr(self.control, "needs_human", False)
+        watch = replay and first_stage is not None and getattr(self.control, "needs_human", False)
         begin, restarts = 1, 0
         while True:
             try:
@@ -581,7 +583,8 @@ class BootRunner:
         # The board's SoC images too, so `stage image:` and hook steps (a flasher shipped as an image) find theirs.
         images = (self.media.profile.get("images") or {}) if self.media is not None else {}
         artifacts_dir = sdk.artifact_dir() if hasattr(sdk, "artifact_dir") else None
-        self.run_steps(plan["steps"], log, arts=arts, images=images, sdk=sdk.id, artifacts_dir=artifacts_dir)
+        self.run_steps(plan["steps"], log, arts=arts, images=images, sdk=sdk.id, artifacts_dir=artifacts_dir,
+                       replay=method == "load")
         log(f"done in {time.monotonic() - t0:.1f}s")
         return {"dut": self.dut_id, "sdk": sdk.id, "method": method, "variant": variant,
                 "artifacts": {r: {k: a.get(k) for k in ("remote", "sha256", "size", "age_s", "mtime", "built", "source",
