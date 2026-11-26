@@ -130,6 +130,54 @@ def test_unpack_descends_into_one_top_level_directory(tmp_path):
         flashpkg.unpack(p, tmp_path / "x")
 
 
+LAYOUT = json.dumps({"format": "gpt", "partitions": [
+    {"name": "bootfs", "image": "bootfs.ext4"}, {"name": "rootfs", "image": ["rootfs.in", "rootfs.ext4"]},
+    {"name": "esp", "image": "esp.vfat"}]}).encode()
+
+
+@pytest.mark.parametrize("pack", [_tgz, _zip])
+def test_a_chosen_partition_unpacks_only_what_it_needs(tmp_path, pack):
+    """`want` leaves the rest of the package on the wire: its layouts, `fastboot.yaml`, what its stage actions use and
+    the chosen partitions' images — a list of inputs is kept whole, since which of them the flasher picks is its own
+    business."""
+    flow = b"actions:\n  - stage:\n      file: 'factory/FSBL.bin'\n  - multi_flash:\n      relate_partition: ['partition_universal.json']\n"
+    files = {"pkg/fastboot.yaml": flow, "pkg/partition_universal.json": LAYOUT,
+             "pkg/bootfs.ext4": b"b", "pkg/rootfs.in": b"i", "pkg/rootfs.ext4": b"r", "pkg/esp.vfat": b"e",
+             "pkg/u-boot.itb": b"u", "pkg/factory/FSBL.bin": b"f"}
+    p = tmp_path / "p.pkg"
+    p.write_bytes(pack(files))
+    d = flashpkg.unpack(p, tmp_path / "out", want=flashpkg.only_entries(p, ["rootfs"]))
+    assert sorted(str(x.relative_to(d)) for x in d.rglob("*") if x.is_file()) == [
+        "factory/FSBL.bin", "fastboot.yaml", "partition_universal.json", "rootfs.ext4", "rootfs.in"]
+    # A name no layout has unpacks nothing of its images, so the flasher gets the whole package to report it against.
+    d2 = flashpkg.unpack(p, tmp_path / "out2", want=flashpkg.only_entries(p, ["nothing"]))
+    assert sorted(str(x.relative_to(d2)) for x in d2.rglob("*") if x.is_file()) == sorted(str(Path(n).relative_to("pkg"))
+                                                                                          for n in files)
+
+
+@pytest.mark.parametrize("pack", [_tgz, _zip])
+def test_a_package_that_keeps_everything_in_one_directory_names_its_files_from_there(tmp_path, pack):
+    """A vendor package is `pkg/fastboot.yaml` + `pkg/partition_universal.json` naming `bootfs.ext4`, not
+    `pkg/bootfs.ext4`: `unpack` descends into `pkg`, so a layout's own name is relative to it."""
+    flow = b"actions:\n  - stage:\n      file: 'u-boot.itb'\n  - multi_flash:\n      relate_partition: ['partition_universal.json']\n"
+    files = {"vendor/fastboot.yaml": flow, "vendor/partition_universal.json": LAYOUT,
+             "vendor/bootfs.ext4": b"b", "vendor/rootfs.ext4": b"r", "vendor/u-boot.itb": b"u", "vendor/esp.vfat": b"e"}
+    p = tmp_path / "p.pkg"
+    p.write_bytes(pack(files))
+    d = flashpkg.unpack(p, tmp_path / "out", want=flashpkg.only_entries(p, ["bootfs"]))
+    assert d.name == "vendor"
+    assert sorted(x.name for x in d.iterdir()) == ["bootfs.ext4", "fastboot.yaml", "partition_universal.json", "u-boot.itb"]
+
+
+def test_a_package_that_is_not_a_spacemit_one_is_handed_over_whole(tmp_path):
+    """No layout names a partition asked for — a package this reads nothing of: every file is kept, so the flasher
+    says what a chosen partition means here instead of the package arriving half empty."""
+    p = tmp_path / "p.pkg"
+    p.write_bytes(_tgz({"whatever.bin": b"x", "notes.txt": b"n"}))
+    d = flashpkg.unpack(p, tmp_path / "out", want=flashpkg.only_entries(p, ["boot"]))
+    assert sorted(x.name for x in d.iterdir()) == ["notes.txt", "whatever.bin"]
+
+
 # ---------------------------------------------------------------- dut.flash --
 FAKE_FLASHER = """
 import os, time
@@ -526,7 +574,7 @@ if req.get('plan'):
           'selectable': True} for n in files]}]}}))
     sys.exit(0)
 with open(os.environ['FLASH_LOG'], 'w') as f:
-    json.dump(req, f)
+    json.dump({**req, 'files': sorted(os.listdir(req['package_dir']))}, f)
 print(json.dumps({'flashed': req['args'].get('only') or ['all']}))
 """
 
@@ -577,6 +625,25 @@ def test_chosen_partitions_reach_the_flasher_and_a_flasher_without_them_refuses(
     assert job["status"] == "succeeded", job
     assert json.loads((host.tmp / "flash.json").read_text())["args"]["only"] == ["boot", "rootfs"]
     assert job["result"]["flashed"] == ["boot", "rootfs"]
+
+
+def test_a_chosen_partition_is_the_only_image_a_package_hands_the_flasher(host):
+    """The package is unpacked for the parts chosen: a 4 GB image of a partition nobody asked for never lands on the
+    host's disk. What the flasher is given is still the package, with its own layout and the images chosen."""
+    _planning(host)
+    layout = json.dumps({"format": "gpt", "partitions": [
+        {"name": "boot", "image": "boot.img"}, {"name": "rootfs", "image": "rootfs.ext4"}]}).encode()
+    data = _tgz({"pkg/fastboot.yaml": b"actions: []\n", "pkg/partition_4M.json": layout,
+                 "pkg/boot.img": b"b", "pkg/rootfs.ext4": b"r" * 4096})
+    sha = _sha(data)
+    assert host.put(f"/api/v1/artifacts/{sha}?name=pkg.tgz", content=data).json()["ok"]
+    token = _call(host, "dut_acquire", dut="mock-board", holder="t", ttl=60)["token"]
+    r = _call(host, "dut_flash", dut="mock-board", package=sha, flasher="planner", lease=token, reset=False, partitions="boot")
+    job = _call(host, "job_get", id=r["job"], wait=20)
+    assert job["status"] == "succeeded", job
+    seen = json.loads((host.tmp / "flash.json").read_text())
+    assert seen["args"]["only"] == ["boot"]
+    assert seen["files"] == ["boot.img", "fastboot.yaml", "partition_4M.json"]
 
 
 FAKE_SSH = """#!/bin/bash

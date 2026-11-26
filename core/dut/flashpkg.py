@@ -266,10 +266,28 @@ def kind_of(path: Path) -> str:
     raise InvalidRequest(f"{path.name} is not a package", hint="a .tar.gz, .tgz, .tar or .zip (or a directory)")
 
 
-def unpack(path: Path, dest: Path, max_bytes: int = 4 * DEFAULT_MAX_BYTES) -> Path:
+def entries(path: Path) -> list[str]:
+    """The file names inside the archive at `path`, read from its index; nothing is unpacked (none for a directory)."""
+    kind = kind_of(path)
+    if kind == "dir":
+        return []
+    if kind == "zip":
+        with zipfile.ZipFile(path) as z:
+            return [i.filename for i in z.infolist() if not i.is_dir()]
+    with tarfile.open(path, "r:*") as t:
+        return [m.name for m in t if m.isfile()]
+
+
+def unpack(path: Path, dest: Path, max_bytes: int = 4 * DEFAULT_MAX_BYTES,
+           want: Callable[[str], bool] | None = None) -> Path:
     """Unpack the archive at `path` into the empty directory `dest`; returns the package directory (`dest`, or its
     one top-level directory). Refuses anything that would land outside `dest`, links, special files, and more than
-    `max_bytes` unpacked."""
+    `max_bytes` unpacked.
+
+    `want`, when given, says which entries are needed by their path inside the archive; the others are read past
+    without being written. It is how a flash of some partitions leaves a several-gigabyte image on the wire instead of
+    on disk — the archive is still streamed whole (a `.zip` keeps its directory at the end), but only what is asked
+    for is unpacked. The `max_bytes` check counts what is written, not what the archive holds."""
     dest.mkdir(parents=True, exist_ok=True)
     kind = kind_of(path)
     total = 0
@@ -281,6 +299,8 @@ def unpack(path: Path, dest: Path, max_bytes: int = 4 * DEFAULT_MAX_BYTES) -> Pa
                 _safe_name(i.filename)
                 if (i.external_attr >> 16) & 0o170000 == 0o120000:
                     raise InvalidRequest(f"package entry {i.filename!r} is a link", hint="the archive is not usable")
+                if want and not i.is_dir() and not want(i.filename):
+                    continue
                 total += i.file_size
                 if total > max_bytes:
                     raise InvalidRequest(f"package unpacks to more than {max_bytes:,} B")
@@ -290,6 +310,8 @@ def unpack(path: Path, dest: Path, max_bytes: int = 4 * DEFAULT_MAX_BYTES) -> Pa
                 target = dest.joinpath(*rel.parts)
                 if i.is_dir():
                     target.mkdir(parents=True, exist_ok=True)
+                    continue
+                if want and not want(i.filename):
                     continue
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with z.open(i) as src, open(target, "wb") as out:
@@ -308,7 +330,10 @@ def unpack(path: Path, dest: Path, max_bytes: int = 4 * DEFAULT_MAX_BYTES) -> Pa
                     continue
                 target = dest.joinpath(*rel.parts)
                 if m.isdir():
-                    target.mkdir(parents=True, exist_ok=True)
+                    if not want or want(m.name):
+                        target.mkdir(parents=True, exist_ok=True)
+                    continue
+                if want and not want(m.name):
                     continue
                 total += m.size
                 if total > max_bytes:
@@ -323,6 +348,103 @@ def unpack(path: Path, dest: Path, max_bytes: int = 4 * DEFAULT_MAX_BYTES) -> Pa
         if p.is_symlink() or not p.resolve().is_relative_to(root):
             raise InvalidRequest(f"package entry {p.relative_to(dest)} points outside the package")
     return top_dir(dest)
+
+
+def only_entries(path: Path, partitions: list[str]) -> Callable[[str], bool]:
+    """Which entries of the package at `path` a flash of `partitions` needs: its partition layouts, the images those
+    partitions are written from, `fastboot.yaml` and the files it stages — the rest of a multi-gigabyte package is
+    read past rather than unpacked.
+
+    The layouts are still needed whole: the flasher reads them for the names of every partition, and for the table it
+    writes. A layout and `fastboot.yaml` are read here only to find their images, so reading costs nothing for a
+    `.zip`, whose names and sizes are at its end. A file that cannot be read is kept whole, and the flasher then says
+    what is wrong with it, as it would have without this."""
+    import json
+
+    names = entries(path)
+    # A layout's own file names are relative to the directory it is in, or, in a package that keeps everything in one
+    # directory (which `unpack` descends into), to that directory.
+    wrapper = top_dir_of(names)
+    reader = _zip_entry if kind_of(path) == "zip" else _tar_entry
+    wanted = set(partitions)
+    images: set[str] = set()
+    layouts: set[str] = set()
+    stages: set[str] = set()
+    for name in names:
+        rel = _safe_name(name)
+        if not rel.parts:
+            continue
+        here = PurePosixPath(*rel.parts[:-1])
+        if rel.name == "fastboot.yaml":
+            try:
+                flow = _yaml(reader(path, name)) or {}
+            except Exception:
+                continue
+            actions = flow.get("actions") if isinstance(flow, dict) else None
+            for action in actions or []:
+                staged = action.get("stage") if isinstance(action, dict) else None
+                if isinstance(staged, dict) and staged.get("file"):
+                    stages.add(str(_within(here, wrapper, str(staged["file"]))))
+            continue
+        if not (rel.name.startswith("partition_") and rel.name.endswith(".json")):
+            continue
+        layouts.add(str(rel))
+        try:
+            table = json.loads(reader(path, name)) or {}
+        except Exception:
+            continue
+        for part in table.get("partitions") or []:
+            if not isinstance(part, dict) or str(part.get("name")) not in wanted:
+                continue
+            image = part.get("image")
+            for candidate in [image] if isinstance(image, str) else [str(x) for x in image or []]:
+                if candidate:
+                    images.add(str(_within(here, wrapper, candidate)))
+    def kept(name: str) -> bool:
+        rel = _safe_name(name)
+        if not rel.parts:
+            return False
+        return str(rel) in layouts or rel.name == "fastboot.yaml" or str(rel) in images or str(rel) in stages
+    # No layout names any of them: the package is not one this can read, and the flasher says so best when it has the
+    # whole package rather than a directory that looks empty.
+    return kept if images else (lambda name: True)
+
+
+def _zip_entry(path: Path, name: str) -> str:
+    with zipfile.ZipFile(path) as z:
+        return z.read(name).decode("utf-8", "replace")
+
+
+def _tar_entry(path: Path, name: str) -> str:
+    with tarfile.open(path, "r:*") as t:
+        f = t.extractfile(name)
+        return f.read().decode("utf-8", "replace") if f else ""
+
+
+def _yaml(text: str) -> Any:
+    """`fastboot.yaml` as a mapping; PyYAML is what a host that flashes SpacemiT packages already has."""
+    import yaml
+
+    return yaml.safe_load(text)
+
+
+def top_dir_of(names: list[str]) -> str:
+    """The one top-level directory every entry in `names` is under, or '' when there is not one: the directory
+    `unpack` descends into, and so the one a layout's own file names are relative to."""
+    parts = [_safe_name(name).parts for name in names]
+    tops = {p[0] for p in parts if p}
+    return tops.pop() if len(tops) == 1 and all(len(p) > 1 for p in parts if p) else ''
+
+
+def _within(here: PurePosixPath, wrapper: str, name: str) -> PurePosixPath:
+    """A file a layout or `fastboot.yaml` names, as it is inside the package: beside that file, unless the package
+    keeps everything in one directory and the name is relative to that directory rather than to the file."""
+    path = PurePosixPath(name)
+    if path.is_absolute():
+        return path
+    if wrapper and here.parts[:1] == (wrapper,):
+        return PurePosixPath(wrapper) / path
+    return here / path
 
 
 def _copy(src, out, token) -> None:

@@ -190,7 +190,9 @@ is `{"job", "lines", "flasher", "plan": {"package", "media", "partial", "notes"}
 hooks/README.md for the plan's fields). It runs as a job of kind `flash-plan` that does not make
 the board busy. `--partitions a,b` writes only those partitions (names as `--plan` gives them);
 the flasher must declare it can (`spacemit-pkg` does), and a name the package does not have is
-refused before the board is touched.
+refused before the board is touched. A package is then unpacked for those partitions only: its
+layouts, `fastboot.yaml`, what that stages, and the images written — the rest is read past, so a
+chosen partition of a several-gigabyte package does not land on the host's disk.
 
 Over HTTP: upload the package as an artifact (see above), then `dut_flash` with `package` set to
 its sha256, or to the URL (and `plan: true`, or `partitions`).

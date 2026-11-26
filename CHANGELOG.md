@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `dut flash --partitions a,b` unpacks the package for those partitions only: its layouts, `fastboot.yaml`, what that
+  stages and the images written — a several-gigabyte package no longer lands on the host's disk to write one image.
+  A directory uploaded as it is still comes whole.
 - A provider declares the services it reads (`REQUIRES = ("gpio", "smtty")` in its `provider.py`). Every setup has
   run before they are checked, so a provider whose service the host does not offer is degraded, keeps what it
   registered, and says in its status which service it waits for — where the host config that caused it is fixed —

@@ -1076,7 +1076,10 @@ class DutManager:
                     self._event("flashed", dut=dut, flasher=name, package=path.name)
                     return out
                 token.at(f"unpack {path.name}")
-                pkg_dir = flashpkg.unpack(path, work / "pkg", max_bytes=4 * max_bytes)
+                # Only some partitions: the rest of the package is read past, not unpacked (a whole image can be
+                # several gigabytes). A directory uploaded as it is comes whole.
+                pkg_dir = flashpkg.unpack(path, work / "pkg", max_bytes=4 * max_bytes,
+                                          want=flashpkg.only_entries(path, only) if only else None)
                 files = sum(1 for p in pkg_dir.rglob("*") if p.is_file())
                 log(f"unpacked {path.name}: {files} file(s)")
                 if plan:
