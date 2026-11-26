@@ -122,6 +122,12 @@ cannot be configured, aliased or driven by anyone else.
 still spells it `modules/<name>/module.py` is read too). One that fails to load is reported as degraded and never
 takes the host with it; code lives in the site layers, never in this repository unless it is the kernel's own.
 
+A provider that reads another's service says so: `REQUIRES = ("gpio", "smtty")` names the services it needs, and
+the host checks the list once every setup has run (`boardctrl: <provider>` is then degraded, keeps what it
+registered, and its status says which service it waits for). A provider that reads a service without declaring it
+works until the first board reaches that path, on a host whose config is the thing to fix: the declaration moves
+that discovery to start.
+
 The serial console service is where a board host starts: every serial console is a **slot**
 (`dut/slots.py`), with a serial-mux console of its own as soon as its adapter is plugged in and
 before anything else is known. The DUT manager attaches the rest to slots as it learns it: the reset
