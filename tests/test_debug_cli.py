@@ -207,7 +207,7 @@ def _live(host_config, tmp_path):
 def test_the_client_asks_the_host_for_the_debug_path(site, tmp_path, monkeypatch, capsys):
     from frontends.cli.main import main
 
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
     cfg, _ = _host_config(site, tmp_path)
     server, t, port = _live(cfg, tmp_path)
     url = ["--url", f"http://127.0.0.1:{port}", "--stateless"]
@@ -246,7 +246,7 @@ def test_debug_pipe_is_the_session_stream_for_programs(site, tmp_path, monkeypat
 
     from frontends.cli.main import main
 
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
     cfg, _ = _host_config(site, tmp_path)
     server, t, port = _live(cfg, tmp_path)
     url = ["--url", f"http://127.0.0.1:{port}", "--stateless"]
@@ -269,7 +269,7 @@ def test_a_session_that_is_not_up_says_so_instead_of_piping_nothing(site, tmp_pa
     """`debug pipe` before a session exists is an error with the next step, not an empty stream."""
     from frontends.cli.main import main
 
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
     cfg, _ = _host_config(site, tmp_path)
     server, t, port = _live(cfg, tmp_path)
     url = ["--url", f"http://127.0.0.1:{port}", "--stateless"]

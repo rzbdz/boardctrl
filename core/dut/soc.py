@@ -8,7 +8,7 @@ everything boardctrl knows about a SoC is data.
     usb_vids: [hex, ...]               USB vendor ids of its download / fastboot gadgets
     images: {key: {file, sha256, source}}   images the host stages (probe, media boot); each resolves to the
                                        highest layer holding the file, else to the site's fetched copy
-                                       (`bsp images sync` fetches it from `source` into <site>/.blobs/<sha256>/)
+                                       (`boardctrl images sync` fetches it from `source` into <site>/.blobs/<sha256>/)
     media_boot: {name, steps}          booting its media when FDL is strapped (see mediaboot.py)
     identify: {sequence, fields, placeholders, name}   see hooks/probe/identify
     boot_marks: [{id, title, pattern, flags, stage, tone}, ...]
@@ -67,7 +67,7 @@ class SocFacts:
                         img["path"] = str(d / img["file"])
                         break
                 else:
-                    # fetched by `bsp images sync` into a layer's content-addressed cache (<layer>/.blobs/<sha256>/<file>)
+                    # fetched by `boardctrl images sync` into a layer's content-addressed cache (<layer>/.blobs/<sha256>/<file>)
                     for d in reversed(self.dirs[soc]):
                         cached = d.parent.parent / ".blobs" / str(img.get("sha256", "")).lower() / img.get("file", "")
                         if img.get("sha256") and cached.is_file():
@@ -108,7 +108,7 @@ class SocFacts:
     def looks_like_boot(self, text: str) -> bool:
         """Does this console text look like a board coming out of reset (boot ROM, boot loader or kernel banner),
         rather than a shell someone is typing in? Any SoC's fingerprint, download-mode or boot-stage line counts,
-        and the usual boot banners of boards bsp has no profile for."""
+        and the usual boot banners of boards boardctrl has no profile for."""
         if self.detect(text)[0] or self.in_download_mode(text, ""):
             return True
         for p in self.profiles.values():

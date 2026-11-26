@@ -54,10 +54,10 @@ class Attention:
                 if not p or p["id"] != request:
                     raise NotFound(f"{dut}: request {request} is not waiting for a person",
                                    hint="the page's 「我做好了」 goes stale once the board was already seen; "
-                                        "`bsp dut status` shows what is waiting now, if anything")
+                                        "`boardctrl dut status` shows what is waiting now, if anything")
             if not p:
                 raise NotFound(f"{dut}: nothing is waiting for a person",
-                               hint="confirm only after bsp asked for an action (see `bsp dut status`)")
+                               hint="confirm only after boardctrl asked for an action (see `boardctrl dut status`)")
             result = {"dut": dut, "request": p["id"], "confirmed": p["action"],
                       "waited_s": round(time.time() - p["since"], 1), "repeat": False, "how": "by a person"}
             self._answered.setdefault(dut, {})[p["id"]] = result

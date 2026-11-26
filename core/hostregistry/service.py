@@ -1,6 +1,6 @@
 """registry module: a directory of board hosts that announce themselves.
 
-Board hosts running bsp-hostd with `server.announce` POST their id, port, addresses and ssh user
+Board hosts running boardctrld with `server.announce` POST their id, port, addresses and ssh user
 here every minute or so. The address the announcement came from is the one this machine sees,
 so it is tried first. Clients with `registry` in the site's remotes.json (or $BSP_REGISTRY) list
 the fresh entries as remotes, so new hosts and changed addresses need no client configuration.
@@ -153,7 +153,7 @@ class RegistryService:
     def forget(self, host: str) -> dict[str, Any]:
         with self._lock:
             if self._hosts.pop(host, None) is None:
-                raise NotFound(f"host {host!r} is not registered", hint="see `bsp registry list --all`")
+                raise NotFound(f"host {host!r} is not registered", hint="see `boardctrl registry list --all`")
             self._save()
         self.ctx.bus.publish("registry.forgotten", host=host)
         return {"host": host, "forgotten": True}
@@ -227,7 +227,7 @@ class RegistryService:
                 return row
             except (socket.timeout, TimeoutError):
                 row.update(state="pending", error=f"{url}: no answer within {timeout}s", hint=(
-                    "the host may still be fetching (large images); check again in a minute with `bsp catalog status`"))
+                    "the host may still be fetching (large images); check again in a minute with `boardctrl catalog status`"))
                 return row
             except Exception as ex:  # noqa: BLE001 - try the next address
                 errors.append(f"{url}: {getattr(ex, 'reason', ex)}")
@@ -255,7 +255,7 @@ class RegistryService:
             return row
         row["error"] = "; ".join(errors) or "no address"
         row["hint"] = (f"it has not announced for {row['age_s']}s; if it is gone: "
-                       f"`bsp -r <registry> registry forget {e['host']}`") if e["stale"] else \
+                       f"`boardctrl -r <registry> registry forget {e['host']}`") if e["stale"] else \
             "check that boardctrld runs there and its port is open to this registry"
         return row
 
@@ -300,7 +300,7 @@ class RegistryService:
                 "this registry knows no board host, so the catalog reaches none",
                 hint="a host registers when its host file has server.announce {url: <this registry>}; add it (or "
                      "reinstall the host so its site's host file brings it) and restart boardctrld there, then check "
-                     "`bsp catalog status`")
+                     "`boardctrl catalog status`")
         if not any(r["state"] == "current" for r in rows):
             raise InvalidRequest(
                 "no board host took the catalog: " + "; ".join(f"{r['host']}: {r['state']} ({r['error']})" for r in rows),

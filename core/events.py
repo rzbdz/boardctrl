@@ -1,4 +1,4 @@
-"""Thread-safe event bus (observer) feeding the status monitor (SSE, web, `bsp watch`)."""
+"""Thread-safe event bus (observer) feeding the status monitor (SSE, web, `boardctrl watch`)."""
 
 from __future__ import annotations
 

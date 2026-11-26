@@ -33,7 +33,7 @@ def _open_stream(port: int, path: str) -> socket.socket:
 
 def test_sigterm_ends_open_event_streams_and_stops_within_seconds(tmp_path):
     port = _free_port()
-    env = {**os.environ, "BSP_STATE_DIR": str(tmp_path), "PYTHONPATH": str(ROOT)}
+    env = {**os.environ, "BOARDCTRL_STATE_DIR": str(tmp_path), "PYTHONPATH": str(ROOT)}
     proc = subprocess.Popen([sys.executable, "-m", "frontends.server", "--config", str(MOCK),
                              "--bind", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
                             cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

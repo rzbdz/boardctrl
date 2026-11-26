@@ -5,12 +5,12 @@ description: Develop, build and hardware-test BSP / kernel / bootloader code on 
 
 # boardctrl
 
-> **Stay on the CLI.** If `bsp` commands do what you need, do not read boardctrl's source, configs or
+> **Stay on the CLI.** If `boardctrl` commands do what you need, do not read boardctrl's source, configs or
 > hooks, and do not ssh into board hosts or build servers to look around — it only costs time.
 > Act on `error.hint` first. Dig into boardctrl internals only when a command keeps failing and its hint
-> does not resolve it, or when the user asks you to extend bsp (see the last sections).
+> does not resolve it, or when the user asks you to extend boardctrl (see the last sections).
 
-`boardctrl` (formerly `bsp`) is the only tool you need. It hides the network: SDK source trees live on build
+`boardctrl` is the only tool you need. It hides the network: SDK source trees live on build
 servers, boards (DUTs) hang off board hosts. You never ssh anywhere yourself for the normal
 loop and never touch GPIO, fastboot or serial devices directly. Names below in `<angle
 brackets>` come from `boardctrl sdk list` / `boardctrl dut list` (or the header of a generated SKILL.md).
@@ -42,7 +42,7 @@ boardctrl sdk acquire <sdk> --task <short-task-name> --holder <your-id>
 ```
 
 This stashes the owner's local changes in the dev repos (listed by `boardctrl sdk show`) and checks
-out a fresh branch `bsp/<task>`. Nobody else can build or write the tree while you hold it.
+out a fresh branch `boardctrl/<task>`. Nobody else can build or write the tree while you hold it.
 `boardctrl sdk release` later restores the owner's branch and stashed work.
 
 ### Start from the latest upstream, unless told otherwise
@@ -60,7 +60,7 @@ boardctrl sdk exec <sdk> --cwd <repo> -- git log --oneline @{u}..HEAD   # local 
 
 - Up to date: go on.
 - Behind, no local-only commits: tell the user and ask whether to base the task on the remote; on
-  yes, `git merge --ff-only @{u}` on the fresh `bsp/<task>` branch (before any of your commits).
+  yes, `git merge --ff-only @{u}` on the fresh `boardctrl/<task>` branch (before any of your commits).
 - Behind with local-only commits, diverged, or no upstream set: do not rebase or reset on your own;
   say what you found and ask which base to use.
 - `fetch` fails (no network or credentials on the build server): say so and ask before going on
@@ -78,7 +78,7 @@ boardctrl sdk get <sdk> <repo>/init/main.c -o /tmp/main.c      # fetch a file
 boardctrl sdk put <sdk> <repo>/init/main.c /tmp/main.c         # write it back
 boardctrl sdk exec <sdk> -- grep -n "kernel_init" init/main.c  # any command; cwd = first dev repo
 boardctrl sdk exec <sdk> -- git diff                           # review
-boardctrl sdk exec <sdk> -- git commit -am "'my change'"       # commit on bsp/<task>
+boardctrl sdk exec <sdk> -- git commit -am "'my change'"       # commit on boardctrl/<task>
 ```
 
 `exec` runs in the first dev repo (`--cwd` relative to the SDK root to change). Quote shell
@@ -128,7 +128,7 @@ ask a person to press RESET (or to enter download mode), and **block until it is
 2. Tell the user exactly what the job printed after `ACTION NEEDED:` (e.g. "press RESET on
    slot-1"). `boardctrl dut list` shows such boards as stage `needs-human`.
 3. When the user says it is done, run `boardctrl dut confirm <dut>` (optionally with a note). The job
-   may also continue by itself when bsp sees the board in download mode on the console or USB.
+   may also continue by itself when boardctrl sees the board in download mode on the console or USB.
 4. Then read the background job's output for the result as usual.
 
 If the user says the reset happened but the job then fails waiting for fastboot, the board did
@@ -139,7 +139,7 @@ not reach download mode: ask them to retry (hold the BOOT/download button if the
 ```bash
 boardctrl dut release <dut>
 boardctrl sdk release <sdk>        # parks uncommitted work as a stash, restores the owner's state;
-                             # the branch bsp/<task> (with your commits) is kept
+                             # the branch boardctrl/<task> (with your commits) is kept
 ```
 
 ## Rules
@@ -147,7 +147,7 @@ boardctrl sdk release <sdk>        # parks uncommitted work as a stash, restores
 - Commit your change on the task branch before `sdk release`, otherwise it ends up in a stash.
 - If a board or SDK is leased by someone else (`error.code` conflict), pick another or wait; never `--force`.
 - Leases are remembered per user; parallel agents on one machine should pass `--stateless`
-  and `--lease <token>` (or `BSP_LEASE` / `BSP_SDK_LEASE`).
+  and `--lease <token>` (or `BSP_LEASE` / `BOARDCTRL_SDK_LEASE`).
 - `boardctrl dut reset <dut>` resets into download mode; `boardctrl dut status <dut>` shows the stage.
 - `boardctrl install` (in an SDK directory) writes ./SKILL.md: this skill plus which SDK the directory is
   and the site's hints.
@@ -157,7 +157,7 @@ boardctrl sdk release <sdk>        # parks uncommitted work as a stash, restores
 
 `boardctrl dut console <dut>` without a command attaches interactively (Ctrl-A Ctrl-X leaves, Ctrl-C goes to the board; needs a
 terminal and ssh access to the host). Hosts with console logins enabled also accept
-`ssh bsp-<dut>@<host>` with no password; `boardctrl dut logins` prints the exact lines. Give these to
+`ssh boardctrl-<dut>@<host>` with no password; `boardctrl dut logins` prints the exact lines. Give these to
 the user rather than running them yourself.
 
 ## Managing boards (when the user asks)
@@ -180,20 +180,20 @@ port: `boardctrl dut bind <name> --console /dev/ttyUSB0 --usb usb:1-1.2 --soc <s
 its resets are done by a person (see above). `boardctrl dut remove <name>` drops it again. To keep probed boards in the site
 configuration, save `boardctrl dut export` output under `<site>/duts/`.
 
-## Debugging on a host (only when bsp cannot tell you enough)
+## Debugging on a host (only when boardctrl cannot tell you enough)
 
 Board hosts are reachable over ssh as listed in `<site>/remotes.json` (`ssh` field). Useful there:
 `journalctl -u boardctrld -n 100`, `fastboot devices -l`, `serial-mux list`,
-`systemctl status bsp-console-<console>`, `~/.serial-mux/logs/<console>/`, `/var/lib/bsp/`. Try
+`systemctl status boardctrl-console-<console>`, `~/.serial-mux/logs/<console>/`, `/var/lib/boardctrl/`. Try
 `boardctrl dut status`, `boardctrl dut log` and `boardctrl events recent -r <host>` first; never drive lines or
-fastboot by hand while bsp holds the board.
+fastboot by hand while boardctrl holds the board.
 
-## Extending bsp (contribute when a flow is missing)
+## Extending boardctrl (contribute when a flow is missing)
 
 boardctrl is mechanism only. What is specific to this installation lives in the **site** directory
-(`$BSP_SITE`, else `~/.config/bsp/site`, else `/etc/bsp/site`; `tests/fixtures/site/` in the bsp repo
+(`$BOARDCTRL_SITE`, else `~/.config/boardctrl/site`, else `/etc/boardctrl/site`; `tests/fixtures/site/` in the boardctrl repo
 shows every format). Public hardware knowledge lives in **shipped platforms** (`<boardctrl repo>/platforms/<vendor>/`).
-When the user asks you to bring up something bsp cannot do yet, add it there instead of working
+When the user asks you to bring up something boardctrl cannot do yet, add it there instead of working
 around it:
 
 - SDK target: `<site>/sdk/instances/<id>.yaml` — copy the closest existing one. Shared trees:
@@ -201,13 +201,13 @@ around it:
   `boot.load` / `boot.download` steps (step kinds: `bsp/sdk/catalog.py`); unknown parts stay
   `status: todo` with `notes`.
 - Procedures that are more than steps (e.g. a vendor flash tool): an executable in
-  `<site>/hooks/<kind>/<name>` (contract: `hooks/README.md` in the bsp repo), used by a
+  `<site>/hooks/<kind>/<name>` (contract: `hooks/README.md` in the boardctrl repo), used by a
   `{do: hook}` step. Public formats any user of that hardware needs belong in a shipped platform.
 - New SoC: `socs/<soc>/soc.yaml` (boot-ROM fingerprint, download mode, identity patterns) in a
   platform; probe images you built go in `<site>/socs/<soc>/`.
 - New board host: `<site>/hosts/<id>.yaml`, `<site>/deploy/<id>.env`, an entry in
-  `<site>/remotes.json`, then `deploy/deploy.sh <id>` from the bsp repo (ask the user first; it
+  `<site>/remotes.json`, then `deploy/deploy.sh <id>` from the boardctrl repo (ask the user first; it
   restarts the host service).
 - Check: `boardctrl sdk plan <sdk> --boot load`, then a real `boardctrl dut boot`; run the tests if you changed
-  code. Commit site changes in the site repo and code changes in the bsp repo, with clear
-  messages; push only if the user asks. Never put credentials or site details into the bsp repo.
+  code. Commit site changes in the site repo and code changes in the boardctrl repo, with clear
+  messages; push only if the user asks. Never put credentials or site details into the boardctrl repo.

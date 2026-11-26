@@ -187,7 +187,7 @@ def test_who_needs_it_and_who_can_have_it(tmp_path):
     assert "not needed" in MediaBoot(spec("button"), profile(tmp_path)).unavailable()
     assert "switched off" in MediaBoot(spec(media_boot=False), profile(tmp_path)).unavailable()
     assert "declares no media_boot" in MediaBoot(spec(), {}).unavailable()
-    assert "bsp images sync" in MediaBoot(spec(), profile()).unavailable()
+    assert "boardctrl images sync" in MediaBoot(spec(), profile()).unavailable()
     assert "may not use: flash" in MediaBoot(spec(), profile(tmp_path, steps=[{"do": "flash"}])).unavailable()
     # One DUT can bring its own steps, whatever its SoC profile says.
     own = MediaBoot(spec(media_boot={"name": "own", "steps": [{"do": "continue"}]}), {})

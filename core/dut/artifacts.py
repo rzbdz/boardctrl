@@ -33,7 +33,7 @@ def _run(argv: list[str], timeout: float) -> proc.Result:
 class ArtifactStore:
     """Content-addressed cache of build outputs pulled from build servers over SSH.
 
-    The cache is local: bsp does not mount CIFS or translate Windows/UNC paths. Explicit board-host paths and
+    The cache is local: boardctrl does not mount CIFS or translate Windows/UNC paths. Explicit board-host paths and
     host-fetched URLs are additional boot inputs; local-file upload is only the fallback."""
 
     SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"]
@@ -60,7 +60,7 @@ class ArtifactStore:
 
         The build server's file is the truth: its sha256 is computed there (`sha256sum` over ssh) on every pull, and
         the host's copy is used only when it has that content (same sha256 and size); otherwise the file is copied
-        again. `jobs` is the SDK's build-job directory on the server (`<sdk>/.bsp/jobs`): with it, each artifact says
+        again. `jobs` is the SDK's build-job directory on the server (`<sdk>/.boardctrl/jobs`): with it, each artifact says
         whether the latest successful build wrote it, and a build still running is named."""
         globs = {r: p for r, p in files.items() if any(c in p for c in "*?[")}
         if globs:
@@ -106,7 +106,7 @@ class ArtifactStore:
             sha, size, mtime = meta.get(path, ("MISSING", "-", "-"))
             if sha == "MISSING":
                 raise InvalidRequest(f"artifact '{role}' missing on {ssh}: {path}",
-                                     hint="build it first: `bsp sdk build <sdk> <component>`")
+                                     hint="build it first: `boardctrl sdk build <sdk> <component>`")
             if not SHA256.fullmatch(sha) or not size.isdigit() or not mtime.isdigit():
                 raise HardwareError(f"build server {ssh} answered {sha!r} {size!r} {mtime!r} for {path}",
                                     hint="it needs sha256sum and GNU stat")
@@ -161,7 +161,7 @@ class ArtifactStore:
         p = self.find(sha256)
         if p is None:
             raise InvalidRequest(f"no file with sha256 {sha256[:16]}... on this host",
-                                 hint="upload it first: `bsp dut stage DUT FILE` does that for you "
+                                 hint="upload it first: `boardctrl dut stage DUT FILE` does that for you "
                                       "(PUT /api/v1/artifacts/<sha256>)")
         return p
 
@@ -341,7 +341,7 @@ SLACK_S = 2                                         # mtimes are whole seconds; 
 
 
 def _jobs_script(jobs: str) -> str:
-    """Shell that prints the newest build jobs in `jobs` (an SDK's `.bsp/jobs`), newest first, one per line:
+    """Shell that prints the newest build jobs in `jobs` (an SDK's `.boardctrl/jobs`), newest first, one per line:
     `JOB <id> <rc|-> <started> <ended|-> <log mtime|-> <component>`. Started is the job script's mtime, ended its
     `rc` file's: what the build server's own clock said, like the artifacts' mtimes."""
     d = shlex.quote(jobs)

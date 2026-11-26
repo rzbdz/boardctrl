@@ -43,7 +43,7 @@ def busy_error(gpio: int, holder: str | None, sysfs_root: Path = SYSFS_GPIO) -> 
 class GpiodBackend(GpioBackend):
     name = "gpiod"
 
-    def __init__(self, consumer: str = "bsp", chips: dict[str, int] | None = None):
+    def __init__(self, consumer: str = "boardctrl", chips: dict[str, int] | None = None):
         try:
             import gpiod  # noqa: F401
         except ImportError as e:

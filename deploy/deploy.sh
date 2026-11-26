@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Reproducible deploy of bsp-hostd to a board host.
+# Reproducible deploy of boardctrld to a board host.
 #
 #   SSHPASS=<password> deploy/deploy.sh <target> [deploy|status|logs|restart|ssh] [--allow-dirty]
 #
-# Site data comes from the site directory ($BSP_SITE, ~/.config/bsp/site, /etc/bsp/site):
+# Site data comes from the site directory ($BOARDCTRL_SITE, ~/.config/boardctrl/site, /etc/boardctrl/site):
 # <site>/deploy/<target>.env says how to reach the host, <site>/hosts/<target>.yaml is its
 # config. The whole site directory is shipped to <INSTALL_DIR>/site next to the code. `deploy` ships the git-tracked tree
 # (clean HEAD unless --allow-dirty), installs it into a venv on the host, renders
@@ -17,9 +17,9 @@ ALLOW_DIRTY=0
 for a in "$@"; do [[ $a == --allow-dirty ]] && ALLOW_DIRTY=1; done
 [[ $ACTION == --allow-dirty ]] && ACTION=deploy
 
-SITE=${BSP_SITE:-}
-for c in "$SITE" "$HOME/.config/bsp/site" /etc/bsp/site; do [[ -n $c && -d $c ]] && { SITE=$(cd "$c" && pwd); break; }; done
-[[ -n $SITE && -d $SITE ]] || { echo "no site directory (set BSP_SITE; see tests/fixtures/site)" >&2; exit 1; }
+SITE=${BOARDCTRL_SITE:-}
+for c in "$SITE" "$HOME/.config/boardctrl/site" /etc/boardctrl/site; do [[ -n $c && -d $c ]] && { SITE=$(cd "$c" && pwd); break; }; done
+[[ -n $SITE && -d $SITE ]] || { echo "no site directory (set BOARDCTRL_SITE; see tests/fixtures/site)" >&2; exit 1; }
 ENV_FILE=$SITE/deploy/$TARGET.env
 [[ -f $ENV_FILE ]] || { echo "no such target: $ENV_FILE (targets: $(ls "$SITE/deploy" 2>/dev/null | sed 's/\.env$//' | tr '\n' ' '))" >&2; exit 1; }
 [[ -f $SITE/hosts/$TARGET.yaml ]] || { echo "no host config $SITE/hosts/$TARGET.yaml" >&2; exit 1; }
@@ -46,9 +46,9 @@ REMOTE="$SSH_USER@$SSH_HOST"
 rsh() { "${SSH[@]}" "$REMOTE" "$@"; }
 
 case $ACTION in
-  status)  rsh "systemctl --no-pager status bsp-hostd | head -15; curl -fsS localhost:$SERVICE_PORT/api/v1/status; echo"; exit ;;
-  logs)    rsh "journalctl -u bsp-hostd --no-pager -n ${LINES:-100}"; exit ;;
-  restart) rsh "systemctl restart bsp-hostd && sleep 2 && systemctl is-active bsp-hostd"; exit ;;
+  status)  rsh "systemctl --no-pager status boardctrld | head -15; curl -fsS localhost:$SERVICE_PORT/api/v1/status; echo"; exit ;;
+  logs)    rsh "journalctl -u boardctrld --no-pager -n ${LINES:-100}"; exit ;;
+  restart) rsh "systemctl restart boardctrld && sleep 2 && systemctl is-active boardctrld"; exit ;;
   ssh)     "${SSH[@]}" -t "$REMOTE"; exit ;;
   deploy)  ;;
   *) echo "unknown action $ACTION" >&2; exit 1 ;;
@@ -71,10 +71,10 @@ echo "==> shipping $REV to $REMOTE:$INSTALL_DIR"
 # Images the site lists but does not keep (media-boot helpers, probe images) are fetched here, once, into
 # <site>/.blobs/<sha256>/ and shipped with the site: hosts never fetch anything themselves.
 echo "==> fetching site images"
-BSP_SITE="$SITE" "$(pwd)/bin/bsp" images sync || echo "warning: some site images could not be fetched (see above)" >&2
+BOARDCTRL_SITE="$SITE" "$(pwd)/bin/boardctrl" images sync || echo "warning: some site images could not be fetched (see above)" >&2
 
 echo "==> shipping site $SITE"
-EXCL=(--exclude=.git); [[ -f $SITE/.bspignore ]] && EXCL+=(--exclude-from="$SITE/.bspignore")   # site-owned excludes
+EXCL=(--exclude=.git); [[ -f $SITE/.boardctrl-ignore ]] && EXCL+=(--exclude-from="$SITE/.boardctrl-ignore")   # site-owned excludes
 tar -C "$SITE" "${EXCL[@]}" -czf - . \
   | rsh "set -e; rm -rf '$INSTALL_DIR/site.new'; mkdir -p '$INSTALL_DIR/site.new'; tar -xzf - -C '$INSTALL_DIR/site.new'"
 

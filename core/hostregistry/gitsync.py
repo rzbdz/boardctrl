@@ -9,7 +9,7 @@ rebases and pushes again.
 Commits pushed to the repository by anyone else (a push, an edit on the web) are pulled every
 `pull_s` seconds or on request: each SDK document they change is validated against the whole
 catalog and written to the catalog as that commit's author, so hosts get it like any other
-change; one that does not validate is reported (`bsp catalog status`) and not applied. Other files
+change; one that does not validate is reported (`boardctrl catalog status`) and not applied. Other files
 in the repository (hosts, SoC profiles, remotes) are simply updated in the clone.
 """
 
@@ -41,8 +41,8 @@ class GitMirror:
         self.remote = cfg.get("remote") or None
         self.branch = cfg.get("branch", "main")
         self.pull_s = float(cfg.get("pull_s", 60))
-        self.name = cfg.get("committer", "bsp registry")
-        self.email = cfg.get("email", "registry@bsp.invalid")
+        self.name = cfg.get("committer", "boardctrl registry")
+        self.email = cfg.get("email", "registry@boardctrl.invalid")
         self.queue: "queue.Queue[dict[str, Any] | None]" = queue.Queue()
         self.state: dict[str, Any] = {"head": None, "pushed": None, "pending": 0, "last_error": None,
                                       "last_pull": None, "rejected": []}
@@ -91,7 +91,7 @@ class GitMirror:
         if not self.git("diff", "--cached", "--name-only", check=False):
             return False
         who = job["author"] or "unknown"
-        email = re.sub(r"[^A-Za-z0-9._+-]", "-", who) + "@bsp.invalid"
+        email = re.sub(r"[^A-Za-z0-9._+-]", "-", who) + "@boardctrl.invalid"
         ref = ref_of(job["kind"], job["id"])
         subject = job["message"] or f"{'delete' if job['text'] is None else 'update'} {ref}"
         msg = f"{subject if subject.startswith(ref + ':') else f'{ref}: {subject}'}\n\n{TRAILER}: {job['rev']}\n"

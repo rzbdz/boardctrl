@@ -161,8 +161,8 @@ def host(tmp_path, monkeypatch):
     h.write_text("#!/usr/bin/env python3\nimport json,sys\nreq=json.load(sys.stdin)\n" + FAKE_FLASHER)
     h.chmod(h.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setenv("BSP_HOOKS_PATH", str(tmp_path / "hooks"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_HOOKS_PATH", str(tmp_path / "hooks"))
     monkeypatch.setenv("FLASH_LOG", str(tmp_path / "flash.json"))
     with TestClient(create_app(HostConfig.load(MOCK))) as c:
         c.tmp = tmp_path
@@ -191,8 +191,8 @@ def test_flash_uploaded_package_runs_the_hook_with_progress(host):
     mod.network_cfg = {"board_subnet": "10.0.0.0/24", "host_address": "10.0.0.2",
                        "export_address": "203.0.113.5"}
     mod._network = None
-    mod.ctx.env.update({"BSP_TFTP_SERVER": "10.0.0.9", "BSP_SDK_OUTPUT": "/srv/sdk"})
-    mod.flash_cfg["args"] = {"tftp": "${BSP_TFTP_SERVER}/pkg", "fallback": "${NOPE:-none}"}
+    mod.ctx.env.update({"BOARDCTRL_TFTP_SERVER": "10.0.0.9", "BOARDCTRL_SDK_OUTPUT": "/srv/sdk"})
+    mod.flash_cfg["args"] = {"tftp": "${BOARDCTRL_TFTP_SERVER}/pkg", "fallback": "${NOPE:-none}"}
     data = _tgz({"pkg/fastboot.yaml": b"actions: []\n", "pkg/partition_universal.json": b"{}",
                  "pkg/rootfs.ext4": b"r" * 1000})
     sha = _sha(data)
@@ -216,7 +216,7 @@ def test_flash_uploaded_package_runs_the_hook_with_progress(host):
     assert req["timeout"] == 3600
     assert req["usb"] == "usb:0-0" and req["dut"] == "mock-board" and req["artifacts"]["package"].endswith("pkg.tgz")
     assert req["product_dir"] == req["package_dir"]              # the unpacked package is the product
-    assert req["env"] == {"BSP_TFTP_SERVER": "10.0.0.9", "BSP_SDK_OUTPUT": "/srv/sdk"}
+    assert req["env"] == {"BOARDCTRL_TFTP_SERVER": "10.0.0.9", "BOARDCTRL_SDK_OUTPUT": "/srv/sdk"}
     assert req["network"] == {"board_subnet": "10.0.0.0/24", "host_address": "10.0.0.2",
                               "export_address": "203.0.113.5", "console": "mock-board"}
     assert req["args"] == {"tftp": "10.0.0.9/pkg", "fallback": "none"}
@@ -260,8 +260,8 @@ def test_cli_flash_sends_a_directory_and_prints_progress(tmp_path, monkeypatch, 
     (hooks / "planner").write_text(PLANNING_FLASHER)
     (hooks / "planner").chmod(0o755)
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setenv("BSP_HOOKS_PATH", str(tmp_path / "hooks"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_HOOKS_PATH", str(tmp_path / "hooks"))
     monkeypatch.setenv("FLASH_LOG", str(tmp_path / "flash.json"))
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -456,7 +456,7 @@ def test_a_busy_reset_line_fails_the_flash_before_anything_is_fetched(host, web)
     assert e["code"] == "hardware_error", e
     assert "mock-board: its reset line (P15) cannot be driven now" in e["message"]
     assert "held by 'another-program'" in e["message"]
-    assert "nothing was reset or fetched" in e["hint"] and "bsp gpio get P15" in e["hint"]
+    assert "nothing was reset or fetched" in e["hint"] and "boardctrl gpio get P15" in e["hint"]
     assert e["details"]["role"] == "reset" and e["details"]["cause"]["code"] == "hardware_error"
     assert not list((host.tmp / "state").rglob("big.tgz"))          # nothing was fetched
     assert not any(h[0] == gpio.resolve("P15").gpio and h[1] == "out" for h in gpio.backend.inner.history)
@@ -509,7 +509,7 @@ def test_cancel_with_nothing_running_names_the_boards_last_job(host):
     e = _call(host, "dut_cancel", dut="mock-board", lease=token)
     assert e["code"] == "invalid_request", e
     assert e["message"] == f"mock-board: no job running; its last job {job.id} (flash) failed: GPIO127: Device or resource busy"
-    assert f"bsp job get {job.id}" in e["hint"]
+    assert f"boardctrl job get {job.id}" in e["hint"]
     last = e["details"]["last_job"]
     assert last["id"] == job.id and last["status"] == "failed" and last["error"]["hint"] == "free the line"
 
@@ -635,9 +635,9 @@ def test_a_package_on_a_build_server_is_pulled_over_ssh_and_only_from_one_the_si
 
 
 def test_a_hook_is_told_the_hook_search_path(host, tmp_path):
-    """$BSP_HOOK_DIRS: a flasher can find another one (to read a package the way the platform's does)."""
+    """$BOARDCTRL_HOOK_DIRS: a flasher can find another one (to read a package the way the platform's does)."""
     h = host.tmp / "hooks" / "flash" / "telling"
-    h.write_text("#!/bin/sh\nprintf '{\"dirs\": \"%s\"}\\n' \"$BSP_HOOK_DIRS\"\n")
+    h.write_text("#!/bin/sh\nprintf '{\"dirs\": \"%s\"}\\n' \"$BOARDCTRL_HOOK_DIRS\"\n")
     h.chmod(0o755)
     mod = host.app.state.hub.modules["dut"]
     got = mod.hooks.run("flash", "telling", {})

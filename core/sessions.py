@@ -1,8 +1,8 @@
-"""Long-lived sessions on a host: a provider's server process, kept out of bspd's cgroup.
+"""Long-lived sessions on a host: a provider's server process, kept out of boardctrld's cgroup.
 
 Some services of a board are not one-shot commands: a console, a live trace, a debug adapter. Their server
 (the serial-mux daemon today, a trace bridge or a debug server tomorrow) runs as a **transient systemd unit**
-(`systemd-run --unit=… --collect -p Restart=always`), so it survives a bspd restart and is killed with it only
+(`systemd-run --unit=… --collect -p Restart=always`), so it survives a boardctrld restart and is killed with it only
 when nobody holds the board.
 
 A session is the unit plus its run record: the socket or TCP port it serves, which DUT and role it belongs to,
@@ -193,7 +193,7 @@ class Sessions:
                 raise NotFound(f"{dut}: no {role} session is running")
             if lease is not None and s.lease and lease != s.lease:
                 raise Conflict(f"{dut}: the {role} session belongs to another lease",
-                               hint="take the board's lease first (`bsp dut acquire`)")
+                               hint="take the board's lease first (`boardctrl dut acquire`)")
             self.systemd.stop(s.unit)
             self._path(dut, role).unlink(missing_ok=True)
             return {"dut": dut, "role": role, "stopped": True, "unit": s.unit}

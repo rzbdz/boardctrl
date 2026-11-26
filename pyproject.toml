@@ -37,9 +37,6 @@ dev = ["pytest>=7", "httpx>=0.27"]
 [project.scripts]
 boardctrl = "frontends.cli.main:cli"
 boardctrld = "frontends.server.__main__:main"
-# The names before boardctrl; kept working for scripts, units and sites written then.
-bsp = "frontends.cli.main:cli"
-bsp-hostd = "frontends.server.__main__:main"
 
 # Three top-level packages, flat in the repository: the kernel (`core`), the providers (`providers`), the
 # frontends. Every provider is `providers/<name>/` with a `provider.py`; a site carries more of the same under

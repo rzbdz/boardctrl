@@ -77,8 +77,7 @@ def user_config_path() -> Path:
     if naming.get("BOARDCTRL_CONFIG"):
         return Path(naming.get("BOARDCTRL_CONFIG") or "")
     base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
-    current, old = base / "boardctrl" / "remotes.json", base / "bsp" / "remotes.json"
-    return old if old.is_file() and not current.exists() else current
+    return base / "boardctrl" / "remotes.json"
 
 
 def _read(path: Path) -> dict[str, Any]:

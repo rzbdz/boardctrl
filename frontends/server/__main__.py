@@ -1,4 +1,4 @@
-"""`boardctrld --config <site>/hosts/<host>.yaml` (`bsp-hostd` is the old name of the same daemon)"""
+"""`boardctrld --config <site>/hosts/<host>.yaml` """
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import sys
 
 # How long a stop waits for requests in flight before cancelling them. Streams and long polls end at once when
 # the stop begins (`Hub.stopping`), so this is only for ordinary requests; the unit's TimeoutStopSec (20 s, in
-# deploy/bspd-install.sh) leaves room for it and for the service's own shutdown.
+# deploy/install.sh) leaves room for it and for the service's own shutdown.
 GRACEFUL_STOP_S = 5
 
 

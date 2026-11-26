@@ -1,4 +1,4 @@
-"""`bsp dut ...`, `bsp probe`, `bsp hosts`, `bsp init` — fleet-aware board commands."""
+"""`boardctrl dut ...`, `boardctrl probe`, `boardctrl hosts`, `boardctrl init` — fleet-aware board commands."""
 
 from __future__ import annotations
 
@@ -99,7 +99,7 @@ def init(fleet: Fleet, args) -> tuple[Any, str]:
         lines.append(f"  host {h.id:<16} via {h.transport.label}  duts: {', '.join((h.status['modules'].get('dut') or {}).get('duts', [])) or '-'}")
     for n, e in fleet.errors.items():
         lines.append(f"  host {n:<16} UNREACHABLE ({e[:80]})")
-    lines.append("next: `bsp probe` to discover boards, `bsp dut list`, `bsp sdk list`")
+    lines.append("next: `boardctrl probe` to discover boards, `boardctrl dut list`, `boardctrl sdk list`")
     return {"mode": fleet.mode, "hosts": [h.id for h in hs], "unreachable": fleet.errors}, "\n".join(lines)
 
 
@@ -126,7 +126,7 @@ def dut_list(fleet: Fleet, args) -> tuple[Any, str]:
                      d["stage"] + (f" [{d['busy']}]" if d.get("busy") else ""),
                      f"{l['holder']} ({l['expires_in_s']}s)" if l else "free", d["usb"], d["console"],
                      ",".join(d["sdks"])))
-    text = _table(rows) if items else "(no DUTs — run `bsp probe`)"
+    text = _table(rows) if items else "(no DUTs — run `boardctrl probe`)"
     if fleet.errors:
         text += "\nunreachable: " + ", ".join(f"{k} ({v[:50]})" for k, v in fleet.errors.items())
     return items, text
@@ -146,8 +146,8 @@ def _resolve(fleet: Fleet, ref: str, c: str) -> tuple[HostHandle, str, dict[str,
     if c in ("pipe", "console", "status", "log"):
         return h, ref, st
     raise InvalidRequest(f"slot {st['ref']} has no board registered",
-                         hint=f"probe it (`bsp probe -r {h.id} --slots {st['id']} --register`), "
-                              f"or open its console (`bsp slot console {st['ref']}`)")
+                         hint=f"probe it (`boardctrl probe -r {h.id} --slots {st['id']} --register`), "
+                              f"or open its console (`boardctrl slot console {st['ref']}`)")
 
 
 def dut_cmd(fleet: Fleet, args, book: LeaseBook) -> tuple[Any, str]:
@@ -182,9 +182,9 @@ def dut_cmd(fleet: Fleet, args, book: LeaseBook) -> tuple[Any, str]:
                 print(f"{dut} @ {h.id}: booting its media ({r['media_boot']}), job {r['job']}", file=out, flush=True)
             else:
                 print(f"{dut} @ {h.id}: reset needs a person, job {r['job']} "
-                      f"(confirm with `bsp dut confirm {dut}`)", file=out, flush=True)
+                      f"(confirm with `boardctrl dut confirm {dut}`)", file=out, flush=True)
             if args.no_wait:
-                return r, f"follow with: bsp job get {r['job']} -r {h.id} --wait 30"
+                return r, f"follow with: boardctrl job get {r['job']} -r {h.id} --wait 30"
             return follow_job(h, r["job"], out, args.timeout)
         return r, "\n".join(r["log"]) + f"\nfastboot: {r['fastboot']}"
     if c == "renew":
@@ -257,7 +257,7 @@ def dut_cmd(fleet: Fleet, args, book: LeaseBook) -> tuple[Any, str]:
                                             "variant": args.variant, "brk": args.brk, "lease": _lease(args, book, dut)}))
             print(f"{dut} @ {h.id}: boot {args.sdk} [{args.method}] job {r['job']}", file=out, flush=True)
         if args.no_wait:
-            return r, f"follow with: bsp job get {r['job']} -r {h.id} --wait 30"
+            return r, f"follow with: boardctrl job get {r['job']} -r {h.id} --wait 30"
         return follow_job(h, r["job"], out, args.timeout)
     if c == "flash":
         return _flash(h, dut, args, book)
@@ -303,7 +303,7 @@ def follow_job(h: HostHandle, job: str, out, timeout: float, lines: list[str] | 
             break
         if time.time() - t0 > timeout:
             raise BspError(f"job {job} still running after {timeout:g}s",
-                           hint=f"keep following: bsp job get {job} -r {h.id} --wait 60")
+                           hint=f"keep following: boardctrl job get {job} -r {h.id} --wait 60")
     if v["status"] == "failed":
         e = v.get("error") or {}
         raise CallError({**e, "message": f"job {job} failed: {e.get('message')}"}, h.id)
@@ -389,7 +389,7 @@ def _flash(h: HostHandle, dut: str, args, book: LeaseBook) -> tuple[Any, str]:
           + (f" only {', '.join(r['partitions'])}" if r.get("partitions") else "") + f", job {r['job']}",
           file=out, flush=True)
     if args.no_wait:
-        return r, f"follow with: bsp job get {r['job']} -r {h.id} --wait 30"
+        return r, f"follow with: boardctrl job get {r['job']} -r {h.id} --wait 30"
     lines: list[str] = []
     v, text = follow_job(h, r["job"], out, args.timeout + 300, lines)
     res = v.get("result") or {}
@@ -485,7 +485,7 @@ def _bridge(h: HostHandle, sock: str, hold: bool = False) -> Quiet:
     target = getattr(h.transport, "target", None) or h.remote.ssh
     if not target:
         raise InvalidRequest(f"no ssh route to {h.id} for a console pipe",
-                             hint=f"add one: bsp remote add {h.remote.name} {h.remote.url} --ssh root@<host>")
+                             hint=f"add one: boardctrl remote add {h.remote.name} {h.remote.url} --ssh root@<host>")
     sys.stdout.flush()
     return Quiet(subprocess.call(_ssh_base(target) + [pipe.remote_command(sock, hold)]))
 
@@ -517,10 +517,10 @@ def _attach_to(h: HostHandle, st: dict[str, Any], dut: str) -> tuple[Any, str]:
     target = getattr(h.transport, "target", None) or h.remote.ssh
     if not target:
         raise InvalidRequest(f"no ssh route to {h.id} for an interactive console",
-                             hint=f"add one: bsp remote add {h.remote.name} {h.remote.url} --ssh root@<host>; "
-                                  f"or run one command: bsp dut console {dut} 'uname -a'")
+                             hint=f"add one: boardctrl remote add {h.remote.name} {h.remote.url} --ssh root@<host>; "
+                                  f"or run one command: boardctrl dut console {dut} 'uname -a'")
     if not sys.stdin.isatty():
-        raise InvalidRequest("interactive console needs a terminal", hint=f"run one command: bsp dut console {dut} 'CMD'")
+        raise InvalidRequest("interactive console needs a terminal", hint=f"run one command: boardctrl dut console {dut} 'CMD'")
     ssh = shutil.which("ssh") or "ssh"
     con = st.get("console") or st.get("alias")
     print(f"attaching to {dut} console ({con} on {h.id}); Ctrl-A Ctrl-X detaches", file=sys.stderr)
@@ -585,7 +585,7 @@ def dut_bind(fleet: Fleet, args) -> tuple[Any, str]:
             "sdks": [s for s in args.sdks.split(",") if s]}
     r = _ok(h, h.call("dut_add", {"spec": json.dumps(spec), "replace": args.replace}, timeout=120))
     return r, (f"bound {args.dut} on {h.id}: console {args.console}, {args.usb}, resets by a person\n"
-               f"reset/boot it in the background; when asked, reset the board and run `bsp dut confirm {args.dut}`\n"
+               f"reset/boot it in the background; when asked, reset the board and run `boardctrl dut confirm {args.dut}`\n"
                + _status_text(r))
 
 
@@ -643,7 +643,7 @@ def probe(fleet: Fleet, args) -> tuple[Any, str]:
         jobs.append((h, r["result"]["job"]))
     if not jobs:
         raise RemoteError("probe did not start on any host" + (f": {'; '.join(failed)}" if failed else ""),
-                          hint="check the host's boardctrld version and token (`bsp hosts`)")
+                          hint="check the host's boardctrld version and token (`boardctrl hosts`)")
     if args.dry_run:
         return {h.id: res for h, res in jobs}, json.dumps({h.id: res for h, res in jobs}, indent=2, ensure_ascii=False)
     results: dict[str, Any] = {}
@@ -699,7 +699,7 @@ def probe(fleet: Fleet, args) -> tuple[Any, str]:
 
 
 def rebuild(fleet: Fleet, args) -> tuple[Any, str]:
-    """`bsp probe --rebuild -r HOST --yes`: start the host's wiring over and rediscover its boards."""
+    """`boardctrl probe --rebuild -r HOST --yes`: start the host's wiring over and rediscover its boards."""
     hosts = fleet.require()
     if len(hosts) != 1:
         raise InvalidRequest("a rebuild starts one host over at a time", hint=f"pick it with -r ({', '.join(h.id for h in hosts)})")
@@ -757,7 +757,7 @@ def _status_text(d: dict[str, Any]) -> str:
         f"{d['id']} @ {d['host']}: {d['board']} ({d['soc']}) — {d['description']}",
         f"  stage    : {d['stage']}" + (f"  busy: {d['busy']}" if d.get("busy") else ""),
         *([f"  ACTION NEEDED: {d['needs_human']['message']} "
-           f"(waiting {d['needs_human']['waiting_s']}s; then `bsp dut confirm {d['id']} --request {d['needs_human']['id']}`)"] if d.get("needs_human") else []),
+           f"(waiting {d['needs_human']['waiting_s']}s; then `boardctrl dut confirm {d['id']} --request {d['needs_human']['id']}`)"] if d.get("needs_human") else []),
         f"  lease    : {l['holder']} ({l['expires_in_s']}s left)" if l else "  lease    : free",
         f"  fastboot : {d['fastboot'] or 'not on bus'} (usb {d['usb']})",
         f"  control  : {d['control_state']}",
@@ -772,7 +772,7 @@ def _table(rows) -> str:
 
 
 def add_parsers(sub) -> None:
-    sub.add_parser("hosts", help="reachable bsp hosts, how they are reached, their DUTs")
+    sub.add_parser("hosts", help="reachable boardctrl hosts, how they are reached, their DUTs")
     sub.add_parser("init", help="first-run check: mode (local/remote), reachable hosts, next steps")
     p = sub.add_parser("probe", help="discover boards on the host(s): reset lines, consoles, USB, identity")
     p.add_argument("--pins", help="candidate reset pins, e.g. P33,P11")
@@ -784,13 +784,13 @@ def add_parsers(sub) -> None:
     p.add_argument("--dry-run", action="store_true", help="only list candidates")
     p.add_argument("--yes", action="store_true", help="register proposals without asking (agents); implies --register")
     p.add_argument("--register", action="store_true", help="register each board on its host the moment it is found")
-    p.add_argument("--slots", help="only these slots, e.g. s3,s5 (see `bsp slot list`)")
+    p.add_argument("--slots", help="only these slots, e.g. s3,s5 (see `boardctrl slot list`)")
     p.add_argument("--known", action="store_true",
                    help="only try reset lines slots had before (quick recovery after re-cabling)")
     p.add_argument("--replace", action="store_true", help="overwrite DUTs with the same id")
     p.add_argument("--human", action="store_true",
                    help="boards without reset wiring: a person resets each unregistered board into download mode "
-                        "and bsp pairs the console that speaks with the USB port that appears")
+                        "and boardctrl pairs the console that speaks with the USB port that appears")
     p.add_argument("--rebuild", action="store_true",
                    help="after re-cabling a host: forget its probed DUTs and slots and rediscover every board "
                         "(reset lines used before first, old names kept); needs -r and --yes")
@@ -896,7 +896,7 @@ def add_parsers(sub) -> None:
     cf = ds.add_parser("confirm", help="tell a waiting reset/boot that you did what it asked (human backend)")
     cf.add_argument("dut")
     cf.add_argument("note", nargs="*", help="optional note for the log, e.g. 'pressed reset'")
-    cf.add_argument("--request", help="request id from `bsp dut status` or the attention event; the same id twice is "
+    cf.add_argument("--request", help="request id from `boardctrl dut status` or the attention event; the same id twice is "
                                       "idempotent, so a late click says it was already confirmed")
     bd = ds.add_parser("bind", help="register a board slot from a console + USB port only (no GPIO): "
                                     "resets are done by a person (human backend)")
@@ -928,7 +928,7 @@ def add_parsers(sub) -> None:
     b.add_argument("--method", default="load", choices=["load", "download"])
     b.add_argument("--variant", help="e.g. uboot-only")
     b.add_argument("--break", dest="brk", metavar="NAME",
-                   help="stop once the recipe reaches this break point (debug U-Boot alone, say): bsp sdk show lists them")
+                   help="stop once the recipe reaches this break point (debug U-Boot alone, say): boardctrl sdk show lists them")
     b.add_argument("--no-wait", action="store_true")
     b.add_argument("--timeout", type=float, default=900)
     b.add_argument("--lease")
@@ -994,7 +994,7 @@ def run(fleet: Fleet, args, book: LeaseBook):
     if args.cmd == "slot":
         return slot_cmd(fleet, args)
     if args.dut_cmd is None:
-        raise InvalidRequest("missing dut action", hint="bsp dut --help")
+        raise InvalidRequest("missing dut action", hint="boardctrl dut --help")
     if args.dut_cmd == "list":
         return dut_list(fleet, args)
     if args.dut_cmd == "ports":
@@ -1014,7 +1014,7 @@ def run(fleet: Fleet, args, book: LeaseBook):
 def slot_cmd(fleet: Fleet, args) -> tuple[Any, str]:
     c = args.slot_cmd
     if c is None:
-        raise InvalidRequest("missing slot action", hint="bsp slot --help")
+        raise InvalidRequest("missing slot action", hint="boardctrl slot --help")
     if c in ("list", "scan"):
         items: list[dict[str, Any]] = []
         for h, r in fleet.fan("slot_scan" if c == "scan" else "slot_list"):

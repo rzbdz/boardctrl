@@ -80,7 +80,7 @@ def build(role: str, name: str, ctx: Any, spec: Any, services: Callable[[str], A
 
 
 def describe() -> dict[str, dict[str, Any]]:
-    """What providers this host has, by role (for `bsp status`, the API and the page)."""
+    """What providers this host has, by role (for `boardctrl status`, the API and the page)."""
     return {role: {"about": ROLES[role], "names": PROVIDERS[role].names()} for role in ROLES}
 
 
@@ -88,7 +88,7 @@ class Service:
     """Base of a provider: one role of one DUT.
 
     ``config`` is the DUT's record for this role (``{"provider": "...", ...}``); ``fields()`` describes the
-    values it reads from it, so `bsp dut set` and the page can offer them without knowing the provider.
+    values it reads from it, so `boardctrl dut set` and the page can offer them without knowing the provider.
     """
 
     role: str = ""

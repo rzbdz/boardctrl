@@ -2,7 +2,7 @@
 
 A daemon started from inside boardctrld would live in the service's cgroup and be
 killed whenever the service restarts. Each console is
-therefore a transient unit `bsp-console-<alias>` with Restart=always, created
+therefore a transient unit `boardctrl-console-<alias>` with Restart=always, created
 with systemd-run. Consoles already running some other way (e.g. a daemon an
 operator started by hand) are left alone.
 """
@@ -69,7 +69,7 @@ class ConsoleManager:
 
     @staticmethod
     def unit(alias: str) -> str:
-        return "bsp-console-" + re.sub(r"[^A-Za-z0-9_.-]", "_", alias)
+        return "boardctrl-console-" + re.sub(r"[^A-Za-z0-9_.-]", "_", alias)
 
     def ensure(self, alias: str, device: str | None = None, only_if_known: bool = False) -> str:
         """Make sure a serial-mux daemon serves `alias`. Returns how it is served."""

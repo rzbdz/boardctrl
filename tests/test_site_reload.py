@@ -33,7 +33,7 @@ def _duts(c) -> list[str]:
 def test_site_reload_takes_a_site_shipped_after_start(tmp_path, monkeypatch):
     """A host started with an empty site picks up the SDK catalog and SoC profiles shipped later; a catalog that does
     not load is refused and the running one kept."""
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
     site = tmp_path / "site"
     p = site / "hosts" / "h.yaml"
     p.parent.mkdir(parents=True)
@@ -56,7 +56,7 @@ def test_site_reload_takes_the_boards_the_site_declares(tmp_path, monkeypatch):
     """The site's `duts/` is swapped with the rest: boards it declares after the host started become its boards on
     `site.reload`, and a record that does not load refuses the whole site (the running one is kept), as a catalog that
     does not load does — a host never takes half a site and reports it fine."""
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
     site = tmp_path / "site"
     p = site / "hosts" / "h.yaml"
     p.parent.mkdir(parents=True)
@@ -87,7 +87,7 @@ def test_site_reload_takes_the_boards_the_site_declares(tmp_path, monkeypatch):
 def test_site_reload_is_refused_while_the_host_is_busy(tmp_path, monkeypatch):
     """A reload rebuilds the boards on the site's new records and replaces the SoC facts and hooks a running job is
     using: it waits until the host is free, rather than pulling them out from under the job."""
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
     site = tmp_path / "site"
     p = site / "hosts" / "h.yaml"
     p.parent.mkdir(parents=True)
@@ -110,7 +110,7 @@ def test_a_catalog_file_edited_on_the_host_counts_at_its_next_use(tmp_path, monk
     import os
     import time
 
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
     site = tmp_path / "site"
     p = site / "hosts" / "h.yaml"
     p.parent.mkdir(parents=True)

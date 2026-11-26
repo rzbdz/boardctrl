@@ -36,4 +36,4 @@ def make_service(board, backend, tmp_path):
 @pytest.fixture(autouse=True)
 def example_site(monkeypatch):
     """Every test runs against the made-up example site (never a real one)."""
-    monkeypatch.setenv("BSP_SITE", str(SITE))
+    monkeypatch.setenv("BOARDCTRL_SITE", str(SITE))

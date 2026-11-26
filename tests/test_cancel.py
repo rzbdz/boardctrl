@@ -82,7 +82,7 @@ def test_fastboot_and_a_hook_are_stopped_by_a_cancel(tmp_path, monkeypatch):
     hook_pids = tmp_path / "hook.pid"
     (hooks / "stuck").write_text(f"#!/bin/sh\nsleep 60 &\necho $! > {hook_pids}\nwait\n")
     (hooks / "stuck").chmod(0o755)
-    monkeypatch.setenv("BSP_HOOKS_PATH", str(tmp_path / "hooks"))
+    monkeypatch.setenv("BOARDCTRL_HOOKS_PATH", str(tmp_path / "hooks"))
     jobs = JobManager(EventBus())
     for start, pids in ((lambda log: Fastboot("usb:1-1", str(fb_exe)).cmd("flash", "rootfs", "x", timeout=300),
                          fb_pids),
@@ -177,7 +177,7 @@ def host(tmp_path, monkeypatch):
                   f"sleep 60 &\necho $! > {tmp_path}/fb.pid\nwait\n")
     fb.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
     with TestClient(create_app(HostConfig.load(MOCK))) as c:
         c.tmp = tmp_path
         yield c
@@ -244,8 +244,8 @@ def test_the_cli_says_a_cancelled_job_was_cancelled_and_exits_4(tmp_path, monkey
     (hooks / "slow").write_text("#!/bin/sh\necho flashing\nsleep 60 & wait\n")
     (hooks / "slow").chmod(0o755)
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setenv("BSP_HOOKS_PATH", str(tmp_path / "hooks"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_HOOKS_PATH", str(tmp_path / "hooks"))
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
@@ -290,7 +290,7 @@ def test_job_cancel_on_the_cli_stops_a_job_by_id(tmp_path, monkeypatch, capsys):
     """`boardctrl job cancel ID` reaches `job.cancel`; a board's job takes the lease the CLI saved."""
     from frontends.cli.main import main
 
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("HOME", str(tmp_path))
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))

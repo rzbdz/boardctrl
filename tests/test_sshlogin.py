@@ -17,9 +17,16 @@ class FakeSystem:
         pw, gr = self.root / "etc/passwd", self.root / "etc/group"
         if argv[0] == "useradd":
             user, comment = argv[-1], argv[argv.index("--comment") + 1]
-            pw.write_text(pw.read_text() + f"{user}:x:999:999:{comment}:/:/usr/local/lib/bsp/console-shell\n")
+            pw.write_text(pw.read_text() + f"{user}:x:999:999:{comment}:/:/usr/local/lib/boardctrl/console-shell\n")
         elif argv[0] == "userdel":
             pw.write_text("".join(l + "\n" for l in pw.read_text().splitlines() if not l.startswith(argv[1] + ":")))
+        elif argv[0] == "usermod" and "-l" in argv:
+            lines = [l.split(":") for l in pw.read_text().splitlines()]
+            new, old = argv[argv.index("-l") + 1], argv[-1]
+            for l in lines:
+                if l[0] == old:
+                    l[0], l[4] = new, argv[argv.index("-c") + 1]
+            pw.write_text("".join(":".join(l) + "\n" for l in lines))
         elif argv[0] == "usermod":
             lines = [l.split(":") for l in pw.read_text().splitlines()]
             for l in lines:
@@ -38,30 +45,30 @@ def _logins(tmp_path, enabled=True):
 
 
 def test_login_names():
-    assert login_name("bsp-", "k1-Board_2") == "bsp-k1-board_2"
-    assert login_name("bsp-", "x" * 40) is None
+    assert login_name("boardctrl-", "k1-Board_2") == "boardctrl-k1-board_2"
+    assert login_name("boardctrl-", "x" * 40) is None
 
 
 def test_sync_adds_renames_and_cleans_up(tmp_path):
     lg, sysm = _logins(tmp_path)
     r = lg.sync({"board-1": "board-1", "board-2": "con-2"})
-    assert r["added"] == ["bsp-board-1", "bsp-board-2"] and ["passwd", "-d", "bsp-board-1"] in sysm.calls
+    assert r["added"] == ["boardctrl-board-1", "boardctrl-board-2"] and ["passwd", "-d", "boardctrl-board-1"] in sysm.calls
     conf = (tmp_path / SSHD.relative_to("/")).read_text()
-    assert "Match User bsp-*" in conf and "PermitEmptyPasswords yes" in conf and conf.rstrip().endswith("Match all")
-    assert '"bsp-board-2"' in (tmp_path / MAP.relative_to("/")).read_text()
+    assert "Match User boardctrl-*" in conf and "PermitEmptyPasswords yes" in conf and conf.rstrip().endswith("Match all")
+    assert '"boardctrl-board-2"' in (tmp_path / MAP.relative_to("/")).read_text()
     assert (tmp_path / SUDOERS.relative_to("/")).read_text().endswith(f'{ATTACH} ""\n')
     assert any(c[0] == "visudo" for c in sysm.calls) and ["sshd", "-t"] in sysm.calls
     # board-2 removed, board-3 added; alice is never touched
     r = lg.sync({"board-1": "board-1", "board-3": "board-3"})
-    assert r["removed"] == ["bsp-board-2"] and r["added"] == ["bsp-board-3"]
+    assert r["removed"] == ["boardctrl-board-2"] and r["added"] == ["boardctrl-board-3"]
     assert "alice:" in (tmp_path / "etc/passwd").read_text()
     # feature off: every trace goes away
     off = ConsoleLogins({"enabled": False}, "lab-1", 8765, "smtty", run=sysm, root=tmp_path)
     r = off.sync({"board-1": "board-1"})
-    assert sorted(r["removed"]) == ["bsp-board-1", "bsp-board-3"] and not r["logins"]
+    assert sorted(r["removed"]) == ["boardctrl-board-1", "boardctrl-board-3"] and not r["logins"]
     for p in (SSHD, SUDOERS, ATTACH, MAP):
         assert not (tmp_path / p.relative_to("/")).exists()
-    assert "bsp-console" not in (tmp_path / "etc/group").read_text()
+    assert "boardctrl-console" not in (tmp_path / "etc/group").read_text()
 
 
 def test_unchanged_sync_is_quiet(tmp_path):
@@ -70,3 +77,16 @@ def test_unchanged_sync_is_quiet(tmp_path):
     n = len(sysm.calls)
     r = lg.sync({"board-1": "board-1"})
     assert len(sysm.calls) == n and not (r["added"] or r["removed"] or r["config_changed"])
+
+
+def test_a_user_the_old_name_made_is_renamed_not_left_behind(tmp_path):
+    """A host that ran the program as `bsp-hostd` has `bsp-<board>` console users. Installing it as boardctrld gives the
+    same board the current login: the account is renamed, so its open session and its home stay, and no `bsp-` user is
+    left for a login that the new sshd rule does not match."""
+    lg, sysm = _logins(tmp_path)
+    pw = tmp_path / "etc/passwd"
+    pw.write_text(pw.read_text() + "bsp-board-1:x:999:999:bsp-console board-1:/:/usr/local/lib/bsp/console-shell\n")
+    r = lg.sync({"board-1": "board-1"})
+    assert r["renamed"] == ["boardctrl-board-1"] and not r["added"] and not r["removed"]
+    assert ["usermod", "-l", "boardctrl-board-1", "-c", "boardctrl-console board-1", "-s", str(Path("/usr/local/lib/boardctrl/console-shell")), "-g", "boardctrl-console", "bsp-board-1"] in sysm.calls
+    assert "bsp-board-1:" not in pw.read_text() and "boardctrl-board-1:" in pw.read_text()

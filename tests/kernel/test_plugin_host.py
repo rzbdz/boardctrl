@@ -138,8 +138,8 @@ def site(tmp_path):
 
 @pytest.fixture
 def client(site, tmp_path, monkeypatch):
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setenv("BSP_SITE", str(site))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_SITE", str(site))
     (site / "hosts" / "ec-1.yaml").write_text(json.dumps({
         "host": {"id": "ec-1"},
         "server": {"bind": "127.0.0.1", "port": 8765, "state_dir": str(tmp_path / "state")},
@@ -332,8 +332,8 @@ def test_a_plugin_switched_off_in_the_host_config_is_not_loaded(site, tmp_path, 
     have. Reading the key as a comment and loading the plugin anyway is how a host starts doing something its
     operator says it should not.
     """
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setenv("BSP_SITE", str(site))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_SITE", str(site))
     import yaml
 
     (site / "hosts" / "off.yaml").write_text(yaml.safe_dump({
@@ -351,8 +351,8 @@ def test_a_plugin_switched_off_in_the_host_config_is_not_loaded(site, tmp_path, 
 
 def test_a_plugin_named_in_plugins_and_switched_off_is_not_loaded(site, tmp_path, monkeypatch):
     """The other selection route: an explicit `plugins: [fake]` does not override `enabled: false`."""
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setenv("BSP_SITE", str(site))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_SITE", str(site))
     import yaml
 
     (site / "hosts" / "named.yaml").write_text(yaml.safe_dump({
@@ -402,8 +402,8 @@ def test_a_plugin_can_fill_the_relay_role(site, tmp_path, monkeypatch):
     (site / "modules" / "relayplug").mkdir(parents=True)
     (site / "modules" / "relayplug" / "module.py").write_text(RELAY_PLUGIN)
     (site / "duts").mkdir(exist_ok=True)
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setenv("BSP_SITE", str(site))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_SITE", str(site))
     import yaml
 
     (site / "hosts" / "relay.yaml").write_text(yaml.safe_dump({
@@ -570,7 +570,7 @@ def _bare_host(tmp_path, monkeypatch, providers: dict, duts: dict[str, dict] | N
     """A host with exactly the providers given, and the DUT records it ships: no fixture, no platform boards."""
     import yaml
 
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
     site = tmp_path / "bare"
     (site / "hosts").mkdir(parents=True)
     (site / "duts").mkdir()
@@ -580,7 +580,7 @@ def _bare_host(tmp_path, monkeypatch, providers: dict, duts: dict[str, dict] | N
     host.write_text(json.dumps({"host": {"id": "bare"},
                                 "server": {"state_dir": str(tmp_path / "state"), "port": 8766},
                                 "providers": providers}))
-    monkeypatch.setenv("BSP_SITE", str(site))
+    monkeypatch.setenv("BOARDCTRL_SITE", str(site))
     return TestClient(create_app(HostConfig.load(host)))
 
 

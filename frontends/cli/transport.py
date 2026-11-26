@@ -21,9 +21,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
 
-from core import proc
+from core import naming, proc
 
-# never route bsp traffic through an HTTP proxy from the environment
+# never route boardctrl traffic through an HTTP proxy from the environment
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -107,8 +107,8 @@ class HttpTransport:
 def _ssh_options() -> list[str]:
     cdir = Path(os.environ.get("XDG_RUNTIME_DIR") or Path.home() / ".cache") / "bsp-ssh"
     cdir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    # BSP_SSH_OPTIONS: more ssh options, for a program driving bsp with ssh setup of its own (boardlab: its key).
-    extra = shlex.split(os.environ.get("BSP_SSH_OPTIONS", ""))
+    # BSP_SSH_OPTIONS: more ssh options, for a program driving boardctrl with ssh setup of its own (boardlab: its key).
+    extra = shlex.split(naming.get("BOARDCTRL_SSH_OPTIONS", ""))
     return ["-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ControlMaster=auto", "-o", f"ControlPath={cdir}/%r@%h:%p", "-o", "ControlPersist=300", *extra]
 
@@ -217,7 +217,7 @@ class SshTransport:
                                timeout=60)
         if not adopted.get("ok"):
             raise Unreachable(self.label, f"boardctrld did not adopt the file: {adopted}")
-        if os.environ.get("BSP_DEBUG"):
+        if naming.get("BOARDCTRL_DEBUG"):
             print(f"scp {label} ({size:,} B) to {self.target} in {os.times().elapsed - t0:.1f}s", flush=True)
         return adopted
 

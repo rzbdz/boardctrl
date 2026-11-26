@@ -18,7 +18,7 @@ def builtin(tmp_path):
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    for k in ("BSP_URL", "BSP_REMOTE", "BSP_STATELESS", "BSP_CONFIG"):
+    for k in ("BOARDCTRL_URL", "BOARDCTRL_REMOTE", "BOARDCTRL_STATELESS", "BOARDCTRL_CONFIG"):
         monkeypatch.delenv(k, raising=False)
 
 
@@ -32,10 +32,10 @@ def test_select_precedence(tmp_path, builtin, monkeypatch):
     assert s.select(remote="lab-1")[0].url == "http://192.0.2.20:8765"          # prefix + trailing slash
     assert [r.name for r in s.select(remote="all")] == ["lab-1", "lab-2"]
     assert [r.name for r in s.select(remote="lab-2,LAB-1")] == ["lab-2", "lab-1"]
-    monkeypatch.setenv("BSP_REMOTE", "lab-2")
+    monkeypatch.setenv("BOARDCTRL_REMOTE", "lab-2")
     assert s.select()[0].name == "lab-2"
-    monkeypatch.setenv("BSP_URL", "http://x:1")
-    assert s.select()[0].url == "http://x:1"                                 # BSP_URL beats BSP_REMOTE
+    monkeypatch.setenv("BOARDCTRL_URL", "http://x:1")
+    assert s.select()[0].url == "http://x:1"                                 # BOARDCTRL_URL beats BOARDCTRL_REMOTE
     assert s.select(remote="lab-1")[0].name == "lab-1"                      # flag beats env
     assert s.select(url="http://y:2", remote="lab-1")[0].url == "http://y:2"    # --url beats all
 

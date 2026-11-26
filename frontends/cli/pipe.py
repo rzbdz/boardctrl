@@ -1,4 +1,4 @@
-"""`bsp dut pipe`: a raw byte pipe between stdin/stdout and a board's serial-mux socket.
+"""`boardctrl dut pipe`: a raw byte pipe between stdin/stdout and a board's serial-mux socket.
 
 The bytes are serial-mux's own protocol (length-prefixed JSON), so any serial-mux client can drive
 the console through it. On a remote host the same bridge runs there under ssh as `python3 -c`

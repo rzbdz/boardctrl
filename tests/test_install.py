@@ -63,14 +63,14 @@ def test_hints_come_from_configuration(tmp_path):
     cat = SdkCatalog(SITE / "sdk")
     text = Path(install.install(tmp_path, cat, None, "bsp", found)["file"]).read_text()
     assert "## Hints from this installation's configuration" in text and "team's ssh key" in text
-    assert text.index("team's ssh key") < text.index("Below: the full bsp skill")
+    assert text.index("team's ssh key") < text.index("Below: the full boardctrl skill")
 
 
 def test_bspd_install_numbers_its_stages():
-    """bspd-install.sh says `--> [n/N] <what>` for each stage, in order, N the same on every line."""
+    """install.sh says `--> [n/N] <what>` for each stage, in order, N the same on every line."""
     import re
 
-    script = (ROOT / "deploy" / "bspd-install.sh").read_text()
+    script = (ROOT / "deploy" / "install.sh").read_text()
     steps = [(int(n), int(total), what) for n, total, what in re.findall(r'^\s*echo "--> \[(\d+)/(\d+)\] ([^"]+)"$', script, re.M)]
     assert [n for n, _, _ in steps] == list(range(1, len(steps) + 1)) and len(steps) >= 5
     assert {total for _, total, _ in steps} == {len(steps)}
@@ -81,6 +81,6 @@ def test_bspd_install_numbers_its_stages():
 
 def test_a_certificate_given_with_ca_is_installed_before_downloads():
     """`--ca <file|url>`: installed beside the system's CAs, so downloads from hosts it signs verify."""
-    script = (Path(__file__).resolve().parents[1] / "deploy" / "bspd-install.sh").read_text()
+    script = (Path(__file__).resolve().parents[1] / "deploy" / "install.sh").read_text()
     assert "--ca) CA=$2" in script
     assert "update-ca-certificates" in script and "boardlab-extra-" in script

@@ -1,4 +1,4 @@
-"""Board discovery on one host (`bsp probe`).
+"""Board discovery on one host (`boardctrl probe`).
 
 Every console on the host is a slot (see slots.py); probing finds the board on each free slot:
 
@@ -29,7 +29,7 @@ booted normally (RESET without BOOT) and its console watched for its own system,
 so a board already sitting in download mode cannot match by accident; then it is
 reset into download mode (hold BOOT/download, press RESET, release) and the
 console that speaks with the USB port that enumerates become one slot with the
-`human` control backend, like `bsp dut bind`. A round in which nothing happens
+`human` control backend, like `boardctrl dut bind`. A round in which nothing happens
 ends the probe.
 
 Without `register`, nothing is registered by the probe job itself.
@@ -226,7 +226,7 @@ class Prober:
                 continue
             if s.get("dut"):
                 if self.want_consoles:
-                    log(f"slot {s['id']} holds {s['dut']}: refresh it instead (`bsp dut refresh {s['dut']}`)")
+                    log(f"slot {s['id']} holds {s['dut']}: refresh it instead (`boardctrl dut refresh {s['dut']}`)")
                 continue
             if not s["online"] or not s["console_up"]:
                 self.skipped.append(s["id"])
@@ -314,7 +314,7 @@ class Prober:
                 "unmatched_consoles": list(pending.values()), "ambiguous_pins": ambiguous,
                 "skipped_consoles": self.skipped, "reasons": reasons,
                 "next": ("registered as found" if self.register else
-                         "review names, then `bsp dut add` each proposal (the CLI does this interactively)")}
+                         "review names, then `boardctrl dut add` each proposal (the CLI does this interactively)")}
 
     def _settle(self, proposal: dict[str, Any], log: Log) -> dict[str, Any]:
         """Register a proposal at once when asked to: the board is usable while the probe goes on."""
@@ -533,7 +533,7 @@ class Prober:
             "control": ({"backend": "gpio-relay",
                          "reset": {"pin": hit["pin"]["target"], "mode": "button", "pulse_ms": self.pulse_ms},
                          # A reset that did not land in download mode: the board needs an FDL line nobody has found
-                         # yet, or its strap is the other way; a person says which (`bsp dut set --fdl`).
+                         # yet, or its strap is the other way; a person says which (`boardctrl dut set --fdl`).
                          "fdl": {"strategy": "strapped" if hit["fdl"] else "unset"}} if hit["pin"] else
                         {"backend": "human", "fdl": {"strategy": "button"}}),
             "sdks": sdks,
@@ -547,9 +547,9 @@ class Prober:
             warnings.append("no unique USB port re-enumerated: set fastboot.usb by hand (`fastboot devices -l`)")
         if not hit["fdl"] and hit["pin"]:
             warnings.append("reset did not land in download mode: say how it gets there "
-                            "(`bsp dut set <dut> --fdl strapped`, or `--fdl button --fdl-pin <pin>`)")
+                            "(`boardctrl dut set <dut> --fdl strapped`, or `--fdl button --fdl-pin <pin>`)")
         if not hit["fdl"] and not hit["pin"]:
-            warnings.append("no download-mode signature seen: check with `bsp dut status` after the first reset")
+            warnings.append("no download-mode signature seen: check with `boardctrl dut status` after the first reset")
         return {"spec": spec, "warnings": warnings, "evidence": hit["console_text"]}
 
     def _name_on(self, pin: str) -> str | None:

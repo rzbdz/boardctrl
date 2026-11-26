@@ -13,7 +13,7 @@ An image in a SoC's facts may where it comes from and what it must hash to:
         # source: {url: https://...}  # or a plain download
         # source: {file: /some/path}  # or a local file
 
-`bsp images sync` fetches each such image that no layer holds into the site's content-addressed
+`boardctrl images sync` fetches each such image that no layer holds into the site's content-addressed
 cache, `<site>/.blobs/<sha256>/<file>`, once: an image whose hash is already there is not fetched
 again, and nothing is kept unless it hashes to its sha256. `deploy.sh` runs it before shipping a
 site, so board hosts get the images with the site and never fetch anything themselves. Keep the
@@ -31,6 +31,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
+from core import naming
 from core.errors import InvalidRequest
 
 
@@ -86,7 +87,7 @@ def plan(profiles, site: Path) -> list[dict[str, Any]]:
 def sync(profiles, site: Path, log: Callable[[str], None] = lambda line: None,
          cache: Path | None = None) -> dict[str, Any]:
     """Fetch the images no layer holds into <site>/.blobs/<sha256>/; each kept only if it hashes right."""
-    cache = cache or Path.home() / ".cache" / "bsp"
+    cache = cache or Path.home() / ".cache" / naming.CMD
     fetched, failed, present = [], [], []
     for item in plan(profiles, site):
         name = f"{item['soc']}/{item['image']}"

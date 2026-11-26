@@ -1,4 +1,4 @@
-"""`bsp catalog ...`: the SDK catalog kept by the registry (see registry/catalog.py).
+"""`boardctrl catalog ...`: the SDK catalog kept by the registry (see registry/catalog.py).
 
 Documents are SDK instances (with their load and flash recipes), families, build servers and
 workspaces, addressed as `<id>` (an sdk) or `<kind>/<id>`. `get -o FILE` writes the document with
@@ -22,7 +22,7 @@ from core.errors import BspError, InvalidRequest
 from frontends.cli.remotes import Remote, RemoteError, RemoteStore
 from frontends.cli.transport import HttpTransport, Unreachable
 
-HEADER = re.compile(r"^# bsp catalog: (\S+) revision (\d+)\b.*\n?")
+HEADER = re.compile(r"^# boardctrl catalog: (\S+) revision (\d+)\b.*\n?")
 
 
 def registry_url(store: RemoteStore | None = None) -> str | None:
@@ -42,7 +42,7 @@ def registry_layer() -> Path | None:
     url = registry_url()
     if not url:
         return None
-    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "bsp" / \
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / naming.CMD / \
         f"catalog-{hashlib.sha1(url.encode()).hexdigest()[:10]}"
     try:
         r = HttpTransport(url).request("GET", "/api/v1/catalog/snapshot", timeout=8)
@@ -62,14 +62,14 @@ def registry_files(sync: bool = True) -> Path | None:
     url = registry_url()
     if not url:
         return None
-    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "bsp" / \
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / naming.CMD / \
         f"files-{hashlib.sha1(url.encode()).hexdigest()[:10]}"
     if sync:
         import json
         import urllib.request
 
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        token = os.environ.get("BSP_REGISTRY_TOKEN") or naming.get("BOARDCTRL_TOKEN")
+        token = naming.get("BOARDCTRL_REGISTRY_TOKEN") or naming.get("BOARDCTRL_TOKEN")
 
         def get(path: str) -> bytes:
             req = urllib.request.Request(url.rstrip("/") + path)
@@ -171,7 +171,7 @@ def run(args, store: RemoteStore, token: str | None) -> tuple[Any, str]:
         return rows, text or "(empty catalog)"
     if c == "get":
         doc, _ = call("catalog_get", ref=args.ref)
-        body = f"# bsp catalog: {doc['ref']} revision {doc['rev']} (from {doc['origin']}; keep this line, put uses it)\n" + doc["text"]
+        body = f"# boardctrl catalog: {doc['ref']} revision {doc['rev']} (from {doc['origin']}; keep this line, put uses it)\n" + doc["text"]
         if args.output:
             Path(args.output).write_text(body, encoding="utf-8")
             return doc, f"wrote {doc['ref']} revision {doc['rev']} ({doc['origin']}) to {args.output}"
@@ -217,7 +217,7 @@ def run(args, store: RemoteStore, token: str | None) -> tuple[Any, str]:
     if c == "refresh":
         import shutil
 
-        cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "bsp"
+        cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / naming.CMD
         cleared = [str(p) for p in cache.glob("catalog-*")]
         for p in cleared:
             shutil.rmtree(p, ignore_errors=True)

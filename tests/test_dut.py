@@ -403,10 +403,10 @@ def test_hook_contract_and_override_order(tmp_path, monkeypatch):
     _hook(user, "probe", "x", "print(json.dumps({'who': 'user'}))")
     _hook(site, "probe", "none", "print(json.dumps({'found': []})); sys.exit(2)")
     _hook(site, "probe", "bad", "print(json.dumps({'error': 'no fastboot', 'hint': 'install it'})); sys.exit(1)")
-    monkeypatch.setenv("BSP_HOOKS_PATH", f"{user}:{site}")
+    monkeypatch.setenv("BOARDCTRL_HOOKS_PATH", f"{user}:{site}")
     hr = HookRunner()
     assert hr.run("probe", "x", {"a": 1}).data["who"] == "user"            # earlier dir wins
-    monkeypatch.setenv("BSP_HOOKS_PATH", str(site))
+    monkeypatch.setenv("BOARDCTRL_HOOKS_PATH", str(site))
     hr = HookRunner()
     lines = []
     r = hr.run("probe", "x", {"a": 7}, log=lines.append)
@@ -554,7 +554,7 @@ def test_human_backend_detects_the_board_itself_and_times_out():
     assert lines[-1] == "reset: detected the boot ROM on the console"
     with pytest.raises(HardwareTimeout) as e:
         ctl.reset(lines.append, ready=lambda: None)
-    assert "bsp dut confirm slot-1" in e.value.hint
+    assert "boardctrl dut confirm slot-1" in e.value.hint
     # The error says a person was needed, so an agent asks one instead of rewiring the host.
     assert "reset by a person (no relay)" in e.value.message and "nobody did 'reset'" in e.value.message
     assert "ask a person" in e.value.hint and "rebuild" not in e.value.hint
@@ -1132,7 +1132,7 @@ def test_hook_lines_stream_as_they_come_and_progress_lines_set_a_percent(tmp_pat
                                  "print(json.dumps({'note': 'not progress'}))\n"
                                  "print(json.dumps({'type': 'progress', 'value': 100, 'msg': 'rootfs'}))\n"
                                  "print(json.dumps({'flashed': ['rootfs']}))")
-    monkeypatch.setenv("BSP_HOOKS_PATH", str(site))
+    monkeypatch.setenv("BOARDCTRL_HOOKS_PATH", str(site))
     seen, pcts = [], []
     t0 = time.monotonic()
     r = HookRunner().run("flash", "slow", {}, log=lambda l: seen.append((round(time.monotonic() - t0, 1), l)),
@@ -1150,7 +1150,7 @@ def test_a_hook_that_runs_too_long_gets_sigterm_first(tmp_path, monkeypatch):
     _hook(site, "flash", "stuck", f"import signal,time\n"
                                   f"signal.signal(signal.SIGTERM, lambda *a: (open({str(mark)!r}, 'w').write('x'), sys.exit(143)))\n"
                                   f"print('working', flush=True)\ntime.sleep(30)")
-    monkeypatch.setenv("BSP_HOOKS_PATH", str(site))
+    monkeypatch.setenv("BOARDCTRL_HOOKS_PATH", str(site))
     with pytest.raises(HardwareTimeout) as e:
         HookRunner().run("flash", "stuck", {}, timeout=1)
     assert "timed out after 1s" in e.value.message and "more time" in e.value.hint
@@ -1233,7 +1233,7 @@ def test_confirm_names_the_request_and_a_repeat_is_idempotent():
     # An unknown request id is the one thing that is still an error, and it says what is waiting.
     with pytest.raises(NotFound) as e:
         att.confirm("slot-1", request="nope")
-    assert "not waiting" in e.value.message and "bsp dut status" in e.value.hint
+    assert "not waiting" in e.value.message and "boardctrl dut status" in e.value.hint
 
 
 def test_confirm_without_a_request_answers_what_is_waiting_now():

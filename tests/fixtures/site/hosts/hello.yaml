@@ -2,7 +2,7 @@
 # directory of code, loaded by name". The board it serves is a real K1 board (see
 # platforms/spacemit/boards/spacemit-k1x-deb1.yaml); the plugin supplies the console and flash roles.
 #
-#   BSP_SITE=tests/fixtures/site boardctrld -c tests/fixtures/site/hosts/hello.yaml
+#   BOARDCTRL_SITE=tests/fixtures/site boardctrld -c tests/fixtures/site/hosts/hello.yaml
 host: {id: hello, description: example host with the hello-platform site plugin}
 server: {bind: 127.0.0.1, port: 8770, state_dir: ../../../../var/hello}
 providers:

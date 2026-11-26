@@ -66,7 +66,7 @@ class LeaseManager:
                 raise Conflict(
                     f"{self.kind} {rid} is leased by {cur['holder']} for another {int(cur['expires'] - time.time())}s"
                     + (f" ({cur['purpose']})" if cur.get("purpose") else ""),
-                    hint=f"wait, ask {cur['holder']} to release it, or pick another {self.kind} (`bsp dut list`)",
+                    hint=f"wait, ask {cur['holder']} to release it, or pick another {self.kind} (`boardctrl dut list`)",
                     details=self.view(rid),
                 )
             now = time.time()
@@ -83,7 +83,7 @@ class LeaseManager:
             cur = self._live(rid)
             if not cur:
                 raise Forbidden(f"{self.kind} {rid} is not leased (any more)",
-                                hint=f"leases end when they expire; acquire it again: `bsp dut acquire {rid}`")
+                                hint=f"leases end when they expire; acquire it again: `boardctrl dut acquire {rid}`")
             if token != cur["token"]:
                 raise Forbidden(f"{self.kind} {rid} is leased by {cur['holder']}; token does not match",
                                 hint="only the holder can renew it", details=self.view(rid))
@@ -106,7 +106,7 @@ class LeaseManager:
         if not cur:
             raise Forbidden(
                 f"{self.kind} {rid} is not leased; mutating operations need a lease",
-                hint=f"`bsp dut acquire {rid} --holder <name>` first (the CLI remembers the token)",
+                hint=f"`boardctrl dut acquire {rid} --holder <name>` first (the CLI remembers the token)",
             )
         if token != cur["token"]:
             raise Forbidden(

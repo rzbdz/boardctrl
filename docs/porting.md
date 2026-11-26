@@ -12,7 +12,7 @@ soc: soc-a
 fingerprint:                     # boot-ROM console lines printed after a reset
   - "ROMA: boot start"
   - "ROMA: usb init"
-download_mode:                   # how bsp recognises USB download (FDL) mode
+download_mode:                   # how boardctrl recognises USB download (FDL) mode
   console: "download handler"    # console regex (optional)
   fastboot: "DFU download"       # fastboot product regex
 usb_vids: ["1d6b"]               # vendor ids of the download/fastboot gadgets (probe filter)

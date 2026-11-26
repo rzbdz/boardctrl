@@ -24,19 +24,17 @@ from frontends.cli.transport import Unreachable
 
 
 def config_dir() -> Path:
-    """Where this client keeps its state: $BOARDCTRL_CONFIG's directory, else ~/.config/boardctrl.
-    A directory that only exists under the old name (`~/.config/bsp`) is used, not copied."""
+    """Where this client keeps its state: $BOARDCTRL_CONFIG's directory, else ~/.config/boardctrl."""
     if naming.get("BOARDCTRL_CONFIG"):
         return Path(naming.get("BOARDCTRL_CONFIG") or "").parent
     base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
-    current, old = base / "boardctrl", base / "bsp"
-    return old if old.is_dir() and not current.exists() else current
+    return base / "boardctrl"
 
 
 # ------------------------------------------------------------- leases --
 class LeaseBook:
     """Remembers lease tokens this user acquired (dut:<id>, sdk:<id>) so later
-    commands need no --lease. Disabled in stateless mode (use BSP_LEASE / --lease)."""
+    commands need no --lease. Disabled in stateless mode (use BOARDCTRL_LEASE / --lease)."""
 
     def __init__(self, enabled: bool = True):
         self.enabled = enabled

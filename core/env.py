@@ -1,7 +1,7 @@
 """Host environment: config values taken from the process environment, and shell-like expansion.
 
 A host config may write any string as ``env:NAME`` (at any depth) to take the value of the
-``NAME`` variable from the environment bsp-hostd runs with. A host-level ``env:`` map holds
+``NAME`` variable from the environment boardctrld runs with. A host-level ``env:`` map holds
 values for hooks; hooks receive it as ``req["env"]``, in their process environment, and may
 use ``${NAME}`` / ``${NAME:-default}`` in their ``args``.
 
@@ -35,9 +35,9 @@ def resolve_refs(value: Any, where: str = "config", environ: Mapping[str, str] |
         name = m.group(1)
         if name not in env:
             raise InvalidRequest(
-                f"{where}: env:{name} is not set in bsp-hostd's environment",
-                hint=f"export {name} where bsp-hostd runs (for a service, put it in "
-                     f"/etc/bsp/hostd.env), or write the value into the host config",
+                f"{where}: env:{name} is not set in boardctrld's environment",
+                hint=f"export {name} where boardctrld runs (for a service, put it in "
+                     f"/etc/boardctrl/boardctrld.env), or write the value into the host config",
             )
         return env[name]
     if isinstance(value, dict):

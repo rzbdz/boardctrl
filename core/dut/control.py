@@ -68,7 +68,7 @@ class GpioRelayControl(ControlBackend):
             except BspError as e:
                 raise type(e)(f"{self.dut.id}: its {role} line ({pin}) cannot be driven now: {e.message}",
                               hint=(e.hint + "; " if e.hint else "")
-                                   + f"nothing was reset or fetched; retry once the line is free (`bsp gpio get {pin}`)",
+                                   + f"nothing was reset or fetched; retry once the line is free (`boardctrl gpio get {pin}`)",
                               details={"dut": self.dut.id, "role": role, "pin": pin, "cause": e.to_dict()}) from e
 
     def reset(self, log: Log, ready: Ready | None = None) -> None:
@@ -82,7 +82,7 @@ class GpioRelayControl(ControlBackend):
     def _fdl_button(self, log: Log) -> None:
         if not (self.cfg.get("fdl") or {}).get("pin"):
             raise InvalidRequest(f"{self.dut.id}: fdl strategy `button` needs control.fdl.pin",
-                                 hint=f"bsp dut set {self.dut.id} --fdl-pin <pin>, or --fdl strapped if a reset lands in download mode")
+                                 hint=f"boardctrl dut set {self.dut.id} --fdl-pin <pin>, or --fdl strapped if a reset lands in download mode")
         gpio = self._gpio()
         log(f"FDL: hold {self._alias('fdl')}, reset, release")
         gpio.switch(self._alias("fdl"), "on")

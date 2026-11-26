@@ -17,7 +17,7 @@ New record:
       flash:    {provider: my-flasher, expect_version: ...}
       debug:    {provider: my-swd, target: probe0}
 
-The values a provider reads are its own; it describes them with `fields()` so `bsp dut set` and the page can offer
+The values a provider reads are its own; it describes them with `fields()` so `boardctrl dut set` and the page can offer
 them. Role names and provider names are plain strings: a plugin adds providers without touching this file.
 """
 

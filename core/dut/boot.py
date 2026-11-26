@@ -82,7 +82,7 @@ class BootRunner:
             token.sleep(0.3)
         raise HardwareTimeout(
             f"fastboot /{product}/ did not appear on {self.fb.usb} within {timeout:g}s (last: {last})",
-            hint="check USB cabling and `bsp dut status`; the console tail is in details",
+            hint="check USB cabling and `boardctrl dut status`; the console tail is in details",
             details={"console_tail": "\n".join(self.console.tail(15))},
         )
 
@@ -138,13 +138,13 @@ class BootRunner:
         st = self._port()
         if not st:
             raise HardwareError(f"{self.dut_id}: no download port on {self.fb.usb}",
-                                hint=f"put it in download mode first (`bsp dut reset {self.dut_id}`), or drop --no-reset")
+                                hint=f"put it in download mode first (`boardctrl dut reset {self.dut_id}`), or drop --no-reset")
         want = self.download_mode.get("fastboot")
         if want and not re.search(want, st.get("product", "")):
             raise HardwareError(
                 f"{self.dut_id}: {self.fb.usb} has {st.get('product') or '(no product)'!r} on it "
                 f"({st.get('serial') or 'no serial'}), not the download mode /{want}/",
-                hint=f"the board is in another stage: put it in download mode first (`bsp dut reset {self.dut_id}`), "
+                hint=f"the board is in another stage: put it in download mode first (`boardctrl dut reset {self.dut_id}`), "
                      "or drop --no-reset", details={"device": st, "download_mode": want})
         return st
 
@@ -186,7 +186,7 @@ class BootRunner:
                         f"did not re-enumerate within {timeout:g}s, and the console showed no boot-ROM banner"
                         + (f" (/{self.download_mode['console']}/)" if self.download_mode.get("console") else "")
                         + ": the reset may not have reached the board",
-                        hint="check the reset wiring (`bsp dut status <dut>` shows the reset line); if the board is "
+                        hint="check the reset wiring (`boardctrl dut status <dut>` shows the reset line); if the board is "
                              "already in download mode, run with --no-reset",
                         details={"console_tail": "\n".join(self.console.tail(15)), "device": self._port()})
                 raise HardwareTimeout(
@@ -194,8 +194,8 @@ class BootRunner:
                     + (f" (/{self.download_mode['console']}/)" if self.download_mode.get("console") else "")
                     + f" nor its download device on {self.fb.usb}",
                     hint="if the host was re-cabled lately (consoles or reset lines moved), its wiring is stale: "
-                         "rebuild it (`bsp probe --rebuild -r <host> --yes`); otherwise see "
-                         "`bsp dut log <dut>`, the board may be in another stage",
+                         "rebuild it (`boardctrl probe --rebuild -r <host> --yes`); otherwise see "
+                         "`boardctrl dut log <dut>`, the board may be in another stage",
                     details={"console_tail": "\n".join(self.console.tail(15))})
             token.sleep(0.3)
         dev = self.wait_fastboot(self.download_mode.get("fastboot") or ".", timeout, log)
@@ -483,7 +483,7 @@ class BootRunner:
             if not img.get("path"):
                 raise InvalidRequest(f"{label}: image {step['image']!r} is not on this host",
                                      hint="list it under the SoC profile's images (with sha256 and source) and run "
-                                          "`bsp images sync` where the site is")
+                                          "`boardctrl images sync` where the site is")
             return img["path"], f"image {step['image']}"
         a = arts[step["artifact"]]
         return a["path"], f"{step['artifact']} ({a['size']:,} B)"
@@ -554,7 +554,7 @@ class BootRunner:
                         raise HardwareTimeout(
                             f"download port {self.fb.usb} did not come back within {settle + port_timeout:g}s "
                             f"after file {i - 1}; it may not have started",
-                            hint=f"see `bsp dut log {self.dut_id}`", details={"console_tail": "\n".join(self.console.tail(15))})
+                            hint=f"see `boardctrl dut log {self.dut_id}`", details={"console_tail": "\n".join(self.console.tail(15))})
                     token.sleep(poll)
             # The port can be there and be the boot ROM again (a second press of the download button): the console
             # says so, and staging the next file onto a load that is gone would only waste the file.
@@ -576,9 +576,9 @@ class BootRunner:
                        | {r for s in plan["steps"] for r in s.get("artifacts", [])})
         log(f"boot {self.dut_id} with {sdk.id} [{method}{'/' + variant if variant else ''}]: {len(plan['steps'])} steps"
             + (f", stopping at {brk}" if brk else ""))
-        # The SDK's build jobs live in its tree (`.bsp/jobs`): each artifact then says which build wrote it.
+        # The SDK's build jobs live in its tree (`.boardctrl/jobs`): each artifact then says which build wrote it.
         arts = self.store.pull(sdk.server.ssh, {r: sdk.artifacts()[r] for r in roles}, log,
-                               jobs=f"{sdk.path.rstrip('/')}/.bsp/jobs" if getattr(sdk, "path", None) else None)
+                               jobs=f"{sdk.path.rstrip('/')}/.boardctrl/jobs" if getattr(sdk, "path", None) else None)
         t0 = time.monotonic()
         # The board's SoC images too, so `stage image:` and hook steps (a flasher shipped as an image) find theirs.
         images = (self.media.profile.get("images") or {}) if self.media is not None else {}

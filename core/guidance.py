@@ -4,11 +4,11 @@ An agent starts from the boardlab skill (the DUT: locking, reset, console, boot,
 belongs to the *hardware*: which SoC a board has, the notes that SoC's site carries, and the skill of the
 SDK it is building. That knowledge changes with the site, so it is not in the client; it is asked for:
 
-    bsp hints                         everything the platforms say (the shipped ones, then the site)
-    bsp hints --soc <soc>             one SoC's notes, and where its facts are
-    bsp hints --sdk <sdk>             an SDK's skill and its catalog entry
-    bsp hints --dut <dut>             what applies to one board: its SoC's notes, its SDKs' skills
-    bsp hints --list                  what there is to ask for, by level
+    boardctrl hints                         everything the platforms say (the shipped ones, then the site)
+    boardctrl hints --soc <soc>             one SoC's notes, and where its facts are
+    boardctrl hints --sdk <sdk>             an SDK's skill and its catalog entry
+    boardctrl hints --dut <dut>             what applies to one board: its SoC's notes, its SDKs' skills
+    boardctrl hints --list                  what there is to ask for, by level
 
 Levels, lowest to highest priority (a later layer's file with the same name wins):
 
@@ -97,7 +97,7 @@ def level_listing(site: Path | None = None) -> dict[str, Any]:
 
 
 def resolve(args: Any, site: Path | None = None) -> tuple[Any, str]:
-    """What `bsp hints ...` answers: a list, and its text. `--dut` names a board on a host (asked of the host)."""
+    """What `boardctrl hints ...` answers: a list, and its text. `--dut` names a board on a host (asked of the host)."""
     if getattr(args, "hints_cmd", None) == "list":
         listing = level_listing(site)
         text = "\n".join([
@@ -106,7 +106,7 @@ def resolve(args: Any, site: Path | None = None) -> tuple[Any, str]:
             "hints: " + (", ".join(listing["hints"]) or "(none)"),
             "socs: " + (", ".join(listing["socs"]) or "(none)"),
             "skills: " + (", ".join(listing["skills"]) or "(none)"),
-            "ask for one: bsp hints --soc <soc> | --sdk <sdk> | --dut <board> (the board's host says which apply)",
+            "ask for one: boardctrl hints --soc <soc> | --sdk <sdk> | --dut <board> (the board's host says which apply)",
         ])
         return listing, text
 
@@ -129,7 +129,7 @@ def resolve(args: Any, site: Path | None = None) -> tuple[Any, str]:
     if not blocks:
         what = " ".join(x for x in (getattr(args, "soc", None) and f"--soc {args.soc}",
                                     getattr(args, "sdk", None) and f"--sdk {args.sdk}") if x)
-        return [], f"nothing configured for {what} (see `bsp hints --list`; a board's host may name its SoC and SDKs)"
+        return [], f"nothing configured for {what} (see `boardctrl hints --list`; a board's host may name its SoC and SDKs)"
     parts = []
     for block in blocks:
         title = f"## {block['name']}" + (f"  ({block['layer']})" if block.get("layer") else "")

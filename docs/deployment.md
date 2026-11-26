@@ -17,7 +17,7 @@ deploy/deploy.sh HOST [deploy|status|logs|restart|ssh] [--allow-dirty]
 The script reads `SITE/deploy/HOST.env` and requires `SITE/hosts/HOST.yaml`. It ships the
 committed tree of this repository (including the serial-mux submodule); `--allow-dirty` also
 ships uncommitted changes and new, non-ignored files. The site directory is shipped as a whole,
-minus `.git` and the patterns in `SITE/.bspignore`.
+minus `.git` and the patterns in `SITE/.boardctrl-ignore`.
 
 ### Target file (`SITE/deploy/HOST.env`)
 
@@ -25,7 +25,7 @@ minus `.git` and the patterns in `SITE/.bspignore`.
 |---|---|
 | `SSH_HOST`, `SSH_USER`, `SSH_PORT` | How to log in to the host (the installer needs root) |
 | `SSH_JUMP` | Optional `user@host` to reach the target through a jump host |
-| `INSTALL_DIR` | Installation directory, e.g. `/opt/bsp-dev-loop` |
+| `INSTALL_DIR` | Installation directory, e.g. `/opt/boardctrl` |
 | `SERVICE_PORT` | Port of the service (must match `server.port`) |
 | `HEALTH_URL` | URL this machine uses for the final health check (default: `EXTERNAL_URL`; with neither set, only the host's own check of `127.0.0.1` runs) |
 | `EXTERNAL_URL` | URL printed at the end, for people |
@@ -35,29 +35,29 @@ If the host configuration selects the `gpiod` GPIO backend, the installer adds t
 Python package; the host needs the `libgpiod` system library (e.g. `apt install libgpiod2`).
 
 Authentication uses your ssh keys. For hosts that only accept a password, export `SSHPASS` and
-install `sshpass`; the password is never written to disk by bsp.
+install `sshpass`; the password is never written to disk by boardctrl.
 
 ### What is installed
 
 | Path / unit | Contents |
 |---|---|
-| `INSTALL_DIR/app` | The shipped bsp tree (`app.old` keeps the previous one) |
+| `INSTALL_DIR/app` | The shipped boardctrl tree (`app.old` keeps the previous one) |
 | `INSTALL_DIR/site` | The shipped site (`site.old` keeps the previous one) |
-| `INSTALL_DIR/venv` | Python environment with bsp and serial-mux |
-| `/usr/local/bin/bsp` | The CLI, in local mode on the host |
+| `INSTALL_DIR/venv` | Python environment with boardctrl and serial-mux |
+| `/usr/local/bin/boardctrl` | The CLI, in local mode on the host |
 | `boardctrld.service` | The service: `boardctrld --config INSTALL_DIR/site/hosts/HOST.yaml` with `BOARDCTRL_SITE` set |
 | `boardctrl-console-<alias>` | One transient unit per serial console, started on demand |
-| `/var/lib/bsp` (`server.state_dir`) | Leases, probed boards, runtime GPIO settings, artifact cache |
+| `/var/lib/boardctrl` (`server.state_dir`) | Leases, probed boards, runtime GPIO settings, artifact cache |
 
-With console logins enabled, the service also manages `bsp-*` system users, a `bsp-console`
-group, `/etc/ssh/sshd_config.d/50-bsp-console.conf`, `/etc/sudoers.d/bsp-console` and helpers in
-`/usr/local/lib/bsp/`; disabling the option removes all of them (see
+With console logins enabled, the service also manages `boardctrl-*` system users, a `boardctrl-console`
+group, `/etc/ssh/sshd_config.d/50-boardctrl-console.conf`, `/etc/sudoers.d/boardctrl-console` and helpers in
+`/usr/local/lib/boardctrl/`; disabling the option removes all of them (see
 [configuration.md](configuration.md#console-logins)).
 
 ### UPnP
 
 For a host behind a home or lab router, `UPNP_PORTS` registers port mappings with a systemd
-timer (`bsp-upnp.timer`); it needs `upnpc` (package `miniupnpc`) on the host. This exposes the
+timer (`boardctrl-upnp.timer`); it needs `upnpc` (package `miniupnpc`) on the host. This exposes the
 API beyond the local network: only use it with an API token set, and prefer a VPN or an
 ssh `remotes.json` entry instead.
 
@@ -88,13 +88,13 @@ configuration locally (see the mock host in the README).
 deploy/install-client.sh USER@MACHINE|local [DIR] [--site SITE_DIR] [--allow-dirty]
 ```
 
-Copies the committed tree to `DIR` (default `~/bsp-dev-loop`), links `~/.local/bin/bsp`, and with
-`--site` installs a copy of the site (without `.git`) at `~/.config/bsp/site`. It refuses to
-replace a `~/.config/bsp/site` that is a symlink or a git checkout, so a site repository kept
+Copies the committed tree to `DIR` (default `~/boardctrl`), links `~/.local/bin/boardctrl`, and with
+`--site` installs a copy of the site (without `.git`) at `~/.config/boardctrl/site`. It refuses to
+replace a `~/.config/boardctrl/site` that is a symlink or a git checkout, so a site repository kept
 there is never overwritten. It uses ssh keys only (`BatchMode`). The
 client needs Python ≥ 3.8 and PyYAML.
 
-Alternatively, `pip install -e .` in a clone (Python ≥ 3.10) installs the `bsp` command with its
+Alternatively, `pip install -e .` in a clone (Python ≥ 3.10) installs the `boardctrl` command with its
 dependencies.
 
 ## Agent skills: `deploy/install-skills.sh`

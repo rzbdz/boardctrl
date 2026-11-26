@@ -2,11 +2,11 @@
 
 A board whose FDL (download) strap is held down can be loaded from RAM and flashed, but a plain
 reset never boots what is on its media. Some SoCs have a way around that, done from download mode.
-bsp does not know any such way itself: a SoC's facts (or one DUT's `control`) declares it as steps,
+boardctrl does not know any such way itself: a SoC's facts (or one DUT's `control`) declares it as steps,
 the same steps SDK boot recipes use:
 
     media_boot:
-      name: <label shown in `bsp dut status`>
+      name: <label shown in `boardctrl dut status`>
       steps:                                   # run with the board reset into download mode first
         - {do: check, serial: <regex>}         # the boot ROM's banner says this is a board the steps suit
         - {do: getvar, name: <var>, match: <regex>}
@@ -16,7 +16,7 @@ the same steps SDK boot recipes use:
         - {do: wait, serial: <regex>, timeout: 60}
 
 A step that fails (`check`, `getvar` with `match`) stops the boot before anything else is staged.
-Nothing in the steps is specific to bsp: they live in a pack or, for anything not public, in the
+Nothing in the steps is specific to boardctrl: they live in a pack or, for anything not public, in the
 site (or the registry's catalog), with any images they stage.
 
 A board with an FDL line (`fdl.strategy: button`) boots its media with a plain reset and needs none
@@ -75,7 +75,7 @@ class MediaBoot:
                 if not img:
                     return f"media_boot stages image {s['image']!r}, which the SoC profile does not list"
                 if not img.get("path"):
-                    return f"image {s['image']!r} ({img.get('file')}) is not on this host (`bsp images sync` where the site is, then deploy)"
+                    return f"image {s['image']!r} ({img.get('file')}) is not on this host (`boardctrl images sync` where the site is, then deploy)"
         return None
 
     def available(self) -> bool:
@@ -92,7 +92,7 @@ class MediaBoot:
                 actual = hashlib.sha256(f.read()).hexdigest()
             if actual != img["sha256"].lower():
                 raise InvalidRequest(f"image {img['path']} has sha256 {actual}, not {img['sha256']}",
-                                     hint="run `bsp images sync` again; never stage an unverified image")
+                                     hint="run `boardctrl images sync` again; never stage an unverified image")
             out[key] = img
         return out
 

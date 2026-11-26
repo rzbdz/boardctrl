@@ -1,4 +1,4 @@
-"""Console logins: `ssh bsp-<dut>@<host>` opens that DUT's serial console, no password.
+"""Console logins: `ssh boardctrl-<dut>@<host>` opens that DUT's serial console, no password.
 
 Opt-in per host (`core.dut.ssh_console.enabled`). The host keeps one system user per
 DUT and reconciles the set with the DUT registry at startup and after every change, so
@@ -7,11 +7,11 @@ feature off removes every user, the group, the sshd drop-in, the sudo rule and t
 
 How a login works:
   sshd (Match User <prefix>*): empty password allowed, ForceCommand, no forwarding
-    -> login shell /usr/local/lib/bsp/console-shell (ignores any requested command)
-    -> sudo -n /usr/local/lib/bsp/console-attach   (no arguments allowed by sudoers)
-    -> console-attach (root) maps $SUDO_USER to a DUT via /etc/bsp/console-logins.json
+    -> login shell /usr/local/lib/boardctrl/console-shell (ignores any requested command)
+    -> sudo -n /usr/local/lib/boardctrl/console-attach   (no arguments allowed by sudoers)
+    -> console-attach (root) maps $SUDO_USER to a DUT via /etc/boardctrl/console-logins.json
        and execs `smtty <alias>`; Ctrl-A Ctrl-X ends the session.
-Users are recognised by their GECOS field ("bsp-console <dut>"); other accounts are never
+Users are recognised by their GECOS field ("boardctrl-console <dut>"); other accounts are never
 touched.
 """
 
@@ -26,31 +26,32 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
-MARK = "bsp-console "
-GROUP = "bsp-console"
-LIB = Path("/usr/local/lib/bsp")
+MARK = "boardctrl-console "
+LEGACY_MARK = "bsp-console "
+GROUP = "boardctrl-console"
+LIB = Path("/usr/local/lib/boardctrl")
 SHELL = LIB / "console-shell"
 ATTACH = LIB / "console-attach"
-MAP = Path("/etc/bsp/console-logins.json")
-SSHD = Path("/etc/ssh/sshd_config.d/50-bsp-console.conf")
-SUDOERS = Path("/etc/sudoers.d/bsp-console")
+MAP = Path("/etc/boardctrl/console-logins.json")
+SSHD = Path("/etc/ssh/sshd_config.d/50-boardctrl-console.conf")
+SUDOERS = Path("/etc/sudoers.d/boardctrl-console")
 
 SHELL_SRC = """#!/bin/sh
-# bsp console login shell: always the DUT console, never a shell (args are ignored).
+# boardctrl console login shell: always the DUT console, never a shell (args are ignored).
 exec sudo -n {attach}
 """
 
 ATTACH_SRC = r"""#!/usr/bin/env python3
-# Runs as root via sudo for a bsp console login user; maps the user to its DUT console.
+# Runs as root via sudo for a boardctrl console login user; maps the user to its DUT console.
 import json, os, sys, urllib.parse, urllib.request
 user = os.environ.get("SUDO_USER", "")
 try:
     m = json.load(open("{map}"))
 except OSError:
-    sys.exit("bsp: console logins are not configured on this host")
+    sys.exit("boardctrl: console logins are not configured on this host")
 e = m.get("logins", {}).get(user)
 if not e:
-    sys.exit("bsp: no DUT console for user %r (the board may have been removed)" % user)
+    sys.exit("boardctrl: no DUT console for user %r (the board may have been removed)" % user)
 lease = ""
 try:
     url = "http://127.0.0.1:%d/api/v1/dut/status?dut=%s" % (m.get("port", 8765), urllib.parse.quote(e["dut"]))
@@ -59,7 +60,7 @@ try:
     lease = "leased by %s" % l["holder"] if l.get("holder") else "not leased"
 except Exception:
     pass
-sys.stderr.write("bsp: %s console on %s (%s) %s- Ctrl-A Ctrl-X to leave\r\n"
+sys.stderr.write("boardctrl: %s console on %s (%s) %s- Ctrl-A Ctrl-X to leave\r\n"
                  % (e["dut"], m.get("host", "?"), e["alias"], "[" + lease + "] " if lease else ""))
 os.environ["HOME"] = m.get("home", "/root")
 os.execv(e["smtty"], [e["smtty"], e["alias"]])
@@ -67,7 +68,7 @@ os.execv(e["smtty"], [e["smtty"], e["alias"]])
 
 
 def login_name(prefix: str, dut: str) -> str | None:
-    """bsp-<dut> as a valid Linux user name (<= 32 chars), or None if it cannot be one."""
+    """boardctrl-<dut> as a valid Linux user name (<= 32 chars), or None if it cannot be one."""
     n = re.sub(r"[^a-z0-9_-]", "-", f"{prefix}{dut}".lower())
     if not re.match(r"^[a-z_][a-z0-9_-]*$", n) or len(n) > 32:
         return None
@@ -79,7 +80,7 @@ class ConsoleLogins:
                  run: Callable[[list[str]], None] | None = None, root: Path = Path("/")):
         cfg = cfg or {}
         self.enabled = bool(cfg.get("enabled", False))
-        self.prefix = cfg.get("prefix", "bsp-")
+        self.prefix = cfg.get("prefix", "boardctrl-")
         self.host_id, self.port = host_id, port
         self.smtty = shutil.which(smtty) or smtty
         self._run = run or self._sh
@@ -98,8 +99,10 @@ class ConsoleLogins:
         """{user: dut} of the console users that exist now."""
         out = {}
         for e in self._passwd():
-            if e[4].startswith(MARK):
-                out[e[0]] = e[4][len(MARK):]
+            # A marker either name wrote: users made by the old one are this host's too, and are renamed or removed.
+            for mark in (MARK, LEGACY_MARK):
+                if e[4].startswith(mark):
+                    out[e[0]] = e[4][len(mark):]
         return out
 
     def _passwd(self) -> list[tuple]:
@@ -168,7 +171,16 @@ class ConsoleLogins:
         want, skipped = self.desired(duts)
         have = self._ours()
         added, removed, changed = [], [], []
-        for user in sorted(set(have) - set(want)):
+        # A board that already has an account keeps it, under the login it has now or the current one: a host that ran
+        # the program under its old name has `bsp-<board>` users, and they are renamed rather than recreated.
+        rename = {}
+        for user, e in sorted(want.items()):
+            if user in have:
+                continue
+            had = next((old for old, dut in have.items() if dut == e["dut"]), None)
+            if had is not None:
+                rename[had] = user
+        for user in sorted(set(have) - set(want) - set(rename)):
             if self._has_procs(user):
                 self._run(["pkill", "-KILL", "-u", user])      # end open console sessions
             self._run(["userdel", user])
@@ -180,6 +192,11 @@ class ConsoleLogins:
                 continue
             if user in have:
                 self._run(["usermod", "-c", MARK + e["dut"], user])
+                changed.append(user)
+                continue
+            had = next((old for old, new in rename.items() if new == user), None)
+            if had is not None:
+                self._run(["usermod", "-l", user, "-c", MARK + e["dut"], "-s", str(SHELL), "-g", GROUP, had])
                 changed.append(user)
                 continue
             self._run(["useradd", "--system", "--no-create-home", "--home-dir", "/",
@@ -217,7 +234,7 @@ class ConsoleLogins:
         if p.exists() and p.read_text() == text:
             return False
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.parent / ".bsp-console.check"
+        tmp = p.parent / ".boardctrl-console.check"
         tmp.write_text(text)
         os.chmod(tmp, 0o440)
         try:

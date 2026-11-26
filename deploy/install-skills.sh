@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the bsp skills for the agents used on a machine.
+# Install the boardctrl skills for the agents used on a machine.
 #
 #   deploy/install-skills.sh [user@host|local]      default: local
 #
@@ -7,7 +7,7 @@
 #   Claude Code  ~/.claude/skills/<name>/SKILL.md
 #   opencode     ~/.config/opencode/skill/<name>/SKILL.md
 #   hermes       ~/.hermes/skills/embedded/<name>/SKILL.md
-# The skills only reference the `bsp` command, so install the client too
+# The skills only reference the `boardctrl` command, so install the client too
 # (deploy/install-client.sh).
 set -euo pipefail
 cd "$(dirname "$0")/.."

@@ -1,5 +1,5 @@
 """DUT catalog: one YAML per board under <site>/duts/, shared by the CLI (to route
-`bsp dut ... <id>` to the right host) and by each host (to drive its own boards).
+`boardctrl dut ... <id>` to the right host) and by each host (to drive its own boards).
 
 A DUT is a board on a host (and its identity). How it is reset, how its console is reached, how an image gets
 onto it and how it is debugged are its *services*: each role names a provider (`services: {console: {provider:
@@ -103,7 +103,7 @@ class DutCatalog:
         raise NotFound(
             f"unknown DUT {dut_id!r}",
             hint=(f"did you mean: {', '.join(close)}? " if close else "")
-            + f"known DUTs: {', '.join(sorted(self.duts)) or '(none)'}; list them with `bsp dut list`",
+            + f"known DUTs: {', '.join(sorted(self.duts)) or '(none)'}; list them with `boardctrl dut list`",
         )
 
     def on_host(self, host_id: str) -> list[DutSpec]:
@@ -112,7 +112,7 @@ class DutCatalog:
 
 class DutRegistry:
     """The DUTs one host drives: static entries from the repo catalog for this
-    host, plus entries registered at runtime (``bsp probe`` / ``bsp dut add``),
+    host, plus entries registered at runtime (``boardctrl probe`` / ``boardctrl dut add``),
     persisted in the host state dir. Runtime entries win on id clash."""
 
     def __init__(self, host_id: str, catalog_dir: Path | None, state_file: Path):
@@ -143,7 +143,7 @@ class DutRegistry:
         for other in self.all().values():
             if other.id != spec.id and (shared_usb(other, spec) or shared_console(other, spec)):
                 raise Conflict(f"{other.id} already uses usb {other.usb} / console {other.console_alias}",
-                               hint=f"remove it first (`bsp dut remove {other.id}`) or replace it")
+                               hint=f"remove it first (`boardctrl dut remove {other.id}`) or replace it")
         self.dynamic[spec.id] = spec
         self._save()
         return spec

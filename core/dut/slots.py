@@ -256,7 +256,7 @@ class SlotTable:
         slot = self.get(ref)
         user = in_use(slot["alias"])
         if user:
-            raise Conflict(f"slot {slot['id']} holds {user}", hint=f"remove the DUT first (`bsp dut remove {user}`)")
+            raise Conflict(f"slot {slot['id']} holds {user}", hint=f"remove the DUT first (`boardctrl dut remove {user}`)")
         if (self._live.get(slot["id"]) or {}).get("online"):
             raise InvalidRequest(f"slot {slot['id']} is online ({slot.get('device')})",
                                  hint="only slots whose adapter is gone can be forgotten")

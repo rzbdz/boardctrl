@@ -25,8 +25,8 @@ def client(tmp_path, monkeypatch):
     # The site is the example itself, so the config is read where it lives (a host file's parent is its site);
     # only the state directory moves, which the host reads from the environment.
     monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setenv("BSP_SITE", str(SITE))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_SITE", str(SITE))
     app = create_app(HostConfig.load(SITE / "hosts" / "hello.yaml"))
     with TestClient(app) as c:
         yield c

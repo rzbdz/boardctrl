@@ -1,5 +1,5 @@
 # Local development host: mock GPIO backend, state under the repository's gitignored var/.
-#   BSP_SITE=tests/fixtures/site bin/boardctrld -c tests/fixtures/site/hosts/dev-mock.yaml
+#   BOARDCTRL_SITE=tests/fixtures/site bin/boardctrld -c tests/fixtures/site/hosts/dev-mock.yaml
 host:
   id: dev-mock
   description: Local development instance with the in-memory mock GPIO backend

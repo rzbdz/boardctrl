@@ -131,7 +131,7 @@ def test_the_host_reports_its_cache_in_its_status(tmp_path, monkeypatch):
     from frontends.server.config import HostConfig
 
     root = Path(__file__).resolve().parents[1]
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
     with TestClient(create_app(HostConfig.load(root / "tests" / "fixtures" / "site" / "hosts" / "dev-mock.yaml"))) as c:
         body = c.get("/api/v1/status").json()
         cache = (body.get("result") or body)["modules"]["dut"]["cache"]

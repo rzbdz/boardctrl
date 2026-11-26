@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 """Run the board controller CLI straight from a repo checkout (no install needed, stdlib only).
-
-`bin/bsp` is the same program under its old name: this one is the name to use.
 """
 import os
 import sys

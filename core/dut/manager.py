@@ -6,7 +6,7 @@ each filled by the provider its record names — from the modules this host carr
 what is not a provider: the records, leases, slots, the boot recipes and the probe. It publishes the
 `dut_attention` service (a person's requests) and builds its boards when the host starts, after every module's
 setup, so a board may bind a provider any module registered.
-Commands (`commands.py`) are the atomic layer under `bsp dut ...` / `bsp probe`."""
+Commands (`commands.py`) are the atomic layer under `boardctrl dut ...` / `boardctrl probe`."""
 
 from __future__ import annotations
 
@@ -446,7 +446,7 @@ class DutManager:
         dut = self.dut_in(self.slots.get(sid))
         if not dut:
             raise InvalidRequest(f"slot {sid} on {self.ctx.host_id} has no board registered",
-                                 hint=f"probe it (`bsp probe -r {self.ctx.host_id} --slots {sid}`), or open its console (`bsp slot console {self.ctx.host_id}/{sid}`)")
+                                 hint=f"probe it (`boardctrl probe -r {self.ctx.host_id} --slots {sid}`), or open its console (`boardctrl slot console {self.ctx.host_id}/{sid}`)")
         return dut
 
     def slot_list(self) -> list[dict[str, Any]]:
@@ -479,14 +479,14 @@ class DutManager:
 
         raise NotFound(f"no DUT {dut!r} on host {self.ctx.host_id}",
                        hint=(f"did you mean: {', '.join(close)}? " if close else "")
-                       + f"DUTs here: {', '.join(self.boards) or '(none — run `bsp probe`)'}")
+                       + f"DUTs here: {', '.join(self.boards) or '(none — run `boardctrl probe`)'}")
 
     def _event(self, topic: str, **data: Any) -> None:
         self.ctx.bus.publish(f"dut.{topic}", **data)
 
     def _guard_busy(self, dut: str) -> None:
         if dut in self._busy:
-            raise Conflict(f"{dut} is busy: {self._busy[dut]}", hint="wait for the running job (`bsp job list`)")
+            raise Conflict(f"{dut} is busy: {self._busy[dut]}", hint="wait for the running job (`boardctrl job list`)")
 
     def _free_to_reload(self) -> None:
         """Refuse a site reload while this host is doing something the reload would pull out from under it."""
@@ -497,7 +497,7 @@ class DutManager:
         said = busy + [f"job {j.id}: {j.title}" for j in running]
         raise Conflict(f"{self.ctx.host_id} is busy ({'; '.join(said)}); the site was not reloaded",
                        hint="a reload rebuilds the boards on the site's new records and replaces the SoC facts and "
-                            "hooks a running job uses: wait for it (`bsp job list`), then reload")
+                            "hooks a running job uses: wait for it (`boardctrl job list`), then reload")
 
     def _start_job(self, dut: str, what: str, body, **meta):
         self._busy[dut] = what
@@ -554,7 +554,7 @@ class DutManager:
             # Preserve which actor performs each role when a human coordinates an FDL button and a relay pulses reset.
             "control": {"backend": b.spec.control.get("backend"), "reset": dict(b.control.cfg.get("reset") or {}),
                         "fdl": dict(b.control.cfg.get("fdl") or {})},
-                # interactive: run this on the host; and where `bsp dut pipe` connects
+                # interactive: run this on the host; and where `boardctrl dut pipe` connects
                 "console_attach": b.console.attach() or b.console.describe().get("attach"),
                 "console_socket": b.console.socket(),
                 "console_up": b.console.up(), "slot": self.slot_of(dut),
@@ -664,7 +664,7 @@ class DutManager:
         if sdk not in self.effective_sdks(b.spec):
             raise InvalidRequest(f"{dut} ({b.spec.board}) is not declared to run sdk {sdk}",
                                  hint=f"supported: {', '.join(self.effective_sdks(b.spec))}; "
-                                      f"change with `bsp dut set {dut} --sdks ...` (empty = all SDKs of its SoC)")
+                                      f"change with `boardctrl dut set {dut} --sdks ...` (empty = all SDKs of its SoC)")
         plan = inst.boot_plan(method, variant, brk)  # validate first: todo methods fail here with their notes
         if any(st.get("do") == "enter-fdl" or (st.get("do") == "reset" and not st.get("when"))
                for st in plan["steps"]):
@@ -681,7 +681,7 @@ class DutManager:
                 log(f"NOTE: the catalog on disk does not load, so the last one that did is used: {broken}")
             for x in overridden:
                 log(f"NOTE: {x['file']} on this host differs from the registry's {sdk} and is NOT used; "
-                    f"publish it with `bsp catalog put {sdk} -f <file>` if it is the newer one")
+                    f"publish it with `boardctrl catalog put {sdk} -f <file>` if it is the newer one")
             return runner.run(inst, method, variant, log, brk)
 
         job = self._start_job(dut, f"boot {sdk} [{method}]", body,
@@ -700,7 +700,7 @@ class DutManager:
             last = next((j for j in self.ctx.jobs.list() if j.meta.get("dut") == b.spec.id), None)
             if last is None:
                 raise InvalidRequest(f"{dut}: no job running, and the host keeps no record of one run on it",
-                                     hint="`bsp job list` shows the host's jobs; `bsp job cancel <id>` stops one by id",
+                                     hint="`boardctrl job list` shows the host's jobs; `boardctrl job cancel <id>` stops one by id",
                                      details={"running": False, "last_job": None})
             err = last.error or {}
             ended = f"its last job {last.id} ({last.kind}) {last.status}"
@@ -708,7 +708,7 @@ class DutManager:
                 ended += f": {err['message']}"
             raise InvalidRequest(
                 f"{dut}: no job running; {ended}",
-                hint=f"nothing to cancel. `bsp job get {last.id}` shows that job's log",
+                hint=f"nothing to cancel. `boardctrl job get {last.id}` shows that job's log",
                 details={"running": False,
                          "last_job": {"id": last.id, "kind": last.kind, "title": last.title, "status": last.status,
                                       "finished": last.finished, "error": last.error}})
@@ -727,7 +727,7 @@ class DutManager:
 
     # ---------------------------------------------------------------- debug
     def debug_shelf(self) -> list[dict[str, Any]]:
-        """Every board's debug provider, for the page and `bsp debug list`."""
+        """Every board's debug provider, for the page and `boardctrl debug list`."""
         out = []
         for dut, b in sorted(self.boards.items()):
             try:
@@ -774,7 +774,7 @@ class DutManager:
         self.leases.check(dut, lease)
         if action not in b.debug.kinds:
             raise InvalidRequest(f"{dut}: its debug provider ({b.debug.provider_name}) offers {', '.join(b.debug.kinds) or 'nothing'}",
-                                 hint=f"bsp debug status {dut} shows what it has")
+                                 hint=f"boardctrl debug status {dut} shows what it has")
         self._guard_busy(dut)
         out = b.debug.action(action)
         self._event("debug", dut=dut, action=action)
@@ -995,7 +995,7 @@ class DutManager:
         usb = str(b.spec.fastboot.get("usb") or "")
         if hook_based and not plan and (not usb or "UNKNOWN" in usb.upper()):
             raise InvalidRequest(f"{dut} has no download port (fastboot.usb) recorded",
-                                 hint=f"set it: `bsp dut set {dut} --usb usb:<bus>-<port>` "
+                                 hint=f"set it: `boardctrl dut set {dut} --usb usb:<bus>-<port>` "
                                       "(the path `fastboot devices -l` shows in download mode)")
         images = {k: v["path"] for k, v in (self.socs.get(b.spec.soc).get("images") or {}).items() if v.get("path")}
         passed_over: list[str] = []
@@ -1011,7 +1011,7 @@ class DutManager:
             need = "plan" if plan else "only"
             if not self.hooks.declares("flash", name, need):
                 raise InvalidRequest(f"flasher {name} cannot {'say what a package would write' if plan else 'write only some partitions'}",
-                                     hint=f"it does not declare `bsp-hook: {need}`"
+                                     hint=f"it does not declare `boardctrl-hook: {need}`"
                                           + ("" if plan else "; flash the whole package"))
         if plan:
             pass                    # a plan touches no board: no reset, no download port
@@ -1035,7 +1035,7 @@ class DutManager:
         else:
             if not re.fullmatch(r"[0-9a-f]{64}", package):
                 raise InvalidRequest(f"package {package!r} is neither an http(s) URL nor the sha256 of an uploaded file",
-                                     hint="`bsp dut flash DUT --package PATH` uploads a local file or directory for you")
+                                     hint="`boardctrl dut flash DUT --package PATH` uploads a local file or directory for you")
             if sha256 and sha256.lower() != package:
                 raise InvalidRequest("sha256 does not match the uploaded package's")
             label = self.store.get(package).name
@@ -1343,7 +1343,7 @@ class DutManager:
             raw["services"] = block
             changed.append("services")
         if not changed:
-            raise InvalidRequest("nothing to change", hint="see `bsp dut set --help`")
+            raise InvalidRequest("nothing to change", hint="see `boardctrl dut set --help`")
         self._check_providers(raw)
         self.registry.update(dut, raw)
         self._drop_aliases(dut)
@@ -1653,7 +1653,7 @@ def resolve_network(cfg: dict[str, Any] | None, bind: str = "127.0.0.1",
 
     `core.dut.network` wins; then an address the host announces to its registry; then a
     concrete `server.bind`; then this machine's own addresses. `board_subnet` has no default:
-    bsp does not run the boards' DHCP server and cannot know it, so it is null unless set.
+    boardctrl does not run the boards' DHCP server and cannot know it, so it is null unless set.
     """
     cfg = dict(cfg or {})
     announced = [str(a) for a in ((announce or {}).get("addresses") or []) if a]

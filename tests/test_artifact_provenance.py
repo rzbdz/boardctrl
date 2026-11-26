@@ -43,7 +43,7 @@ def server(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", f"{bin_}:{os.environ['PATH']}")
     sdk = tmp_path / "sdk"
     (sdk / "output").mkdir(parents=True)
-    return SimpleNamespace(sdk=sdk, jobs=sdk / ".bsp" / "jobs", copies=lambda: _copies(bin_ / "scp.log"),
+    return SimpleNamespace(sdk=sdk, jobs=sdk / ".boardctrl" / "jobs", copies=lambda: _copies(bin_ / "scp.log"),
                            store=ArtifactStore(tmp_path / "cache"))
 
 
@@ -182,7 +182,7 @@ def test_a_build_ends_with_one_line_per_artifact(server, monkeypatch):
     _artifact(server, "FSBL.bin", b"fsbl", t - 9000)
     files = {"kernel": str(server.sdk / "output" / "Image"), "fsbl": str(server.sdk / "output" / "FSBL.bin")}
     inst = SimpleNamespace(path=str(server.sdk), artifacts=lambda: files, server=SimpleNamespace(ssh="builder@lab-1"))
-    monkeypatch.setenv("BSP_SDK_LOCAL", "1")
+    monkeypatch.setenv("BOARDCTRL_SDK_LOCAL", "1")
     monkeypatch.setattr(sdkcli, "is_local", lambda s: True)
     out = io.StringIO()
     res = sdkcli.built_artifacts(inst, "20261120-100000-aaaa", out)
@@ -225,6 +225,6 @@ def test_a_boot_result_carries_each_artifacts_provenance(tmp_path):
 
     con = FakeConsole(tmp_path)
     res = BootRunner("b1", FakeControl(con), FakeFastboot(con), con, Store()).run(sdk, "load", None, lambda m: None)
-    assert seen["jobs"] == f"{sdk.path.rstrip('/')}/.bsp/jobs"
+    assert seen["jobs"] == f"{sdk.path.rstrip('/')}/.boardctrl/jobs"
     a = next(iter(res["artifacts"].values()))
     assert a["source"] == "host cache" and a["built"] and a["build"]["job"] == "20261120-100000-aaaa"

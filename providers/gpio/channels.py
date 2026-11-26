@@ -52,7 +52,7 @@ class ChannelConfig:
         if unknown:
             raise InvalidRequest(
                 f"unknown channel config field(s): {sorted(unknown)}",
-                hint="names are aliases now: `bsp gpio alias add <name> <pin>`" if "name" in unknown else None,
+                hint="names are aliases now: `boardctrl gpio alias add <name> <pin>`" if "name" in unknown else None,
                 details={"allowed": cls.FIELDS},
             )
         try:
@@ -135,7 +135,7 @@ class Channel(ABC):
         if state not in self.states:
             raise InvalidRequest(
                 f"pin {self.pin.number} is in {self.mode.value} mode, which accepts {list(self.states)}, not {state!r}",
-                hint=f"use one of {list(self.states)}, or change the mode: `bsp gpio config P{self.pin.number} --mode <gpio|relay|button>`",
+                hint=f"use one of {list(self.states)}, or change the mode: `boardctrl gpio config P{self.pin.number} --mode <gpio|relay|button>`",
                 details={"mode": self.mode.value, "states": list(self.states), "actions": list(self.actions)},
             )
 

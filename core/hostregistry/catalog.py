@@ -122,7 +122,7 @@ class CatalogStore:
             return {"ref": ref_of(kind, ident), "kind": SHORT[kind], "id": ident, "origin": "site", "rev": 0,
                     "author": None, "at": None, "message": "", "text": seed.read_text()}
         raise NotFound(f"no {SHORT[kind]} {ident!r} in the catalog" + (" (deleted)" if cur else ""),
-                       hint="`bsp catalog list` shows what there is")
+                       hint="`boardctrl catalog list` shows what there is")
 
     def list(self, kind: str | None = None) -> list[dict[str, Any]]:
         kinds = [parse_ref(f"{kind}/x")[0]] if kind else list(CATALOG_KINDS)
@@ -153,7 +153,7 @@ class CatalogStore:
         kind, ident = parse_ref(ref)
         row = self.db.execute("SELECT text, deleted FROM history WHERE kind=? AND id=? AND rev=?", (kind, ident, rev)).fetchone()
         if not row:
-            raise NotFound(f"{ref} has no revision {rev}", hint=f"`bsp catalog history {ref}`")
+            raise NotFound(f"{ref} has no revision {rev}", hint=f"`boardctrl catalog history {ref}`")
         return None if row[1] else row[0]
 
     def snapshot(self) -> dict[str, Any]:
@@ -217,7 +217,7 @@ class CatalogStore:
                 if base is None:
                     if cur and not cur["deleted"]:
                         raise Conflict(f"{ref_of(kind, ident)} exists (revision {now_rev})",
-                                       hint=f"get it first and edit that (`bsp catalog get {ref_of(kind, ident)} -o FILE`), "
+                                       hint=f"get it first and edit that (`boardctrl catalog get {ref_of(kind, ident)} -o FILE`), "
                                             "or pass --force to replace it", details={"rev": now_rev})
                 elif base != now_rev:
                     raise Conflict(f"{ref_of(kind, ident)} changed since revision {base}: now revision {now_rev}"
@@ -262,7 +262,7 @@ class CatalogStore:
         self.get(ref)                                   # must exist
         if base is None and not force:
             raise InvalidRequest("deleting needs --base (the revision you looked at) or --force",
-                                 hint=f"`bsp catalog get {ref}` shows its revision")
+                                 hint=f"`boardctrl catalog get {ref}` shows its revision")
         return self._write(kind, ident, None, base, force, author, message, check)
 
     def recipe(self, sdk: str, method: str, text: str, base: int | None = None, force: bool = False,

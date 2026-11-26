@@ -10,7 +10,7 @@ The repository ships two skills:
 | Skill | For |
 |---|---|
 | `skills/boardctrl` | The full loop: SDK leases, remote edits, builds, board leases, boot, console checks, cleanup; managing boards; debug sessions; extending boardctrl |
-| `skills/gpio` | Direct GPIO, relay and button control on a board host |
+| `skills/gpio-relay` | Direct GPIO, relay and button control on a board host |
 
 Two ways to install them:
 
@@ -31,7 +31,7 @@ Two ways to install them:
 - Use `--json` and read `error.hint` first when something fails.
 - Several agents on one machine: pass `--stateless` (or set `BOARDCTRL_STATELESS=1`), name the host
   with `-r` where it matters, and pass lease tokens explicitly (`--lease`, or `BSP_LEASE` /
-  `BSP_SDK_LEASE`). Otherwise leases are remembered per user in `~/.config/bsp/leases.json`.
+  `BOARDCTRL_SDK_LEASE`). Otherwise leases are remembered per user in `~/.config/boardctrl/leases.json`.
 - Before working on hardware, ask for the levels that apply: `boardctrl hints --dut <board>` (its SoC's notes and
   its SDKs' skills), so nothing is guessed from memory; see `boardctrl hints --list`.
 - On boards reset by a person (control backend `human`), run `boardctrl dut reset` and `boardctrl dut boot`

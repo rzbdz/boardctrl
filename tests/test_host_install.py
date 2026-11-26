@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _run_config(site: Path, conf: Path, prefix: Path, **facts: str) -> None:
     """Run the installer's config fragment with shell facts supplied, never against a real host or service."""
-    script = (ROOT / "deploy" / "bspd-install.sh").read_text()
+    script = (ROOT / "deploy" / "install.sh").read_text()
     start = script.index('CONF=$SITE/hosts/$ID.yaml')
     end = script.index('# A token, if given', start)
     conf.parent.mkdir(parents=True, exist_ok=True)
@@ -34,7 +34,7 @@ def test_host_config_keeps_the_existing_announcement(tmp_path):
     config = yaml.safe_load(conf.read_text())
     assert config["server"]["bind"] == "127.0.0.1"
     assert config["server"]["port"] == 8765
-    assert config["server"]["state_dir"] == "/var/lib/bsp"
+    assert config["server"]["state_dir"] == "/var/lib/boardctrl"
     assert config["server"]["announce"] == {"url": "http://registry.test:8765", "interval_s": 45,
                                             "addresses": ["192.0.2.40"]}
 
@@ -136,19 +136,19 @@ def test_host_config_with_no_board_has_no_gpio_section(tmp_path):
 def test_takeover_moves_the_old_token_and_reads_it_before_the_old_file():
     """A host taken over from `bspd` keeps the token it had, in the new place, and the old file is not left where a
     program reading both could pick the wrong one. The unit reads the old file first, so the new token counts."""
-    script = (ROOT / "deploy" / "bspd-install.sh").read_text()
+    script = (ROOT / "deploy" / "install.sh").read_text()
     start, end = script.index("if [[ -f /etc/systemd/system/$OLD_UNIT"), script.index('if [[ -n $UNINSTALL ]]')
     takeover = script[start:end]
     # The old token moves only where the new place has none: an empty new file must not leave the host without one.
     assert "cp -a /etc/bsp/hostd.env /etc/boardctrl/boardctrld.env" in takeover
-    assert "BOARDCTRL_TOKEN|BSP_TOKEN)=" in takeover
+    assert "BOARDCTRL_TOKEN|BOARDCTRL_TOKEN)=" in takeover
     assert "rm -f /etc/bsp/hostd.env" in takeover
 
 
 def test_the_takeover_keeps_the_old_token_when_the_new_file_has_none(tmp_path):
     """The installer creates an empty `/etc/boardctrl/boardctrld.env` when it is given no token. A host that still has
     the old file's token must keep it (its old unit read that file), not be left with an empty file and no token."""
-    script = (ROOT / "deploy" / "bspd-install.sh").read_text()
+    script = (ROOT / "deploy" / "install.sh").read_text()
     start, end = script.index("  if [[ -f /etc/bsp/hostd.env ]]; then"), script.index("if [[ -n $UNINSTALL ]]")
     # The takeover's own closing `fi` is not part of the fragment (only the `if` it contains is).
     body = script[start:end]
@@ -157,13 +157,13 @@ def test_the_takeover_keeps_the_old_token_when_the_new_file_has_none(tmp_path):
     root = tmp_path / "etc"
     for case, new, old, expected in [
         # An empty new file: the old token is kept, under both names, so either reader takes it.
-        ("empty new file", "", "BSP_TOKEN=A\n", "BOARDCTRL_TOKEN=A"),
+        ("empty new file", "", "BOARDCTRL_TOKEN=A\n", "BOARDCTRL_TOKEN=A"),
         # A new file with its own token: the old one does not overwrite it.
-        ("new file with a token", "BOARDCTRL_TOKEN=B\n", "BSP_TOKEN=A\n", "BOARDCTRL_TOKEN=B"),
-        ("no new file", None, "BSP_TOKEN=A\n", "BSP_TOKEN=A"),
+        ("new file with a token", "BOARDCTRL_TOKEN=B\n", "BOARDCTRL_TOKEN=A\n", "BOARDCTRL_TOKEN=B"),
+        ("no new file", None, "BOARDCTRL_TOKEN=A\n", "BOARDCTRL_TOKEN=A"),
         # A new file with only one of the two names: the other is filled in with the same token, so either reader
         # takes it rather than reading a stale name from somewhere else.
-        ("new file, one name", "BOARDCTRL_TOKEN=B\n", "", "BSP_TOKEN=B"),
+        ("new file, one name", "BOARDCTRL_TOKEN=B\n", "", "BOARDCTRL_TOKEN=B"),
     ]:
         for path in (root / "boardctrl", root / "bsp"):
             if path.exists():
@@ -181,7 +181,7 @@ def test_the_takeover_keeps_the_old_token_when_the_new_file_has_none(tmp_path):
         assert not (root / "bsp/hostd.env").exists(), case
         # Both names say the same thing, and the old file's value where it has one: the daemon and a sync agree.
         values = {line.split("=", 1)[0]: line.split("=", 1)[1] for line in read.splitlines() if "=" in line}
-        assert values.get("BOARDCTRL_TOKEN", values.get("BSP_TOKEN")) == values.get("BSP_TOKEN", values.get("BOARDCTRL_TOKEN")), case
+        assert values.get("BOARDCTRL_TOKEN", values.get("BOARDCTRL_TOKEN")) == values.get("BOARDCTRL_TOKEN", values.get("BOARDCTRL_TOKEN")), case
     old = script.index("EnvironmentFile=-/etc/bsp/hostd.env")
     new = script.index("EnvironmentFile=-/etc/boardctrl/boardctrld.env")
     assert old < new
@@ -198,7 +198,7 @@ def test_the_gpio_backend_is_chosen_by_a_python_that_has_gpiod_not_whatever_is_f
     system = tmp_path / "system-python"
     system.write_text("#!/bin/sh\nexit 0\n")                  # the machine's python, with gpiod
     system.chmod(0o755)
-    script = (ROOT / "deploy" / "bspd-install.sh").read_text()
+    script = (ROOT / "deploy" / "install.sh").read_text()
     start = script.index('[[ $BOARD == none ]] && BOARD=""')
     end = script.index("# The code: a fresh venv", start)
     run = subprocess.run(
@@ -222,7 +222,7 @@ def test_a_gpio_backend_the_host_file_states_is_kept_over_detection(tmp_path):
     shipped, site = tmp_path / "shipped", tmp_path / "site"
     (shipped).mkdir()
     (site / "hosts").mkdir(parents=True)
-    script = (ROOT / "deploy" / "bspd-install.sh").read_text()
+    script = (ROOT / "deploy" / "install.sh").read_text()
     start = script.index('[[ $BOARD == none ]] && BOARD=""')
     end = script.index("# The code: a fresh venv", start)
 

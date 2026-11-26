@@ -140,7 +140,7 @@ line a site names `<dut>/<role>`), so a person, a script or a front end can work
 with `boardctrl relay`/`boardctrl button` while the DUT manager uses the same lines for resets.
 
 boardlab, the lab-wide registry and front end, drives board hosts through this CLI only (`--json
---stateless`): its `bsp` module maps its backend contract onto these roles — relay to `boardctrl dut
+--stateless`): its `boardctrl` module maps its backend contract onto these roles — relay to `boardctrl dut
 reset`/`confirm` and to `boardctrl relay`/`boardctrl button` for single lines, download to `boardctrl dut
 stage`/`present`/`boot`, consoles to `boardctrl dut pipe` (or the session stream of a console provider that is not
 serial-mux), debug to `boardctrl debug …` and its session stream, inventory and discovery to `boardctrl dut list`
@@ -178,7 +178,7 @@ flowchart LR
   plat["Shipped platforms<br/>platforms/NAME"] -- "overridden by" --> site["Site<br/>BOARDCTRL_SITE"]
 ```
 
-`.bspignore` and the other optional files of a site are listed in [configuration.md](configuration.md).
+`.boardctrl-ignore` and the other optional files of a site are listed in [configuration.md](configuration.md).
 
 ## Resources
 
@@ -186,7 +186,7 @@ flowchart LR
 |---|---|---|---|
 | Build server | id (ssh login, job environment) | `SITE/sdk/servers/` | — |
 | Family | build style and artifact roles | `SITE/sdk/families/` | — |
-| Workspace | one checkout on one server | `SITE/sdk/workspaces/`, or implicit per target | Workspace lease, build lock, jobs in `TREE/.bsp/` |
+| Workspace | one checkout on one server | `SITE/sdk/workspaces/`, or implicit per target | Workspace lease, build lock, jobs in `TREE/.boardctrl/` |
 | SDK target | workspace + family + SoC + artifacts + boot recipes | `SITE/sdk/instances/` | Through its workspace |
 | SoC facts | SoC id | `socs/<soc>/soc.yaml` in the platforms and the site (deep-merged) | — |
 | Board host | host id | `SITE/hosts/`, `SITE/remotes.json` | — |
@@ -238,7 +238,7 @@ process group of its own and stops the group (SIGTERM, then SIGKILL) on a cancel
 
 One source tree can build several targets, such as an upstream kernel tree built for two SoCs.
 Mutual exclusion therefore follows the tree, not the target: a **workspace** is the tree, and its
-lease, task branch, build lock and job list live in `TREE/.bsp/`. An **SDK target** is a build
+lease, task branch, build lock and job list live in `TREE/.boardctrl/`. An **SDK target** is a build
 configuration within a workspace. Acquiring any target leases the whole workspace; the holder can
 then build and boot every target in it, and everyone else gets a conflict naming the holder,
 task and target. A target without `workspace:` owns an implicit workspace.

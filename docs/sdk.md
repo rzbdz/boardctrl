@@ -71,7 +71,7 @@ What `boardctrl sdk acquire SDK --task NAME` does in each dev repository:
 
 1. records the current branch and commit;
 2. stashes uncommitted changes to tracked files (`git stash push`; untracked files stay);
-3. checks out `bsp/NAME`, creating it from the current commit, or resumes it if it exists.
+3. checks out `boardctrl/NAME`, creating it from the current commit, or resumes it if it exists.
 
 `boardctrl sdk release SDK` stashes whatever is still uncommitted on the task branch, checks out the
 recorded branch and pops the stash from step 2. The task branch and its commits are kept.
@@ -84,15 +84,15 @@ tree is only behind, `git merge --ff-only @{u}` on the fresh task branch brings 
 it has commits of its own or has diverged, choose the base with the tree's owner. The owner's own
 branch is never moved.
 
-Lease state lives in the tree, in `TREE/.bsp/`:
+Lease state lives in the tree, in `TREE/.boardctrl/`:
 
 | Path | Contents |
 |---|---|
-| `.bsp/lease.json` | Holder, task, branch, recorded state per repo, token, expiry (default 8 h) |
-| `.bsp/jobs/<id>/` | Build job script, log, exit code, metadata |
-| `.bsp/build.lock` | One build per workspace at a time |
+| `.boardctrl/lease.json` | Holder, task, branch, recorded state per repo, token, expiry (default 8 h) |
+| `.boardctrl/jobs/<id>/` | Build job script, log, exit code, metadata |
+| `.boardctrl/build.lock` | One build per workspace at a time |
 
-boardctrl adds `/.bsp/` to `.git/info/exclude` when the tree root is a repository. If a lease was lost
+boardctrl adds `/.boardctrl/` to `.git/info/exclude` when the tree root is a repository. If a lease was lost
 (for example the token is gone), the holder information in `lease.json` tells you who had it;
 `boardctrl sdk release SDK --force` releases it and restores the recorded state (`--keep` releases without switching branches).
 
@@ -215,7 +215,7 @@ catalog file changed on the host itself is also taken at its next use (a plan or
 a restart. Boots already running keep the recipe they started with. Each boot job's log names the
 catalog revision its recipe came from, and each hook step logs the arguments it passes after
 `${VAR}` expansion, with secret-like values hidden. Clients (`boardctrl sdk`, `boardctrl catalog`) read the registry's catalog too, keeping the last copy in
-`~/.cache/bsp/` for when the registry cannot be reached. The registry stores the catalog in
+`~/.cache/boardctrl/` for when the registry cannot be reached. The registry stores the catalog in
 `<state>/registry/catalog.sqlite`.
 
 **Edit the registry, not a host's files.** Once the registry has a document, it overrides the

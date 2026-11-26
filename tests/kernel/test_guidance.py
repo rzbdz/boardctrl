@@ -20,7 +20,7 @@ def site(tmp_path, monkeypatch):
     (site / "skills" / "sdk-a.md").write_text("# sdk-a\nuse the u-boot variant")
     (site / "socs" / "soc-b" / "soc.yaml").write_text("soc: soc-b\n")
     (site / "socs" / "soc-b" / "notes.md").write_text("1.8V UART")
-    monkeypatch.setenv("BSP_SITE", str(site))
+    monkeypatch.setenv("BOARDCTRL_SITE", str(site))
     return site
 
 

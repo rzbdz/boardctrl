@@ -135,7 +135,7 @@ class _NeverCancelled(CancelToken):
 
 
 NEVER = _NeverCancelled(what="call")
-_current: contextvars.ContextVar[CancelToken] = contextvars.ContextVar("bsp_cancel_token", default=NEVER)
+_current: contextvars.ContextVar[CancelToken] = contextvars.ContextVar("boardctrl_cancel_token", default=NEVER)
 
 
 def current_token() -> CancelToken:
@@ -288,7 +288,7 @@ class JobManager:
         try:
             return self._jobs[job_id]
         except KeyError:
-            raise NotFound(f"no job {job_id!r}", hint="job ids are printed when a job starts; `bsp job list` shows recent ones") from None
+            raise NotFound(f"no job {job_id!r}", hint="job ids are printed when a job starts; `boardctrl job list` shows recent ones") from None
 
     def cancel(self, job_id: str, lease: str | None = None, reason: str | None = None) -> dict[str, Any]:
         """Cancel a running job by id. A job a board runs needs that board's lease (its `guard` checks it)."""

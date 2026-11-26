@@ -47,7 +47,7 @@ class MockBackend(GpioBackend):
             if gpio not in self._lines:
                 return LineStatus(gpio, claimed=False)
             d, v = self._lines[gpio]
-            return LineStatus(gpio, True, d, v, "bsp")
+            return LineStatus(gpio, True, d, v, "boardctrl")
 
     def free(self, gpio: int) -> None:
         with self._lock:

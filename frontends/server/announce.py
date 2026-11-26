@@ -15,6 +15,7 @@ import threading
 import urllib.request
 from typing import Any, Callable
 
+from core import naming
 from core.net import local_addresses as _local_addresses
 
 log = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ class Announcer:
     def __init__(self, cfg: dict[str, Any], payload: Callable[[], dict[str, Any]]):
         self.url = str(cfg["url"]).rstrip("/") + "/api/v1/registry/announce"
         self.interval = max(10.0, float(cfg.get("interval_s", 60)))
-        self.token = cfg.get("token") or os.environ.get("BSP_REGISTRY_TOKEN")
+        self.token = cfg.get("token") or naming.get("BOARDCTRL_REGISTRY_TOKEN")
         self.extra = {"ssh_user": cfg.get("ssh_user"), "addresses": list(cfg.get("addresses") or [])}
         self.payload = payload
         self.on_reply: Callable[[dict[str, Any]], None] = lambda result: None

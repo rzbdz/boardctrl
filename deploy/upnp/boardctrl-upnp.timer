@@ -1,0 +1,10 @@
+[Unit]
+Description=boardctrl UPnP port registration refresh (hourly)
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=1h
+Unit=boardctrl-upnp.service
+
+[Install]
+WantedBy=timers.target

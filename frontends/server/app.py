@@ -35,6 +35,7 @@ from core.commands import Command, CommandRegistry
 from core.errors import Forbidden, BspError
 from core.events import EventBus
 from core.jobs import JobManager
+from core import naming
 from core.context import HostContext
 from core.loader import Providers
 from frontends.server.config import HostConfig
@@ -108,7 +109,7 @@ class Hub:
 
             self.follower = CatalogFollower(config.announce["url"], config.state_dir / "catalog", self.bus,
                                             layered("sdk", site),
-                                            config.announce.get("token") or os.environ.get("BSP_REGISTRY_TOKEN"))
+                                            config.announce.get("token") or naming.get("BOARDCTRL_REGISTRY_TOKEN"))
         if self.follower:
             ctx.services["catalog_follower"] = self.follower
         self.registry = CommandRegistry()
@@ -457,7 +458,7 @@ def _core_routes(app: FastAPI, hub: Hub) -> None:
         return {"ok": True, "version": __version__}
 
     @app.get("/api/v1/tools", tags=["core"], summary="Command catalogue / AI tool definitions")
-    async def tools(format: Literal["bsp", "anthropic", "openai"] = "bsp"):
+    async def tools(format: Literal["boardctrl", "anthropic", "openai"] = "boardctrl"):
         specs = hub.registry.specs()
         if format == "anthropic":
             return [{"name": s.tool_name, "description": _tool_desc(s), "input_schema": s.input_schema()} for s in specs]

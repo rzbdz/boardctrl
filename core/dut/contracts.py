@@ -288,8 +288,8 @@ class ControlBackend(ABC):
             return
         if strategy == "unset":
             raise InvalidRequest(f"{self.dut.id}: how this board enters download mode is not set",
-                                 hint=f"FDL strapped (a reset lands in download mode): bsp dut set {self.dut.id} --fdl strapped; "
-                                      f"an FDL line: bsp dut set {self.dut.id} --fdl button --fdl-pin <pin>")
+                                 hint=f"FDL strapped (a reset lands in download mode): boardctrl dut set {self.dut.id} --fdl strapped; "
+                                      f"an FDL line: boardctrl dut set {self.dut.id} --fdl button --fdl-pin <pin>")
         raise InvalidRequest(f"{self.dut.id}: unknown fdl strategy {strategy!r}", hint="use strapped or button")
 
     def _fdl_button(self, log: Log) -> None:

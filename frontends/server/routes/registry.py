@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 def registry_router(mod) -> APIRouter:
     r = APIRouter(tags=["registry"])
 
-    @r.post("/api/v1/registry/announce", summary="A board host announces itself (sent by bsp-hostd)")
+    @r.post("/api/v1/registry/announce", summary="A board host announces itself (sent by boardctrld)")
     async def announce(request: Request, body: Dict[str, Any] = Body(...)):
         seen = request.client.host if request.client else None
         fwd = request.headers.get("x-forwarded-for")

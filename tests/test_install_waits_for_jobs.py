@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = (ROOT / "deploy" / "bspd-install.sh").read_text()
+SCRIPT = (ROOT / "deploy" / "install.sh").read_text()
 FRAGMENT = SCRIPT[SCRIPT.index("# --- running jobs"):SCRIPT.index("# --- end running jobs")]
 
 
@@ -150,8 +150,8 @@ def test_the_check_reads_the_running_service_the_way_it_answers(tmp_path, monkey
     from frontends.server.app import create_app
     from frontends.server.config import HostConfig
 
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("BSP_TOKEN", "made-up-token")
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("BOARDCTRL_TOKEN", "made-up-token")
     app = create_app(HostConfig.load(ROOT / "tests" / "fixtures" / "site" / "hosts" / "dev-mock.yaml"))
     with TestClient(app) as c:
         r = c.get("/api/v1/job/list")

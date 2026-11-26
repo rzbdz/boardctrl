@@ -102,7 +102,7 @@ def test_writes_need_no_token_and_hosts_pick_the_catalog_up(tmp_path, monkeypatc
 
     import uvicorn
 
-    monkeypatch.setenv("BSP_TOKEN", "host-secret")
+    monkeypatch.setenv("BOARDCTRL_TOKEN", "host-secret")
     reg_app = _app(tmp_path, "reg", "host: {id: reg}\nserver: {state_dir: state}\nmodules: {registry: {}}\n")
     import socket
 
@@ -127,7 +127,7 @@ def test_writes_need_no_token_and_hosts_pick_the_catalog_up(tmp_path, monkeypatc
             assert r["ok"] and r["result"]["rev"] == 1, r
             assert r["result"]["reaches"] == [] and r["result"]["delivery"] == []
             assert "knows no board host" in r["text"]
-        monkeypatch.delenv("BSP_TOKEN")
+        monkeypatch.delenv("BOARDCTRL_TOKEN")
         host_app = _app(tmp_path, "h1", f"host: {{id: h1}}\nserver: {{state_dir: state, announce: {{url: '{url}', interval_s: 3600}}}}\n"
                                         "modules: {gpio_relay: {board: example-40pin, backend: mock, pinmux: false}, sdk: {}, dut: {}}\n")
         with TestClient(host_app) as host:
@@ -156,11 +156,11 @@ def test_cli_edit_round_trip_uses_the_revision_in_the_file(tmp_path, monkeypatch
             def request(self, method, path, body=None, timeout=0):
                 return (reg.get(path) if method == "GET" else reg.post(path, json=body)).json()
         monkeypatch.setattr("frontends.cli.fleet.connect", lambda remote, quick=2.0: type("H", (), {"call": lambda self, tool, args, timeout=0: T().request("POST", f"/api/v1/tools/{tool}", args), "id": "reg"})())
-        monkeypatch.setenv("BSP_REGISTRY", "http://registry.invalid")
-        monkeypatch.setenv("BSP_HOLDER", "claude:cli")
+        monkeypatch.setenv("BOARDCTRL_REGISTRY", "http://registry.invalid")
+        monkeypatch.setenv("BOARDCTRL_HOLDER", "claude:cli")
         f = tmp_path / "bsp-a.yaml"
         assert main(["catalog", "get", "bsp-a", "-o", str(f)]) == 0
-        assert f.read_text().startswith("# bsp catalog: bsp-a revision 0")
+        assert f.read_text().startswith("# boardctrl catalog: bsp-a revision 0")
         f.write_text(f.read_text().replace("example vendor BSP for soc-a", "edited by cli"))
         assert main(["catalog", "put", "bsp-a", "-f", str(f), "-m", "edit"]) == 0
         assert "written as catalog revision 1" in capsys.readouterr().out
@@ -276,8 +276,8 @@ def test_hosts_and_clis_share_the_registrys_soc_profiles_hooks_and_images(tmp_pa
     (reg_site / "socs" / "soc-a" / "probe.bin").write_bytes(b"not shared: no sha256 in the profile")
     shared = SharedFiles(reg_site)
     assert sorted(f["path"] for f in shared.manifest()["files"]) == ["hooks/boot/say", "socs/soc-a/soc.yaml"]
-    monkeypatch.setenv("BSP_TOKEN", "reg-secret")
-    monkeypatch.setenv("BSP_REGISTRY_TOKEN", "reg-secret")
+    monkeypatch.setenv("BOARDCTRL_TOKEN", "reg-secret")
+    monkeypatch.setenv("BOARDCTRL_REGISTRY_TOKEN", "reg-secret")
 
     reg_app = _app(tmp_path, "r", "host: {id: r}\nserver: {state_dir: state}\nmodules: {registry: {site: ../../reg}}\n")
     import socket
@@ -295,7 +295,7 @@ def test_hosts_and_clis_share_the_registrys_soc_profiles_hooks_and_images(tmp_pa
             assert reg.get("/api/v1/registry/files").status_code == 403
             assert reg.get(f"/api/v1/registry/blobs/{sha}").status_code == 403
             assert reg.get("/api/v1/registry/files", headers={"Authorization": "Bearer reg-secret"}).status_code == 200
-        monkeypatch.delenv("BSP_TOKEN")
+        monkeypatch.delenv("BOARDCTRL_TOKEN")
         host_app = _app(tmp_path, "h2", f"host: {{id: h2}}\nserver: {{state_dir: state, announce: {{url: '{url}', interval_s: 3600}}}}\n"
                                         "modules: {gpio_relay: {board: example-40pin, backend: mock, pinmux: false}, sdk: {}, dut: {}}\n")
         with TestClient(host_app) as host:
@@ -312,7 +312,7 @@ def test_hosts_and_clis_share_the_registrys_soc_profiles_hooks_and_images(tmp_pa
             assert res["files"]["ok"] and res["files_digest"] == shared.digest()
             assert dut.hooks.run("boot", "say", {}).data == {"said": "again"}
         # a compile machine's CLI gets the same files with `bsp catalog sync`
-        monkeypatch.setenv("BSP_REGISTRY", url)
+        monkeypatch.setenv("BOARDCTRL_REGISTRY", url)
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
         from frontends.cli.catalogcli import registry_files
 

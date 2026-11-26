@@ -1,6 +1,6 @@
 # CLI reference
 
-`boardctrl` is one command for people and programs (`bsp` is its old name and still works). Every command accepts
+`boardctrl` is one command for people and programs (`boardctrl` is its old name and still works). Every command accepts
 `--help` (`boardctrl dut boot --help`).
 
 ## Global options
@@ -54,7 +54,7 @@ How hosts are chosen without `-r`/`--url` is described in
 | `boardctrl dut export [--dir DIR] [--host HOST]` | Registered boards as YAML; `--dir` writes one `DIR/<id>.yaml` per board, the format of `SITE/duts/` |
 
 **Slots.** Every `DUT` above can also be named by its slot: `<host>/s3`, or `s3` with one host.
-A slot is a serial console on a host (see [Slots](#slots-bsp-slot)), so a slot name keeps working
+A slot is a serial console on a host (see [Slots](#slots-boardctrl-slot)), so a slot name keeps working
 when the board in it is swapped and refreshed.
 
 **Leases.** `reset`, `boot`, `stage`, `console "CMD"`, `renew`, `release` and `refresh` need your lease; `set` and `rename`
@@ -101,12 +101,12 @@ slot-1 @ lab-1: reset needs a person, job reset-1793860731-1 (confirm with `boar
   [   0.0s] waiting for `boardctrl dut confirm slot-1` or for the board to show it on its own (timeout 900s)
 ```
 
-The wait ends when someone runs `boardctrl dut confirm slot-1`, or as soon as bsp sees the board in
+The wait ends when someone runs `boardctrl dut confirm slot-1`, or as soon as boardctrl sees the board in
 download mode on its console or USB port (for a plain reset: the SoC's boot-ROM output on the
 console). If the board is not actually in download mode after a confirmation, the next step
 fails with a fastboot timeout. Scripts and agents should run such commands in the background.
 
-While a RAM load runs, bsp keeps an eye out for that boot-ROM output: a person who presses the
+While a RAM load runs, boardctrl keeps an eye out for that boot-ROM output: a person who presses the
 download button a second time after the first press already worked sends the board back to its boot
 ROM, and the load then starts over from its first `stage` step (a `dut boot --files` from its first
 file) without asking anyone again. The board is already in download mode, so nothing else has to
@@ -215,7 +215,7 @@ whether the daemon is up as `console_up`.
 | `boardctrl init` | First-run check: configuration directory, mode, hosts |
 | `boardctrl probe --rebuild -r HOST [--yes] [--no-identify] [--sdks LIST]` | After re-cabling: forget the host's probed boards and slots, then rediscover every board (without `--yes`: say what would be forgotten) |
 | `boardctrl probe [--slots S..] [--pins P..] [--known] [--register] [--sdks LIST] [--dry-run] [--yes] [--no-identify] [--replace]` | Discover the boards on free slots (pulses GPIO lines — see [getting-started.md](getting-started.md#option-a-probe-boards-wired-to-gpio-reset-lines)). Lines slots had before are tried first, so re-cabled or re-registered boards come back fast (`--known`: only those); a line that made several consoles speak is tried again at the end. `--register` (implied by `--yes`) registers each board on its host the moment it is found, named after what identify read, else after the board its slot had last |
-| `boardctrl -r HOST probe --human [--rounds N] [--wait S] [--consoles C..] [--yes]` | Discover boards without reset wiring: a person puts one unregistered board at a time into download mode, and bsp pairs the console that speaks with the USB port that appears; each becomes a slot reset by a person, as with `dut bind` |
+| `boardctrl -r HOST probe --human [--rounds N] [--wait S] [--consoles C..] [--yes]` | Discover boards without reset wiring: a person puts one unregistered board at a time into download mode, and boardctrl pairs the console that speaks with the USB port that appears; each becomes a slot reset by a person, as with `dut bind` |
 | `boardctrl remote list\|show\|add\|remove\|use` | Manage personal host entries |
 | `boardctrl watch [--registry]` | Stream live events from the host(s), or with `--registry` from the registry (hosts announcing themselves, `registry.ports` when a host's cables change); `--json` prints one event per line for programs |
 | `boardctrl tools` | Print the host's AI tool schemas in Anthropic format (OpenAI format: `GET /api/v1/tools?format=openai`) |
@@ -231,7 +231,7 @@ whether the daemon is up as `console_up`.
 | `boardctrl sdk show SDK` | Build server, path, dev repos, components, artifacts, sharing |
 | `boardctrl sdk status SDK` | Lease, branches, uncommitted files, recent builds |
 | `boardctrl sdk plan SDK [COMPONENT] [--boot load\|download] [--variant V]` | Dry run: the build command or the boot steps |
-| `boardctrl sdk acquire SDK --task NAME [--holder NAME] [--ttl S] [--branch B] [--projects LIST]` | Lease the workspace (default 8 h) and switch to branch `bsp/NAME` |
+| `boardctrl sdk acquire SDK --task NAME [--holder NAME] [--ttl S] [--branch B] [--projects LIST]` | Lease the workspace (default 8 h) and switch to branch `boardctrl/NAME` |
 | `boardctrl sdk release SDK [--keep] [--force]` | Restore the owner's branch and stashed work |
 | `boardctrl sdk build SDK COMPONENT [--clean] [--no-wait] [-v] [--timeout S]` | Build on the server; streams warnings and errors |
 | `boardctrl sdk jobs SDK`, `boardctrl sdk job SDK ID [--follow] [--log]` | Build jobs |

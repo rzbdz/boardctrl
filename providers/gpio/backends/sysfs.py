@@ -76,7 +76,7 @@ class SysfsBackend(GpioBackend):
         value = int(self._read(d / "value"))
         if self._read(d / "active_low") == "1":  # report physical level
             value ^= 1
-        owner = "bsp" if gpio in self._exported_by_us else "sysfs"
+        owner = "boardctrl" if gpio in self._exported_by_us else "sysfs"
         return LineStatus(gpio, True, direction, value, owner)
 
     def free(self, gpio: int) -> None:

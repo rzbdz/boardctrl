@@ -22,55 +22,55 @@ MOCK = SITE / "hosts" / "dev-mock.yaml"
 
 # ------------------------------------------------------------------- config --
 def test_env_refs_are_resolved_recursively_and_unset_names_fail(tmp_path, monkeypatch):
-    monkeypatch.setenv("BSP_TEST_SMTTY", "/opt/serial/bin/smtty")
+    monkeypatch.setenv("BOARDCTRL_TEST_SMTTY", "/opt/serial/bin/smtty")
     cfg = tmp_path / "host.yaml"
     cfg.write_text(
         "host: {id: h1}\n"
         "server: {port: 8765}\n"
         "env:\n"
-        "  BSP_SMTTY: env:BSP_TEST_SMTTY      # a value taken from bsp-hostd's environment\n"
-        "  BSP_SERIAL_LOG_DIR: /var/log/serial\n"
+        "  BOARDCTRL_SMTTY: env:BOARDCTRL_TEST_SMTTY      # a value taken from bsp-hostd's environment\n"
+        "  BOARDCTRL_SERIAL_LOG_DIR: /var/log/serial\n"
         "modules:\n"
         "  dut:\n"
-        "    smtty: env:BSP_TEST_SMTTY\n"
-        "    paths: [env:BSP_TEST_SMTTY, literal, {nested: env:BSP_TEST_SMTTY}]\n",
+        "    smtty: env:BOARDCTRL_TEST_SMTTY\n"
+        "    paths: [env:BOARDCTRL_TEST_SMTTY, literal, {nested: env:BOARDCTRL_TEST_SMTTY}]\n",
         encoding="utf-8",
     )
     h = HostConfig.load(cfg)
-    assert h.env == {"BSP_SMTTY": "/opt/serial/bin/smtty", "BSP_SERIAL_LOG_DIR": "/var/log/serial"}
+    assert h.env == {"BOARDCTRL_SMTTY": "/opt/serial/bin/smtty", "BOARDCTRL_SERIAL_LOG_DIR": "/var/log/serial"}
     assert h.modules["dut"]["smtty"] == "/opt/serial/bin/smtty"        # recursive, any depth
     assert h.modules["dut"]["paths"] == ["/opt/serial/bin/smtty", "literal",
                                          {"nested": "/opt/serial/bin/smtty"}]
 
-    cfg.write_text("host: {id: h1}\nmodules:\n  dut:\n    smtty: env:BSP_TEST_NOT_SET\n", encoding="utf-8")
+    cfg.write_text("host: {id: h1}\nmodules:\n  dut:\n    smtty: env:BOARDCTRL_TEST_NOT_SET\n", encoding="utf-8")
     with pytest.raises(InvalidRequest) as e:
         HostConfig.load(cfg)
-    assert "BSP_TEST_NOT_SET" in e.value.message and "not set" in e.value.message
-    assert "hostd.env" in e.value.hint
+    assert "BOARDCTRL_TEST_NOT_SET" in e.value.message and "not set" in e.value.message
+    assert "boardctrld.env" in e.value.hint
 
 
 def test_only_a_whole_string_is_an_env_reference(tmp_path, monkeypatch):
-    monkeypatch.setenv("BSP_TEST_X", "value")
-    assert resolve_refs("env:BSP_TEST_X") == "value"
-    assert resolve_refs("prefix env:BSP_TEST_X") == "prefix env:BSP_TEST_X"
-    assert resolve_refs({"a": ["env:BSP_TEST_X"]}) == {"a": ["value"]}
+    monkeypatch.setenv("BOARDCTRL_TEST_X", "value")
+    assert resolve_refs("env:BOARDCTRL_TEST_X") == "value"
+    assert resolve_refs("prefix env:BOARDCTRL_TEST_X") == "prefix env:BOARDCTRL_TEST_X"
+    assert resolve_refs({"a": ["env:BOARDCTRL_TEST_X"]}) == {"a": ["value"]}
 
 
 def test_the_env_map_must_be_a_mapping(tmp_path):
     cfg = tmp_path / "host.yaml"
-    cfg.write_text("host: {id: h1}\nenv: [BSP_X]\n", encoding="utf-8")
+    cfg.write_text("host: {id: h1}\nenv: [BOARDCTRL_X]\n", encoding="utf-8")
     with pytest.raises(InvalidRequest):
         HostConfig.load(cfg)
 
 
 # ------------------------------------------------------------------ expand --
 def test_hook_args_expand_with_shell_defaults():
-    env = {"BSP_TFTP_SERVER": "192.0.2.20", "EMPTY": ""}
-    assert expand("${BSP_TFTP_SERVER}/image.itb", env) == "192.0.2.20/image.itb"
+    env = {"BOARDCTRL_TFTP_SERVER": "192.0.2.20", "EMPTY": ""}
+    assert expand("${BOARDCTRL_TFTP_SERVER}/image.itb", env) == "192.0.2.20/image.itb"
     assert expand("${MISSING}", env) == ""
     assert expand("${MISSING:-fallback}", env) == "fallback"
     assert expand("${EMPTY:-fallback}", env) == "fallback"          # like the shell: unset or empty
-    assert expand({"a": ["${BSP_TFTP_SERVER}", "${NOPE:-x}"]}, env) == {"a": ["192.0.2.20", "x"]}
+    assert expand({"a": ["${BOARDCTRL_TFTP_SERVER}", "${NOPE:-x}"]}, env) == {"a": ["192.0.2.20", "x"]}
     assert expand({"n": 3, "b": True}, env) == {"n": 3, "b": True}
 
 
@@ -78,11 +78,11 @@ def test_a_hook_gets_the_host_env_in_its_process_and_its_request(tmp_path):
     hook = tmp_path / "probe" / "env"
     hook.parent.mkdir(parents=True)
     hook.write_text("#!/usr/bin/env python3\nimport json, os, sys\nreq = json.load(sys.stdin)\n"
-                    "print(json.dumps({'process': os.environ.get('BSP_TFTP_SERVER'), 'request': req['env']}))\n")
+                    "print(json.dumps({'process': os.environ.get('BOARDCTRL_TFTP_SERVER'), 'request': req['env']}))\n")
     hook.chmod(hook.stat().st_mode | stat.S_IEXEC)
-    runner = HookRunner((str(tmp_path),), env={"BSP_TFTP_SERVER": "198.51.100.7"})
+    runner = HookRunner((str(tmp_path),), env={"BOARDCTRL_TFTP_SERVER": "198.51.100.7"})
     out = runner.run("probe", "env", {"env": runner.env}).data
-    assert out == {"process": "198.51.100.7", "request": {"BSP_TFTP_SERVER": "198.51.100.7"}}
+    assert out == {"process": "198.51.100.7", "request": {"BOARDCTRL_TFTP_SERVER": "198.51.100.7"}}
 
 
 # -------------------------------------------------------- boot hook request --
@@ -110,17 +110,17 @@ def _capture_hook(tmp_path: Path) -> HookRunner:
 def test_a_boot_hook_request_has_env_network_sdk_artifacts_and_product_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("CAPTURE", str(tmp_path / "req.json"))
     runner = BootRunner("b1", None, _Fastboot(), _Console(), None, hooks=_capture_hook(tmp_path),
-                        env={"BSP_TFTP_SERVER": "192.0.2.20"},
+                        env={"BOARDCTRL_TFTP_SERVER": "192.0.2.20"},
                         network={"board_subnet": "192.0.2.0/24", "host_address": "192.0.2.1",
                                  "export_address": "203.0.113.9"},
                         product_dir=lambda sdk, artifacts: f"/mnt/products/{sdk}")
     runner.run_steps([{"do": "hook", "kind": "flash", "name": "capture",
-                       "args": {"tftp": "${BSP_TFTP_SERVER}/img.itb", "d": "${NOPE:-none}"}}],
+                       "args": {"tftp": "${BOARDCTRL_TFTP_SERVER}/img.itb", "d": "${NOPE:-none}"}}],
                      lambda m: None, sdk="bsp-a", artifacts_dir="/home/dev/work/bsp-a/output")
     req = json.loads((tmp_path / "req.json").read_text())
     assert req["sdk"] == "bsp-a" and req["artifacts_dir"] == "/home/dev/work/bsp-a/output"
     assert req["product_dir"] == "/mnt/products/bsp-a"
-    assert req["env"] == {"BSP_TFTP_SERVER": "192.0.2.20"}
+    assert req["env"] == {"BOARDCTRL_TFTP_SERVER": "192.0.2.20"}
     assert req["network"] == {"board_subnet": "192.0.2.0/24", "host_address": "192.0.2.1",
                               "export_address": "203.0.113.9", "console": "board1"}
     assert req["args"] == {"tftp": "192.0.2.20/img.itb", "d": "none"}
@@ -129,10 +129,10 @@ def test_a_boot_hook_request_has_env_network_sdk_artifacts_and_product_dir(tmp_p
 def test_the_boot_log_shows_each_hooks_expanded_args_with_secrets_hidden(tmp_path, monkeypatch):
     monkeypatch.setenv("CAPTURE", str(tmp_path / "req.json"))
     runner = BootRunner("b1", None, _Fastboot(), _Console(), None, hooks=_capture_hook(tmp_path),
-                        env={"BSP_TFTP_SERVER": "192.0.2.20", "LAB_TOKEN": "s3cret"})
+                        env={"BOARDCTRL_TFTP_SERVER": "192.0.2.20", "LAB_TOKEN": "s3cret"})
     lines: list[str] = []
     runner.run_steps([{"do": "hook", "kind": "flash", "name": "capture",
-                       "args": {"tftp": "${BSP_TFTP_SERVER}/img.itb", "api_token": "${LAB_TOKEN}",
+                       "args": {"tftp": "${BOARDCTRL_TFTP_SERVER}/img.itb", "api_token": "${LAB_TOKEN}",
                                 "login": {"user": "dev", "password": "pw"}, "author": "me", "keymap": "us"}}],
                      lines.append)
     shown = [x for x in lines if " args " in x]
@@ -155,7 +155,7 @@ def test_without_a_product_dir_the_artifact_directory_is_the_product(tmp_path, m
 # ------------------------------------------------ host module: config keys --
 @pytest.fixture
 def dut(tmp_path, monkeypatch):
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
     with TestClient(create_app(HostConfig.load(MOCK))) as c:
         yield c.app.state.hub.modules["dut"]
 

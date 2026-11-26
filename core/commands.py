@@ -7,6 +7,7 @@ import shlex
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from core import naming
 from core.cmdspec import CapturingParser, CliExit, CommandSpec, build_parser, parse_tokens
 from core.errors import NotFound, BspError
 
@@ -45,7 +46,7 @@ class CommandRegistry:
         close = difflib.get_close_matches(name, names, n=5, cutoff=0.5)
         raise NotFound(
             f"unknown command '{name}'",
-            hint=f"did you mean: {', '.join(close)}?" if close else "GET /api/v1/tools (or `bsp help`) lists all commands",
+            hint=f"did you mean: {', '.join(close)}?" if close else "GET /api/v1/tools (or `boardctrl help`) lists all commands",
             details={"did_you_mean": close},
         )
 
@@ -66,13 +67,13 @@ class CommandRegistry:
             tokens = shlex.split(line)
         except ValueError as e:
             return 2, f"parse error: {e}\n", None
-        if tokens and tokens[0] == "bsp":
+        if tokens and tokens[0] == naming.CMD:
             tokens = tokens[1:]
         if not tokens:
             tokens = ["--help"]
         elif tokens[0] in ("help", "?"):  # `help gpio set` == `gpio set --help`
             tokens = tokens[1:] + ["--help"]
-        parser = build_parser(self.specs(), prog="bsp", parser_class=CapturingParser)
+        parser = build_parser(self.specs(), prog=naming.CMD, parser_class=CapturingParser)
         try:
             name, args = parse_tokens(parser, tokens)
         except CliExit as e:

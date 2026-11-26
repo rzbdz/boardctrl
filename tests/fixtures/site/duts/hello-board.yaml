@@ -3,7 +3,7 @@
 # platforms/spacemit (SpacemiT K1 / Banana Pi BPI-F3); what is faked is only the two roles the plugin
 # answers, which is where a real adapter puts its own tool's calls.
 #
-#   BSP_SITE=tests/fixtures/site bin/boardctrld -c tests/fixtures/site/hosts/hello.yaml
+#   BOARDCTRL_SITE=tests/fixtures/site bin/boardctrld -c tests/fixtures/site/hosts/hello.yaml
 id: hello-board
 host: hello
 board: spacemit-k1x-deb1

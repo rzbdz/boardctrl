@@ -40,12 +40,10 @@ PLATFORMS = REPO / "platforms"
 
 
 def site_dir() -> Path | None:
-    """The site this client reads: $BOARDCTRL_SITE, ~/.config/boardctrl/site, /etc/boardctrl/site.
-    The paths the command used before its rename are read when the new one does not exist."""
+    """The site this client reads: $BOARDCTRL_SITE, ~/.config/boardctrl/site, /etc/boardctrl/site."""
     home = Path.home()
     cands = [naming.get("BOARDCTRL_SITE"),
-             str(home / ".config" / "boardctrl" / "site"), str(home / ".config" / "bsp" / "site"),
-             "/etc/boardctrl/site", "/etc/bsp/site"]
+             str(home / ".config" / "boardctrl" / "site"), "/etc/boardctrl/site"]
     for c in cands:
         if c and Path(c).expanduser().is_dir():
             return Path(c).expanduser().resolve()
@@ -55,7 +53,7 @@ def site_dir() -> Path | None:
 def site_settings(site: Path | None) -> dict:
     p = None
     if site:
-        p = site / "boardctrl.yaml" if (site / "boardctrl.yaml").exists() else site / "bsp.yaml"
+        p = site / "boardctrl.yaml"
     if p and p.exists():
         import yaml
 

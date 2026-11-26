@@ -35,7 +35,7 @@ env:
 ```
 
 `${NAME}` becomes empty when unset; `${NAME:-default}` uses the default, as in a shell. The
-expansion applies to `args` only (not to `package_dir`, `product_dir`, or other paths bsp
+expansion applies to `args` only (not to `package_dir`, `product_dir`, or other paths boardctrl
 computes). The same values are in the hook's environment, so a shell hook's own
 `${NAME:-default}` works too.
 
@@ -87,13 +87,13 @@ by exiting non-zero or with an `"error"` (and `"hint"`) in its result.
 Which flasher writes a package: the one asked for (`--flasher`), else the first ready one of the
 board's `flash.flasher` and `flash.fallback`, its SoC's, the host's, then `spacemit-pkg`. Before
 anything is downloaded or the board is reset, each candidate is checked: a hook that declares
-`bsp-hook: check` (a line in its first 8 KB, e.g. in a comment) is run with `"check": true` and the
+`boardctrl-hook: check` (a line in its first 8 KB, e.g. in a comment) is run with `"check": true` and the
 same `usb`, `fastboot`, `images` and `args`; it must touch nothing and answer `{"ready": true}`, or
 `{"ready": false, "reason", "hint"}` (say, its vendor tool is not installed). An unready one is passed
 over (the job says so); a hook that declares nothing is taken as ready. A flasher asked for by name is
 used or refused, never replaced, and the refusal lists the ready ones.
 
-Two more capabilities a flasher can declare on that line. `plan` (`bsp-hook: check plan`): run with
+Two more capabilities a flasher can declare on that line. `plan` (`boardctrl-hook: check plan`): run with
 `"plan": true`, `package_dir` (the unpacked package), `images` and `args`, it reads the package and
 touches nothing, answering `{"plan": {"package", "media": [{"id", "label", "size", "partitions":
 [{"name", "offset", "size", "image", "payload", "selectable"}]}], "partial", "notes": [...]}}`: each

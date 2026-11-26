@@ -44,7 +44,7 @@ class HumanControl(ControlBackend):
         ev = req["event"]
         # The request id is on the line: boardd and the page carry it back with the confirmation.
         log(f"ACTION NEEDED: {message} (request {req['id']})")
-        log(f"waiting for `bsp dut confirm {self.dut.id}` (request {req['id']})"
+        log(f"waiting for `boardctrl dut confirm {self.dut.id}` (request {req['id']})"
             + (" or for the board to show it on its own" if ready else "") + f" (timeout {timeout:g}s)")
         deadline = time.monotonic() + timeout
         token = current_token()          # a cancelled job stops waiting for the person, and the request is cleared
@@ -65,7 +65,7 @@ class HumanControl(ControlBackend):
                         f"{self.dut.id} is reset by a person (no relay), and nobody did '{action}' within "
                         f"{_span(timeout)}: {message}",
                         hint=f"ask a person at the board to do it (it was asked for on the board's page), then "
-                             f"`bsp dut confirm {self.dut.id}`; or retry when someone is there. "
+                             f"`boardctrl dut confirm {self.dut.id}`; or retry when someone is there. "
                              f"services.relay.human.timeout_s sets the wait")
         finally:
             att.clear(self.dut.id, ev)

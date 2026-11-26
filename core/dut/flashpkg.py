@@ -187,7 +187,7 @@ def _download(store: ArtifactStore, url: str, want: str | None, log: Log, max_by
               validators: dict[str, str] | None = None) -> dict[str, Any] | None:
     """One GET of `url` into the store; None when the server answers a conditional request with 304."""
     opener = urllib.request.build_opener(_HttpOnlyRedirects())
-    req = urllib.request.Request(url, headers={"User-Agent": "bsp-dut-flash", **(validators or {})})
+    req = urllib.request.Request(url, headers={"User-Agent": "boardctrl-dut-flash", **(validators or {})})
     t0 = time.monotonic()
     try:
         resp = opener.open(req, timeout=timeout)

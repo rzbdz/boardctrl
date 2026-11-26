@@ -58,7 +58,7 @@ class Fastboot:
         out = (r.stdout + r.stderr).strip()   # fastboot reports on stderr
         if r.returncode != 0 or "FAILED" in out:
             raise HardwareError(f"fastboot {' '.join(args)} failed: {out[-300:]}",
-                                hint="check `bsp dut status` (is the board in the expected stage?)")
+                                hint="check `boardctrl dut status` (is the board in the expected stage?)")
         return out
 
     def getvar(self, name: str) -> str:

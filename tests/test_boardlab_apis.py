@@ -265,7 +265,7 @@ echo "$1 OKAY"
 """)
     fb.chmod(fb.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
     with TestClient(create_app(HostConfig.load(MOCK))) as c:
         c.tmp, c.log = tmp_path, log
         yield c
@@ -372,7 +372,7 @@ def test_cli_stage_uploads_once_over_http(tmp_path, monkeypatch, capsys):
     fb.write_text("#!/bin/sh\n[ \"$1\" = devices ] && printf 'dfu\\tDFU download\\n    usb:0-0\\n'\necho OKAY\n")
     fb.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "state"))
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]

@@ -1,13 +1,13 @@
 # Contributing
 
-Thanks for helping improve bsp-dev-loop. Bug reports, documentation fixes, new SoC facts and code
+Thanks for helping improve boardctrl. Bug reports, documentation fixes, new SoC facts and code
 contributions are all welcome.
 
 ## Development setup
 
 ```bash
-git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-loop
-cd bsp-dev-loop
+git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git boardctrl
+cd boardctrl
 python3 -m venv .venv
 .venv/bin/pip install -e '.[server,dev]'
 .venv/bin/pytest
@@ -17,12 +17,12 @@ The tests use the fictional site in `tests/fixtures/site/` and a mock GPIO backe
 hardware and no network. To try the service locally:
 
 ```bash
-BSP_SITE=tests/fixtures/site .venv/bin/bsp-hostd -c tests/fixtures/site/hosts/dev-mock.yaml
+BOARDCTRL_SITE=tests/fixtures/site .venv/bin/boardctrld -c tests/fixtures/site/hosts/dev-mock.yaml
 ```
 
 ## What goes where
 
-bsp separates mechanism from knowledge about a particular installation:
+boardctrl separates mechanism from knowledge about a particular installation:
 
 | Belongs in | Examples |
 |---|---|
@@ -45,8 +45,8 @@ made-up names like those in `tests/fixtures/site/` in examples and tests.
 
 ## Reporting bugs
 
-Open an issue with the bsp version (`bsp hosts` shows it per host), what you ran, the output with
-`--json`, and the relevant `bsp-hostd` log (`journalctl -u bsp-hostd`). Remove host names,
+Open an issue with the boardctrl version (`boardctrl hosts` shows it per host), what you ran, the output with
+`--json`, and the relevant `boardctrld` log (`journalctl -u boardctrld`). Remove host names,
 addresses and tokens before posting. Security issues: see [SECURITY.md](SECURITY.md).
 
 By contributing you agree that your contributions are licensed under the Apache License 2.0.

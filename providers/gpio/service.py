@@ -179,7 +179,7 @@ class GpioService:
             holder = self._claims.get(pin.key)
             if holder and holder != usage:
                 raise Conflict(f"{usage}: pin {_pin_text(pin)} is used by {holder!r}",
-                               hint=f"release it first (`bsp gpio claim release {holder}`), or choose another pin")
+                               hint=f"release it first (`boardctrl gpio claim release {holder}`), or choose another pin")
             other = self._other_holder(pin)
             if other:
                 raise Conflict(f"{usage}: pin {_pin_text(pin)} ({pin.label}) is held by {other}",
@@ -254,7 +254,7 @@ class GpioService:
         holder = self._claims.get(pin.key)
         if holder:
             raise Conflict(f"pin {_pin_text(pin)} is claimed by {holder!r}; it cannot be {what}",
-                           hint=f"release it first: `bsp gpio claim release {holder}`")
+                           hint=f"release it first: `boardctrl gpio claim release {holder}`")
 
     # ================================================================ lookup
     def _config_for(self, key: str) -> ChannelConfig:
@@ -305,7 +305,7 @@ class GpioService:
         sug["details"]["target_forms"] = TARGET_FORMS
         raise NotFound(
             f"no pin or alias matches {t!r}",
-            hint=sug["hint"] or f"targets: {TARGET_FORMS}; list aliases with `bsp gpio alias list`",
+            hint=sug["hint"] or f"targets: {TARGET_FORMS}; list aliases with `boardctrl gpio alias list`",
             details=sug["details"],
         )
 
@@ -429,7 +429,7 @@ class GpioService:
     def _wrong_mode(self, ch: Channel, target: Any, action: str, need: str) -> InvalidRequest:
         return InvalidRequest(
             f"{action} needs {need} mode, but pin {ch.pin.number} ({target}) is in {ch.mode.value} mode",
-            hint=f"in {ch.mode.value} mode use: {', '.join(ch.actions)}; or switch: `bsp gpio config {target} --mode {need.split(' ')[0]}`",
+            hint=f"in {ch.mode.value} mode use: {', '.join(ch.actions)}; or switch: `boardctrl gpio config {target} --mode {need.split(' ')[0]}`",
             details={"mode": ch.mode.value, "actions": list(ch.actions)},
         )
 

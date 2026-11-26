@@ -11,6 +11,8 @@ from __future__ import annotations
 import glob
 import os
 import threading
+
+from core import naming
 from pathlib import Path
 from typing import Callable
 
@@ -62,7 +64,7 @@ class PortWatcher:
                 pass
 
     def start(self) -> "PortWatcher":
-        if os.environ.get("BSP_WATCH_PORTS", "1") != "0":
+        if naming.get("BOARDCTRL_WATCH_PORTS", "1") != "0":
             self._thread.start()
         return self
 

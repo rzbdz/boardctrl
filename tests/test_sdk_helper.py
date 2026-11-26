@@ -38,7 +38,7 @@ def test_acquire_stashes_branches_and_release_restores(sdk):
     r = call({"op": "acquire", "path": str(sdk), "projects": ["linux"], "task": "add-print", "holder": "agent"})
     assert r["ok"], r
     tok = r["result"]["token"]
-    assert git(proj, "rev-parse", "--abbrev-ref", "HEAD") == "bsp/add-print"
+    assert git(proj, "rev-parse", "--abbrev-ref", "HEAD") == "boardctrl/add-print"
     assert "user's local work" not in (proj / "a.c").read_text()          # stashed away
     assert r["result"]["projects"]["linux"]["stash"]
 
@@ -61,7 +61,7 @@ def test_acquire_stashes_branches_and_release_restores(sdk):
     assert rel["released"] and rel["projects"]["linux"]["wip_stash"]       # task work parked, not lost
     assert "user's local work" in (proj / "a.c").read_text()               # original work back
     assert git(proj, "rev-parse", "--abbrev-ref", "HEAD") == "HEAD"        # back to detached head
-    assert "bsp/add-print" in git(proj, "branch", "--list", "bsp/*")      # task branch kept
+    assert "boardctrl/add-print" in git(proj, "branch", "--list", "boardctrl/*")      # task branch kept
     assert call({"op": "status", "path": str(sdk), "projects": ["linux"]})["result"]["lease"] is None
 
 

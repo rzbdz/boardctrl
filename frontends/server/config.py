@@ -20,7 +20,7 @@ class HostConfig:
     description: str = ""
     bind: str = "127.0.0.1"
     port: int = 8765
-    state_dir: Path = Path("/var/lib/bsp")
+    state_dir: Path = Path("/var/lib/boardctrl")
     auth_token: str | None = None
     # The providers the host loads, by name: `modules:` (the key sites have always written) or `providers:`.
     providers: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -62,8 +62,8 @@ class HostConfig:
         env = raw.get("env") or {}
         if not isinstance(env, dict):
             raise InvalidRequest(f"{p}: `env:` must be a mapping of NAME: value",
-                                 hint="e.g. env: {BSP_SERIAL_LOG_DIR: /var/log/serial}")
-        state_dir = Path(naming.get("BOARDCTRL_STATE_DIR") or srv.get("state_dir") or "/var/lib/bsp")
+                                 hint="e.g. env: {BOARDCTRL_SERIAL_LOG_DIR: /var/log/serial}")
+        state_dir = Path(naming.get("BOARDCTRL_STATE_DIR") or srv.get("state_dir") or "/var/lib/boardctrl")
         if not state_dir.is_absolute():
             state_dir = (p.parent / state_dir).resolve()
         return cls(

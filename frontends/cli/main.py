@@ -1,4 +1,4 @@
-"""`boardctrl` — the atomic CLI for a board host (humans and agents alike). `bsp` is its old name and still works.
+"""`boardctrl` — the atomic CLI for a board host (humans and agents alike). `boardctrl` is its old name and still works.
 
 Client-side groups:
     boardctrl hosts | init                  which board hosts are reachable (local or remote mode)
@@ -68,7 +68,7 @@ def _probe_remote(r: Remote) -> dict[str, Any]:
         h = connect(r)
     except Unreachable as u:
         return {"reachable": False, "error": str(u.reason)}
-    return {"reachable": True, "bsp": True, "latency_ms": round((time.monotonic() - t0) * 1000),
+    return {"reachable": True, "boardctrl": True, "latency_ms": round((time.monotonic() - t0) * 1000),
             "via": h.transport.label, "host": h.id, "version": h.status.get("version")}
 
 
@@ -140,7 +140,7 @@ def _client_parser() -> argparse.ArgumentParser:
     debugcli.add_parser(sub)
     sdkcli.add_parser(sub)
     catalogcli.add_parser(sub)
-    ins = sub.add_parser("install", help="write ./SKILL.md for agents: full bsp skill + what this directory is")
+    ins = sub.add_parser("install", help="write ./SKILL.md for agents: full boardctrl skill + what this directory is")
     ins.add_argument("--dir", default=".", help="directory to write SKILL.md into (default: current)")
     ins.add_argument("--offline", action="store_true", help="do not query board hosts for the board snapshot")
     hi = sub.add_parser("hints", help="guidance from the configuration layers, by level: all of it, one SoC, one SDK, "
@@ -152,11 +152,11 @@ def _client_parser() -> argparse.ArgumentParser:
     im = sub.add_parser("images", help="images hosts stage (probe images, media-boot helpers): list, or fetch into the site")
     im.add_argument("images_cmd", nargs="?", choices=["list", "sync"], default="list",
                     help="list: where each comes from and whether the site has it; sync: fetch the missing ones once")
-    sub.add_parser("remote", help="manage known bsp hosts")
+    sub.add_parser("remote", help="manage known boardctrl hosts")
     sub.add_parser("watch", help="stream live events from the host(s)")
     sub.add_parser("tools", help="AI tool schemas of the host commands (anthropic format)")
     for g in ("gpio", "relay", "button", "board", "job", "events", "status", "site"):
-        sub.add_parser(g, help="host command group (passed through, see `bsp -r HOST <group> --help`)")
+        sub.add_parser(g, help="host command group (passed through, see `boardctrl -r HOST <group> --help`)")
     return p
 
 
@@ -183,7 +183,7 @@ def _fail(g, err: dict[str, Any], code: int) -> int:
 
 
 def cli() -> int:
-    """The `bsp` command: `bsp ... | head` ends quietly. (Not in main(), which tests and tools call in-process.)"""
+    """The `boardctrl` command: `boardctrl ... | head` ends quietly. (Not in main(), which tests and tools call in-process.)"""
     import signal
 
     if hasattr(signal, "SIGPIPE"):
@@ -194,7 +194,7 @@ def cli() -> int:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     g, rest = _global_parser().parse_known_args(argv)
-    stateless = g.stateless or os.environ.get("BSP_STATELESS", "").lower() in ("1", "true", "yes")
+    stateless = g.stateless or naming.get("BOARDCTRL_STATELESS", "").lower() in ("1", "true", "yes")
     try:
         store = RemoteStore(stateless=stateless)
     except RemoteError as e:
@@ -214,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
     if rest[0] in CLIENT_GROUPS:
         parser = _client_parser()
         trailing = None
-        if "--" in rest:                     # `bsp sdk exec SDK [opts] -- cmd ...`: keep cmd verbatim
+        if "--" in rest:                     # `boardctrl sdk exec SDK [opts] -- cmd ...`: keep cmd verbatim
             i = rest.index("--")
             rest, trailing = rest[:i], rest[i + 1:]
         try:
@@ -223,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
             return int(e.code or 0)
         if trailing is not None:
             if not hasattr(args, "command"):
-                return _fail(g, {"code": "invalid_request", "message": "`--` is only valid for `bsp sdk exec`"}, EXIT_USAGE)
+                return _fail(g, {"code": "invalid_request", "message": "`--` is only valid for `boardctrl sdk exec`"}, EXIT_USAGE)
             args.command = list(args.command or []) + trailing
         args.json = g.json
         try:
@@ -260,11 +260,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # ---------------- passthrough to host commands ----------------
     if rest[0] in ("watch", "tools") and any(a in ("-h", "--help") for a in rest[1:]):
-        print({"watch": "usage: bsp [-r HOST] watch [--registry]\n\nStream live events (GPIO changes, leases, boots, jobs, "
+        print({"watch": "usage: boardctrl [-r HOST] watch [--registry]\n\nStream live events (GPIO changes, leases, boots, jobs, "
                         "cables coming and going) from the host(s) until Ctrl-C.\n  --registry  the registry's events instead: "
                         "hosts announcing themselves and their ports changing (registry.ports)\n"
                         "With --json each event is one JSON line with its host.",
-               "tools": "usage: bsp [-r HOST] tools\n\nPrint the host's AI tool schemas (Anthropic format) as JSON."}[rest[0]])
+               "tools": "usage: boardctrl [-r HOST] tools\n\nPrint the host's AI tool schemas (Anthropic format) as JSON."}[rest[0]])
         return EXIT_OK
     if rest[0] == "watch" and "--registry" in rest[1:]:
         if not store.registry_url:
@@ -328,7 +328,7 @@ def _job_lease(h: HostHandle, job: str | None, book: LeaseBook) -> str | None:
 
 
 def _images(args) -> tuple[Any, str]:
-    """`bsp images [list|sync]`: SoC images of this machine's site, fetched into <site>/.blobs by sync."""
+    """`boardctrl images [list|sync]`: SoC images of this machine's site, fetched into <site>/.blobs by sync."""
     from core.site import layered, site_dir
     from core.dut import images
     from core.dut.soc import SocFacts
@@ -338,7 +338,7 @@ def _images(args) -> tuple[Any, str]:
         raise RemoteError("no site directory", code="invalid_request", hint="set BOARDCTRL_SITE or create ~/.config/boardctrl/site")
     from frontends.cli.catalogcli import registry_files
 
-    shared = registry_files(sync=False)        # the registry's SoC facts (`bsp catalog sync`), above the site
+    shared = registry_files(sync=False)        # the registry's SoC facts (`boardctrl catalog sync`), above the site
     profiles = SocFacts(layered("socs", site) + ([shared / "socs"] if shared and (shared / "socs").is_dir() else []))
     if args.images_cmd == "sync":
         lines: list[str] = []
@@ -352,7 +352,7 @@ def _images(args) -> tuple[Any, str]:
 
 
 def _hints(fleet, args) -> tuple[Any, str]:
-    """`bsp hints`: the configuration layers' guidance, by level (see core/guidance.py).
+    """`boardctrl hints`: the configuration layers' guidance, by level (see core/guidance.py).
 
     `--dut` asks the board's host which SoC it has and which SDKs it runs, then answers with those levels: the
     agent does not have to know which notes apply before it asks.
@@ -377,7 +377,7 @@ def _hints(fleet, args) -> tuple[Any, str]:
         blocks += [{"name": doc["name"], "layer": doc["layer"], "text": doc["text"], "path": doc["path"]}
                    for doc in guidance._docs("hints", site_dir())]
         if not blocks:
-            return [], f"{dut}: nothing configured for {soc or 'its SoC'} (see `bsp hints --list`)"
+            return [], f"{dut}: nothing configured for {soc or 'its SoC'} (see `boardctrl hints --list`)"
         text = "\n\n".join(f"## {b['name']}" + (f"  ({b['layer']})" if b.get("layer") else "") + f"\n{b['text']}" for b in blocks)
         return blocks, text
     args.soc, args.sdk = soc, sdk
@@ -397,7 +397,7 @@ def _install(fleet: Fleet, args) -> tuple[Any, str]:
                 ok = True
                 rows += r["result"]
         duts = rows if ok else None
-    bsp_path = os.path.realpath(sys.argv[0]) if sys.argv and sys.argv[0] else "bsp"
+    bsp_path = os.path.realpath(sys.argv[0]) if sys.argv and sys.argv[0] else naming.CMD
     from core.site import hints
 
     res = install.install(Path(args.dir), sdkcli.catalog(), duts, bsp_path, hints())

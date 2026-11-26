@@ -34,7 +34,7 @@ your machines, accounts, trees or procedures belongs in the site.
 ```text
 site/
 ├── boardctrl.yaml           # optional settings for this layer
-├── .bspignore               # optional: files deploy/install scripts do not ship
+├── .boardctrl-ignore               # optional: files deploy/install scripts do not ship
 ├── remotes.json             # board hosts the CLI talks to
 ├── hosts/<host>.yaml        # configuration of each boardctrld
 ├── deploy/<host>.env        # how deploy.sh reaches and installs each host
@@ -55,7 +55,7 @@ site/
 `tests/fixtures/site/` contains a working example of every file; the test suite runs against it. A site
 that still carries code under `modules/<name>/module.py` is read too — the name sites used before providers.
 
-### .bspignore
+### .boardctrl-ignore
 
 `tar --exclude-from` patterns (one per line) for site files that `deploy.sh` and
 `install-client.sh` must not copy to hosts and clients, such as notes or test records.
@@ -75,7 +75,7 @@ host:
 server:
   bind: 0.0.0.0                  # default 127.0.0.1 (local only)
   port: 8765
-  state_dir: /var/lib/bsp        # leases, probed boards, runtime GPIO settings, artifact cache
+  state_dir: /var/lib/boardctrl        # leases, probed boards, runtime GPIO settings, artifact cache
   auth_token: null               # set it whenever bind is not 127.0.0.1, here or as BOARDCTRL_TOKEN in
                                  # /etc/boardctrl/boardctrld.env on the host (see SECURITY.md)
 env:                             # values hooks receive: see "Host environment" below
@@ -113,12 +113,12 @@ providers:                       # what this host loads, by name; `modules:` is 
       min_free_bytes: 5368709120 # and the disk under it keeps this much free (5 GiB)
                                  # entries a running job uses are never removed; `status` shows modules.dut.cache
     network:                     # what hooks tell a board to use (all keys optional)
-      board_subnet: 192.0.2.0/24 # the boards' DHCP subnet (no default: bsp does not run that DHCP)
+      board_subnet: 192.0.2.0/24 # the boards' DHCP subnet (no default: boardctrl does not run that DHCP)
       host_address: 192.0.2.20   # this host on the board network (default: server.bind or an announced address)
       export_address: 192.0.2.20 # the address other machines use (default: an announced address, else host_address)
-    ssh_console:                 # optional: `ssh bsp-<dut>@host` opens that board's console
+    ssh_console:                 # optional: `ssh boardctrl-<dut>@host` opens that board's console
       enabled: false
-      prefix: bsp-
+      prefix: boardctrl-
     slots:
       auto_console: true         # every new serial adapter gets a slot and a serial-mux console of its own
       exclude: []                # ttys that are not slots, e.g. [/dev/ttyACM0] (a relay controller's own port)
@@ -166,13 +166,13 @@ hook gets the same values whether it reads `req["env"]`, its own environment, or
 literal path, or a template with `{sdk}` (the SDK instance id) and `{artifacts_dir}` (the
 artifact directory on the build server); with no value the artifact directory itself is passed.
 `boardctrl dut flash` package hooks always get the unpacked package directory instead. This is an opaque path supplied to
-the hook: bsp does not mount Samba/CIFS, translate Windows/UNC paths, or redirect the SDK's SSH artifact pulls through
+the hook: boardctrl does not mount Samba/CIFS, translate Windows/UNC paths, or redirect the SDK's SSH artifact pulls through
 it. A hook may run `scp` itself or use a share the site manages separately.
 
 `providers.dut.network` gives hooks the board network facts they would otherwise guess: the
 boards' DHCP subnet, this host's address there, and the address other machines use. Missing
 keys default from `server.announce.addresses` (first entry) and `server.bind` (a concrete
-address); `board_subnet` has no default because bsp does not run the boards' DHCP server.
+address); `board_subnet` has no default because boardctrl does not run the boards' DHCP server.
 
 ### Site images
 
@@ -203,7 +203,7 @@ the `registry` provider, typically on a machine every host and client can reach:
 ```yaml
 # hosts/registry.yaml — a registry needs no other provider
 host: {id: registry}
-server: {bind: 0.0.0.0, port: 8765, state_dir: /var/lib/bsp, auth_token: null}
+server: {bind: 0.0.0.0, port: 8765, state_dir: /var/lib/boardctrl, auth_token: null}
 providers:
   registry:
     stale_s: 300          # hosts not heard from for this long are no longer offered to clients
@@ -230,7 +230,7 @@ with what was added and removed, so a newly cabled board is noticed within secon
 
 The registry records the address each announcement came from and offers it first, so a host
 behind NAT is reached at the address others see. `$BSP_REGISTRY_URL` sets `announce.url` from
-the environment. `boardctrl status` on the host shows the last announcement; on the registry, `bsp
+the environment. `boardctrl status` on the host shows the last announcement; on the registry, `boardctrl
 registry list` (and `GET /api/v1/registry/list`) shows the hosts.
 
 ### Console logins
@@ -241,7 +241,7 @@ and nothing else: there is no shell, port forwarding is disabled, and Ctrl-A Ctr
 Ctrl-C and every other key go to the board).
 The users follow the board registry automatically — they are created when a board is added,
 renamed with it, and deleted (ending open sessions) when it is removed. Disabling the option
-removes the users and every file bsp installed for them. `boardctrl dut logins` lists the ready-to-use
+removes the users and every file boardctrl installed for them. `boardctrl dut logins` lists the ready-to-use
 `ssh` commands. Only enable it on networks where everyone may use the boards' consoles.
 
 ## Boards (`duts/*.yaml`)
@@ -301,14 +301,14 @@ With `"registry": "http://registry.example.internal:8765"` at the top level (or
 and description, and is tried at its announced addresses first. A registry that cannot be read
 is reported by `boardctrl hosts` and otherwise ignored. `<site>/remotes.json` is shared by all
 users of the site; `boardctrl remote add/remove/use` edits a personal overlay at
-`~/.config/bsp/remotes.json` (or `$BSP_CONFIG`, or `$XDG_CONFIG_HOME/bsp/remotes.json`).
+`~/.config/boardctrl/remotes.json` (or `$BOARDCTRL_CONFIG`, or `$XDG_CONFIG_HOME/boardctrl/remotes.json`).
 
 ### Which hosts a command uses
 
 1. `--url URL`, else `-r NAME[,NAME…]` (case-insensitive, unique prefixes allowed; `-r all`
    for every host), else `$BOARDCTRL_URL`, else `$BOARDCTRL_REMOTE`.
 2. Without any of these: a `boardctrld` with its DUT answering on `127.0.0.1:8765`
-   (local mode, when you run bsp on a board host), else the default set with `boardctrl remote use`, else every remote.
+   (local mode, when you run boardctrl on a board host), else the default set with `boardctrl remote use`, else every remote.
 
 Board commands (`boardctrl dut …`) find the host that owns the board by asking all selected hosts.
 Host commands (`boardctrl gpio …`, `relay`, `button`, …) run on each selected host in turn; commands
@@ -320,8 +320,8 @@ and a host must be named explicitly.
 
 | File | Contents |
 |---|---|
-| `~/.config/bsp/remotes.json` | Personal remotes and the default remote |
-| `~/.config/bsp/leases.json` | Lease tokens of the boards and SDKs you hold (mode 0600) |
+| `~/.config/boardctrl/remotes.json` | Personal remotes and the default remote |
+| `~/.config/boardctrl/leases.json` | Lease tokens of the boards and SDKs you hold (mode 0600) |
 
 ## Environment variables
 
@@ -339,7 +339,7 @@ and a host must be named explicitly.
 
 `BSP_*` names are still read when the `BOARDCTRL_*` one is unset; the `env:` map of a host config keeps whatever
 names a site's hooks use (the examples use `BSP_*` for that reason).
-| `BSP_CONFIG` | client | Path of the personal `remotes.json` |
+| `BOARDCTRL_CONFIG` | client | Path of the personal `remotes.json` |
 | `BSP_SDK_CATALOG` | client | An extra SDK catalog directory, highest priority |
 | `BSP_SDK_LOCAL` | client | `1`: run SDK operations locally instead of over ssh (on the build server) |
 | `BSP_HOOKS_PATH` | host | Extra hook directories (`:`-separated), searched first |

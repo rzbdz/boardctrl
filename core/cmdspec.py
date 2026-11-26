@@ -1,7 +1,7 @@
 """Command specifications: one definition drives REST routes, AI tool schemas,
 the remote CLI and the web console.
 
-This module is stdlib-only on purpose: the thin `bsp` client imports it to build
+This module is stdlib-only on purpose: the thin `boardctrl` client imports it to build
 its argparse tree from the specs the server publishes at ``GET /api/v1/tools``.
 """
 
@@ -11,6 +11,7 @@ import argparse
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from core import naming
 from core.errors import InvalidRequest
 
 PARAM_TYPES = ("string", "integer", "number", "boolean")
@@ -108,7 +109,7 @@ class CommandSpec:
     """Transport-neutral description of an operation.
 
     ``name`` is dotted (``gpio.set``, ``gpio.alias.add``). The CLI renders it as
-    ``bsp gpio set``, the AI tool name is ``gpio_set`` and the REST route is
+    ``boardctrl gpio set``, the AI tool name is ``gpio_set`` and the REST route is
     ``/api/v1/gpio/{target}/set`` (or ``/api/v1/gpio/alias/add`` without target).
     """
 
@@ -150,7 +151,7 @@ class CommandSpec:
 
     @property
     def cli_usage(self) -> str:
-        parts = ["bsp", *self.segments]
+        parts = [naming.CMD, *self.segments]
         for p in self.params:
             if p.is_positional:
                 parts.append(f"<{p.name}>")
@@ -240,12 +241,12 @@ class CapturingParser(argparse.ArgumentParser):
 
 def build_parser(
     specs: Iterable[CommandSpec],
-    prog: str = "bsp",
+    prog: str = naming.CMD,
     parser_class: type[argparse.ArgumentParser] = argparse.ArgumentParser,
     parent: argparse.ArgumentParser | None = None,
 ) -> argparse.ArgumentParser:
     """Build a nested ``prog seg1 seg2 ... args`` parser. ``_command`` holds the spec name."""
-    root = parent or parser_class(prog=prog, description="bsp dev-loop command line")
+    root = parent or parser_class(prog=prog, description="boardctrl: a board host's command line")
     groups: dict[tuple[str, ...], argparse.ArgumentParser] = {(): root}
     actions: dict[tuple[str, ...], argparse._SubParsersAction] = {}
 

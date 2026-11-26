@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""bsp SDK helper — runs ON the build server (piped over ssh, or locally).
+"""boardctrl SDK helper — runs ON the build server (piped over ssh, or locally).
 
 Stdlib only, Python >= 3.6. One JSON request on argv[1], one JSON reply on stdout:
     {"ok": true, "result": ...}  |  {"ok": false, "error": {"code", "message", "hint"}}
 
-State lives inside the SDK tree under .bsp/ :
-    .bsp/lease.json            who holds the SDK, task branch, what was stashed
-    .bsp/jobs/<id>/{script,log,rc,meta.json}   detached build jobs
-    .bsp/build.lock            flock: one build per SDK at a time
+State lives inside the SDK tree under .boardctrl/ :
+    .boardctrl/lease.json            who holds the SDK, task branch, what was stashed
+    .boardctrl/jobs/<id>/{script,log,rc,meta.json}   detached build jobs
+    .boardctrl/build.lock            flock: one build per SDK at a time
 """
 import json
 import os
@@ -43,14 +43,14 @@ def git(proj, *args, **kw):
 
 
 def state_dir(path):
-    d = os.path.join(path, ".bsp")
+    d = os.path.join(path, ".boardctrl")
     if not os.path.isdir(d):
         os.makedirs(d)
     return d
 
 
 def read_lease(path):
-    p = os.path.join(path, ".bsp", "lease.json")
+    p = os.path.join(path, ".boardctrl", "lease.json")
     if not os.path.exists(p):
         return None
     with open(p) as f:
@@ -94,7 +94,7 @@ def proj_state(path, proj):
 def op_status(req):
     path = req["path"]
     lease = read_lease(path)
-    jobs_dir = os.path.join(path, ".bsp", "jobs")
+    jobs_dir = os.path.join(path, ".boardctrl", "jobs")
     jobs = sorted(os.listdir(jobs_dir))[-5:] if os.path.isdir(jobs_dir) else []
     return {"path": path, "lease": public(lease) if lease and not lease.get("expired") else None,
             "projects": [proj_state(path, p) for p in req.get("projects", [])],
@@ -111,7 +111,7 @@ def _check_holder(lease, token, what):
 
 
 def _exclude_state_dir(path, proj):
-    """Keep .bsp/ out of `git status` when the workspace root is itself a repo."""
+    """Keep .boardctrl/ out of `git status` when the workspace root is itself a repo."""
     p = os.path.join(path, proj)
     if os.path.realpath(p) != os.path.realpath(path):
         return
@@ -120,9 +120,9 @@ def _exclude_state_dir(path, proj):
         return
     ex = os.path.join(info, "exclude")
     lines = open(ex).read().splitlines() if os.path.exists(ex) else []
-    if "/.bsp/" not in lines:
+    if "/.boardctrl/" not in lines:
         with open(ex, "a") as f:
-            f.write("/.bsp/\n")
+            f.write("/.boardctrl/\n")
 
 
 def op_acquire(req):
@@ -131,7 +131,7 @@ def op_acquire(req):
         raise Fail("invalid_request", "task name must be a simple branch-safe word, e.g. fix-usb-resume")
     lease = read_lease(path)
     _check_holder(lease, req.get("token"), "acquire")
-    branch = req.get("branch") or "bsp/{}".format(task)
+    branch = req.get("branch") or "boardctrl/{}".format(task)
     renewing = lease and not lease.get("expired") and lease.get("token") == req.get("token")
     if renewing and lease.get("task") != task:
         raise Fail("conflict", "you already hold this SDK for task '{}'".format(lease["task"]),
@@ -145,7 +145,7 @@ def op_acquire(req):
         st = proj_state(path, proj)
         rec = {"orig_branch": st["branch"], "orig_head": st["head_full"], "stash": None}
         if st["dirty"]:
-            git(p, "stash", "push", "-m", "bsp:{}:{} (before task)".format(task, holder))
+            git(p, "stash", "push", "-m", "boardctrl:{}:{} (before task)".format(task, holder))
             rec["stash"] = git(p, "rev-parse", "stash@{0}")
         rc, _ = sh(["git", "rev-parse", "--verify", "--quiet", branch], cwd=p, check=False)
         if rc == 0:
@@ -181,7 +181,7 @@ def op_release(req):
         if req.get("restore", True):
             st = proj_state(path, proj)
             if st["dirty"]:
-                git(p, "stash", "push", "-m", "bsp:{}:{} (uncommitted work at release)".format(lease["task"], lease["holder"]))
+                git(p, "stash", "push", "-m", "boardctrl:{}:{} (uncommitted work at release)".format(lease["task"], lease["holder"]))
                 r["wip_stash"] = git(p, "rev-parse", "stash@{0}")
             orig = rec["orig_branch"] if rec["orig_branch"] != "HEAD" else rec["orig_head"]
             git(p, "checkout", orig)
@@ -194,13 +194,13 @@ def op_release(req):
                     r["warning"] = "stash {} no longer exists".format(rec["stash"][:12])
             r["now_on"] = orig if len(orig) < 40 else orig[:12]
         report[proj] = r
-    os.remove(os.path.join(path, ".bsp", "lease.json"))
+    os.remove(os.path.join(path, ".boardctrl", "lease.json"))
     return {"released": True, "holder": lease["holder"], "task": lease["task"], "projects": report,
             "note": "the task branch {} is kept".format(lease["branch"])}
 
 
 def job_view(path, job_id, offset=0, max_bytes=65536):
-    d = os.path.join(path, ".bsp", "jobs", job_id)
+    d = os.path.join(path, ".boardctrl", "jobs", job_id)
     if not os.path.isdir(d):
         raise Fail("not_found", "no build job {}".format(job_id))
     meta = {}
@@ -231,18 +231,18 @@ def op_build_start(req):
     job_id = "{}-{}".format(time.strftime("%Y%m%d-%H%M%S"), uuid.uuid4().hex[:4])
     d = os.path.join(state_dir(path), "jobs", job_id)
     os.makedirs(d)
-    lock = os.path.join(path, ".bsp", "build.lock")
+    lock = os.path.join(path, ".boardctrl", "build.lock")
     script = os.path.join(d, "script")
     with open(script, "w") as f:
         f.write("#!/bin/bash\n")
         f.write("exec 9>{}\n".format(lock))
-        f.write("if ! flock -n 9; then echo 'bsp: another build of this SDK is running'; exit 75; fi\n")
+        f.write("if ! flock -n 9; then echo 'boardctrl: another build of this SDK is running'; exit 75; fi\n")
         for pre in req.get("path_prepend", []):
             f.write('export PATH="{}:$PATH"\n'.format(os.path.expanduser(pre)))
         for k, v in sorted((req.get("env_vars") or {}).items()):
             f.write('export {}="{}"\n'.format(k, os.path.expanduser(str(v))))
         f.write("set -o pipefail\n")
-        f.write("echo \"bsp: $(date '+%F %T') start on $(hostname): {}\"\n".format(req["command"].replace('"', '\\"')))
+        f.write("echo \"boardctrl: $(date '+%F %T') start on $(hostname): {}\"\n".format(req["command"].replace('"', '\\"')))
         f.write(req["command"] + "\n")
     meta = {"component": req.get("component"), "command": req["command"], "started": time.time(),
             "holder": (lease or {}).get("holder") if lease and not lease.get("expired") else None}
@@ -254,10 +254,10 @@ def op_build_start(req):
     # session has to be there afterwards, or the build is started on its own.
     started = False
     if shutil.which("tmux"):
-        sh(["tmux", "new-session", "-d", "-s", "bsp-{}".format(job_id), runner])
-        started = sh(["tmux", "has-session", "-t", "bsp-{}".format(job_id)], check=False)[0] == 0
+        sh(["tmux", "new-session", "-d", "-s", "boardctrl-{}".format(job_id), runner])
+        started = sh(["tmux", "has-session", "-t", "boardctrl-{}".format(job_id)], check=False)[0] == 0
         if started:
-            meta["attach"] = "tmux attach -t bsp-{}".format(job_id)
+            meta["attach"] = "tmux attach -t boardctrl-{}".format(job_id)
     if not started:
         subprocess.Popen(["setsid", "bash", "-c", runner], stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -269,7 +269,7 @@ def op_build_poll(req):
 
 
 def op_jobs(req):
-    d = os.path.join(req["path"], ".bsp", "jobs")
+    d = os.path.join(req["path"], ".boardctrl", "jobs")
     ids = sorted(os.listdir(d))[-int(req.get("limit", 10)):] if os.path.isdir(d) else []
     out = []
     for j in ids:
@@ -337,7 +337,7 @@ def op_put(req):
     full = _inside(req["path"], req["file"])
     import base64
     data = base64.b64decode(req["b64"])
-    tmp = full + ".bsptmp"
+    tmp = full + ".boardctrltmp"
     with open(tmp, "wb") as f:
         f.write(data)
     if os.path.exists(full):
@@ -377,7 +377,7 @@ def op_artifacts(req):
         out[role] = {"path": path, "sha256": _sha256(path), "size": st.st_size, "mtime": int(st.st_mtime)}
     job = None
     if req.get("job"):
-        d = os.path.join(req["path"], ".bsp", "jobs", req["job"])
+        d = os.path.join(req["path"], ".boardctrl", "jobs", req["job"])
         if os.path.isdir(d):
             rc = os.path.join(d, "rc")
             script = os.path.join(d, "script")

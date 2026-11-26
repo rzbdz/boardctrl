@@ -2,7 +2,7 @@
 
 This guide takes you from a fresh clone to booting your own build on a real board. It assumes
 the roles described in the [README](../README.md#how-it-works): a **board host** wired to the
-boards, a **build server** holding the SDK trees, and a **client** where you run `bsp`. One
+boards, a **build server** holding the SDK trees, and a **client** where you run `boardctrl`. One
 machine can play several roles.
 
 If you only want to look around, follow [Try it without hardware](../README.md#try-it-without-hardware)
@@ -11,8 +11,8 @@ instead.
 ## 1. Clone
 
 ```bash
-git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-loop
-cd bsp-dev-loop
+git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git boardctrl
+cd boardctrl
 ```
 
 The `providers/smtty/serial-mux` submodule provides the serial consoles. If you cloned without
@@ -25,13 +25,13 @@ All installation-specific data lives in a *site* directory outside this reposito
 the example and keep it under version control privately:
 
 ```bash
-cp -r tests/fixtures/site ~/bsp-site
-cd ~/bsp-site && git init && cd -
-export BOARDCTRL_SITE=~/bsp-site
+cp -r tests/fixtures/site ~/boardctrl-site
+cd ~/boardctrl-site && git init && cd -
+export BOARDCTRL_SITE=~/boardctrl-site
 ```
 
 Keep the site repository at a location of your choice and point `BOARDCTRL_SITE` at it.
-`~/.config/bsp/site` is where `install-client.sh --site` installs *copies* of the site on other
+`~/.config/boardctrl/site` is where `install-client.sh --site` installs *copies* of the site on other
 machines; the script refuses to overwrite a git checkout or symlink there.
 
 The minimum useful site describes one board host. Replace the example values in:
@@ -54,7 +54,7 @@ deploy/deploy.sh HOST             # uses $BOARDCTRL_SITE/deploy/HOST.env
 deploy/deploy.sh HOST status      # service state and health check
 ```
 
-`deploy.sh` ships the committed bsp tree and the site to the host, installs a virtual
+`deploy.sh` ships the committed boardctrl tree and the site to the host, installs a virtual
 environment, registers the `boardctrld` systemd service and checks that it answers. Commit your
 boardctrl changes first, or pass `--allow-dirty`. Use ssh keys; set `SSHPASS` only for hosts that
 accept nothing but a password. See [deployment.md](deployment.md) for all options.
@@ -64,15 +64,15 @@ accept nothing but a password. See [deployment.md](deployment.md) for all option
 On every machine you work from (workstation or build server):
 
 ```bash
-deploy/install-client.sh USER@MACHINE --site ~/bsp-site    # or: deploy/install-client.sh local --site ~/bsp-site
+deploy/install-client.sh USER@MACHINE --site ~/boardctrl-site    # or: deploy/install-client.sh local --site ~/boardctrl-site
 ```
 
-This copies bsp to `~/bsp-dev-loop`, links `~/.local/bin/bsp` (make sure it is on your
-`PATH`) and installs the site at `~/.config/bsp/site`. It logs in with ssh keys only. Then:
+This copies boardctrl to `~/bsp-dev-loop`, links `~/.local/bin/boardctrl` (make sure it is on your
+`PATH`) and installs the site at `~/.config/boardctrl/site`. It logs in with ssh keys only. Then:
 
 ```console
 $ boardctrl init
-config dir: /home/dev/.config/bsp
+config dir: /home/dev/.config/boardctrl
 mode: remote (talking to remote hosts)
   host lab-1            via http://192.0.2.20:8765  duts: -
 next: `boardctrl probe` to discover boards, `boardctrl dut list`, `boardctrl sdk list`
@@ -114,7 +114,7 @@ boardctrl dut bind slot-1 --console /dev/ttyUSB0 --usb usb:1-1.2 --soc k3
 ```
 
 Find the USB path with `fastboot devices -l` while the board is in download mode. Whenever a
-reset is needed, bsp asks a person to press the button and waits; see
+reset is needed, boardctrl asks a person to press the button and waits; see
 [Boards reset by a person](cli.md#boards-reset-by-a-person).
 
 ## 6. Describe an SDK and boot it

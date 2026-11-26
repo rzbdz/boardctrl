@@ -32,7 +32,7 @@ def test_resolve_alias_and_diagnostics(make_service):
 def test_gpio_mode(make_service, backend):
     svc = make_service()
     assert svc.get("P33")["state"] == "unclaimed"
-    assert svc.set_level("P33", "low")["line"] == {"claimed": True, "direction": "out", "value": 0, "owner": "bsp"}
+    assert svc.set_level("P33", "low")["line"] == {"claimed": True, "direction": "out", "value": 0, "owner": "boardctrl"}
     assert svc.set_level("P33", "input")["state"] == "input"
     with pytest.raises(InvalidRequest):
         svc.switch("P33", "on")

@@ -12,7 +12,7 @@ SITE = ROOT / "tests" / "fixtures" / "site"
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path))
     with TestClient(create_app(HostConfig.load(SITE / "hosts" / "dev-mock.yaml"))) as c:
         yield c
 
@@ -81,8 +81,8 @@ def test_web_ui_relative_urls(tmp_path, monkeypatch):
     """The page works at / and under a reverse proxy's prefix: every URL it uses is relative."""
     import re
 
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("BSP_TOKEN", "s3cret")
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("BOARDCTRL_TOKEN", "s3cret")
     with TestClient(create_app(HostConfig.load(SITE / "hosts" / "dev-mock.yaml"))) as c:
         html = c.get("/").text
         assert not re.search(r'(src|href)="/', html)
@@ -103,8 +103,8 @@ def test_web_ui_relative_urls(tmp_path, monkeypatch):
 
 
 def test_auth_token(tmp_path, monkeypatch):
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("BSP_TOKEN", "s3cret")
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("BOARDCTRL_TOKEN", "s3cret")
     with TestClient(create_app(HostConfig.load(SITE / "hosts" / "dev-mock.yaml"))) as c:
         assert c.get("/api/v1/gpio/list").status_code == 200
         assert c.post("/api/v1/gpio/P7/set?level=low").status_code == 403

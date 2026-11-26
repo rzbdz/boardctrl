@@ -85,7 +85,7 @@ def test_host_announces_itself_and_the_cli_finds_it(tmp_path, monkeypatch, capsy
     from frontends.cli.main import main
 
     reg_server, reg_url = _serve(create_app(_config(tmp_path, REGISTRY)))
-    monkeypatch.setenv("BSP_STATE_DIR", str(tmp_path / "mock-state"))
+    monkeypatch.setenv("BOARDCTRL_STATE_DIR", str(tmp_path / "mock-state"))
     mock = HostConfig.load(SITE / "hosts" / "dev-mock.yaml")
     host_port = None
     with socket.socket() as s:
@@ -112,15 +112,15 @@ def test_host_announces_itself_and_the_cli_finds_it(tmp_path, monkeypatch, capsy
         # register it the way a host on the network would be seen
         reg_body = {"host": "dev-mock", "port": host_port, "addresses": ["192.0.2.40"]}
         reg.request("POST", "/api/v1/registry/announce", reg_body)
-        monkeypatch.setenv("BSP_REGISTRY", reg_url)
-        monkeypatch.delenv("BSP_REMOTE", raising=False)
-        monkeypatch.delenv("BSP_URL", raising=False)
+        monkeypatch.setenv("BOARDCTRL_REGISTRY", reg_url)
+        monkeypatch.delenv("BOARDCTRL_REMOTE", raising=False)
+        monkeypatch.delenv("BOARDCTRL_URL", raising=False)
         from frontends.cli.remotes import RemoteStore
 
         store = RemoteStore(stateless=True, builtin_path=tmp_path / "none.json")
         r = store.remotes()["dev-mock"]
         assert r.source == "registry" and r.url == f"http://192.0.2.40:{host_port}"
-        monkeypatch.setenv("BSP_REGISTRY", "http://127.0.0.1:1")
+        monkeypatch.setenv("BOARDCTRL_REGISTRY", "http://127.0.0.1:1")
         store = RemoteStore(stateless=True, builtin_path=tmp_path / "none.json")
         assert "dev-mock" not in store.remotes() and "registry http://127.0.0.1:1" in store.registry_error
     finally:
@@ -241,13 +241,13 @@ def test_announcer_is_poked_by_port_changes():
 
 def test_an_ssh_url_reaches_bspd_through_ssh(monkeypatch):
     """`--url ssh://user@host:port` is bspd on that machine's loopback port, reached through ssh, with the ssh options a
-    program driving bsp adds (BSP_SSH_OPTIONS: boardlab's own key)."""
+    program driving bsp adds (BOARDCTRL_SSH_OPTIONS: boardlab's own key)."""
     from frontends.cli.remotes import RemoteStore
     from frontends.cli.transport import SshTransport, _ssh_base
 
     r = RemoteStore(stateless=True).select(url="ssh://root@lab-1:8766")[0]
     [t] = r.transports()
     assert isinstance(t, SshTransport) and t.target == "root@lab-1" and t.port == 8766
-    monkeypatch.setenv("BSP_SSH_OPTIONS", "-i /var/lib/boardlab/ssh/id_ed25519 -o IdentitiesOnly=yes")
+    monkeypatch.setenv("BOARDCTRL_SSH_OPTIONS", "-i /var/lib/boardlab/ssh/id_ed25519 -o IdentitiesOnly=yes")
     base = _ssh_base("root@lab-1")
     assert base[-1] == "root@lab-1" and base[-5:-1] == ["-i", "/var/lib/boardlab/ssh/id_ed25519", "-o", "IdentitiesOnly=yes"]

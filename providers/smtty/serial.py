@@ -152,7 +152,7 @@ class SerialConsole(ConsoleProvider):
                                       details={"console_tail": text[-800:]})
             if now > deadline:
                 raise HardwareTimeout(f"/{pattern}/ not seen on console within {timeout:g}s",
-                                      hint="see `bsp dut log <dut>`; the board may be in another stage",
+                                      hint="see `boardctrl dut log <dut>`; the board may be in another stage",
                                       details={"console_tail": text[-800:]})
             token.sleep(0.25)
 
@@ -197,7 +197,7 @@ class SerialConsole(ConsoleProvider):
         text = self.read_since(mark)
         if r.returncode == 2:
             raise HardwareTimeout(f"prompt /{expect}/ not seen within {timeout:g}s after `{command}`",
-                                  hint="the board may not be booted to a shell: `bsp dut status`",
+                                  hint="the board may not be booted to a shell: `boardctrl dut status`",
                                   details={"output": (r.stdout or text)[-2000:]})
         if r.returncode not in (0,):
             raise HardwareError(f"smtty failed (rc={r.returncode}): {(r.stderr or r.stdout).strip()[-300:]}",

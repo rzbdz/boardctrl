@@ -9,7 +9,7 @@ A hook is any executable file ``<hooks-dir>/<kind>/<name>`` (any language).
             (stderr / last stdout lines are surfaced in the error)
 
 Search order (first match wins): $BSP_HOOKS_PATH (":"-separated), the caller's dirs
-(host config, then: the site before the shipped platforms), ~/.config/bsp/hooks, then the core
+(host config, then: the site before the shipped platforms), ~/.config/boardctrl/hooks, then the core
 hooks/ of the repo — so a site or a pack can add or override a hook without
 touching core. A hook gets that search path as $BSP_HOOK_DIRS, so it can hand part of its work to another
 (a site flasher that reads packages the way the platform's does, say).
@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from core import proc
+from core import naming, proc
 from core.errors import HardwareError, HardwareTimeout, InvalidRequest, NotFound
 
 REPO_HOOKS = Path(__file__).resolve().parents[1] / "hooks"
@@ -45,8 +45,8 @@ class HookResult:
 
 class HookRunner:
     def __init__(self, extra_dirs: tuple[str, ...] = (), env: dict[str, str] | None = None):
-        env_dirs = [p for p in os.environ.get("BSP_HOOKS_PATH", "").split(":") if p]
-        dirs = [*env_dirs, *extra_dirs, str(Path.home() / ".config" / "bsp" / "hooks"), str(REPO_HOOKS)]
+        env_dirs = [p for p in naming.get("BOARDCTRL_HOOKS_PATH", "").split(":") if p]
+        dirs = [*env_dirs, *extra_dirs, str(Path.home() / ".config" / naming.CMD / "hooks"), str(REPO_HOOKS)]
         self.dirs = [Path(d).expanduser() for d in dirs]
         # The host config's `env:` map: in the hook's process environment too, so shell hooks can
         # use `${NAME:-default}` as they always have.
@@ -71,22 +71,23 @@ class HookRunner:
         return list(seen)
 
     def declares(self, kind: str, name: str, capability: str) -> bool:
-        """Whether the hook says it has `capability`: a line `bsp-hook: <capability> ...` in its first 8 KB (a
-        comment or docstring line). A hook that says nothing has none, so it is never called in a mode it does
-        not know."""
+        """Whether the hook says it has `capability`: a line `boardctrl-hook: <capability> ...` in its first 8 KB (a
+        comment or docstring line). A hook written before the rename says `bsp-hook:`, which still counts. A hook that
+        says nothing has none, so it is never called in a mode it does not know."""
         try:
             head = self.find(kind, name).read_bytes()[:8192].decode("utf-8", "replace")
         except (NotFound, OSError):
             return False
         for line in head.splitlines():
             s = line.strip().lstrip("#").strip()
-            if s.startswith("bsp-hook:") and capability in s[len("bsp-hook:"):].replace(",", " ").split():
-                return True
+            for prefix in ("boardctrl-hook:", "bsp-hook:"):
+                if s.startswith(prefix) and capability in s[len(prefix):].replace(",", " ").split():
+                    return True
         return False
 
     def check(self, kind: str, name: str, request: dict[str, Any], timeout: float = 30) -> dict[str, Any]:
         """Ask a hook whether it can run here, before anything is fetched or a board is touched:
-        `{"ready": bool, "reason": str, "hint": str}`. A hook that declares `bsp-hook: check` gets the request with
+        `{"ready": bool, "reason": str, "hint": str}`. A hook that declares `boardctrl-hook: check` gets the request with
         `"check": true`, must not touch hardware, and answers `{"ready": true}` (exit 0) or `{"ready": false,
         "reason", "hint"}`; one that declares nothing is taken as ready once it is found."""
         try:
@@ -97,7 +98,7 @@ class HookRunner:
             return {"ready": True, "reason": "", "hint": ""}
         try:
             r = proc.run([str(self.find(kind, name))], input=json.dumps({**request, "check": True}), timeout=timeout,
-                         grace=2, env={**os.environ, **self.env, "BSP_HOOK_KIND": kind, "BSP_HOOK_NAME": name,
+                         grace=2, env={**os.environ, **self.env, "BOARDCTRL_HOOK_KIND": kind, "BOARDCTRL_HOOK_NAME": name,
                                        "BSP_HOOK_CHECK": "1", "PYTHONUNBUFFERED": "1"})
         except proc.TimedOut:
             return {"ready": False, "reason": f"its check did not answer in {timeout:g}s", "hint": ""}
@@ -164,8 +165,8 @@ class HookRunner:
         # go of a device, then SIGKILL).
         try:
             r = proc.run([str(path)], input=json.dumps(request), timeout=timeout, on_line=on_line, grace=10,
-                         env={**os.environ, **self.env, "BSP_HOOK_KIND": kind, "BSP_HOOK_NAME": name,
-                              "BSP_HOOK_DIRS": ":".join(map(str, self.dirs)), "PYTHONUNBUFFERED": "1"})
+                         env={**os.environ, **self.env, "BOARDCTRL_HOOK_KIND": kind, "BOARDCTRL_HOOK_NAME": name,
+                              "BOARDCTRL_HOOK_DIRS": ":".join(map(str, self.dirs)), "PYTHONUNBUFFERED": "1"})
         except proc.TimedOut as t:
             raise HardwareTimeout(f"hook {kind}/{name} timed out after {timeout:g}s",
                                   hint="give it more time (a timeout option of the command, or the recipe step's "

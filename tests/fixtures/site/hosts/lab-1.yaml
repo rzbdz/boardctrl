@@ -6,12 +6,12 @@ server:
   bind: 0.0.0.0
   port: 8765
   state_dir: /var/lib/bsp      # probed DUTs, leases, runtime GPIO config, artifact cache
-  auth_token: null             # or env BSP_TOKEN: required for POST
+  auth_token: null             # or env BOARDCTRL_TOKEN: required for POST
 env:                           # values hooks receive as req["env"], in their process environment and in args
-  BSP_TFTP_SERVER: 192.0.2.20
-  BSP_SDK_OUTPUT: /srv/sdk-output
-  BSP_SERIAL_LOG_DIR: /root/.serial-mux/logs
-  BSP_SMTTY: smtty
+  BOARDCTRL_TFTP_SERVER: 192.0.2.20
+  BOARDCTRL_SDK_OUTPUT: /srv/sdk-output
+  BOARDCTRL_SERIAL_LOG_DIR: /root/.serial-mux/logs
+  BOARDCTRL_SMTTY: smtty
 providers:
   gpio:                  # before dut: dut drives the reset/FDL lines through it
     board: example-40pin       # boards/<id>.yaml

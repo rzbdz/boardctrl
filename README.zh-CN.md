@@ -9,7 +9,7 @@
 
 **在真实开发板上修改、编译、启动并验证嵌入式 Linux——人和 AI agent 共用同一个命令行。**
 
-`bsp` 把一屋子开发板变成可共享、可编程调用的服务：租用一块板子，在远程编译服务器上编译内核或
+`boardctrl` 把一屋子开发板变成可共享、可编程调用的服务：租用一块板子，在远程编译服务器上编译内核或
 引导程序，通过 fastboot 加载到内存启动或烧写，再在串口上检查结果。全程无需登录编译服务器，
 无需手动操作 GPIO，也无需自己管理 `fastboot -s` 和串口设备。
 
@@ -50,9 +50,9 @@
   网页引脚图和引脚复用冲突检查。
 - **串口控制台。** 常驻、带日志的控制台，USB 转串口重新枚举后仍可继续使用。基于
   [serial-mux](https://github.com/TroyMitchell911/serial-mux)（以子模块形式包含：我们的分支，增加了按 USB
-  端口自动重连，分支 `bsp/usb-port-reconnect`）。可以执行单条命令取回输出、交互式接入，也可以（可选）让人
-  直接用 `ssh bsp-<板名>@<主机>` 打开某块板子的串口。
-- **免接线的板子。** `boardctrl dut bind` 只用一个串口和一个 USB 端口即可登记一块板子。需要复位时，bsp 会请人
+  端口自动重连，分支 `boardctrl/usb-port-reconnect`）。可以执行单条命令取回输出、交互式接入，也可以（可选）让人
+  直接用 `ssh boardctrl-<板名>@<主机>` 打开某块板子的串口。
+- **免接线的板子。** `boardctrl dut bind` 只用一个串口和一个 USB 端口即可登记一块板子。需要复位时，boardctrl 会请人
   按复位键，在对方确认或检测到板子进入下载模式后自动继续，适合批量烧写和快速联调。
 - **多主机，一个 CLI。** 客户端会找到所有已知的板控主机（直接 HTTP 或经 ssh 隧道），并把每条命令路由到
   板子所在的主机。
@@ -68,9 +68,9 @@ $ boardctrl dut list --free
 DUT            HOST   SOC    BOARD    STAGE    LEASE  USB        CONSOLE        SDKS
 example-board  lab-1  soc-b  board-x  off-bus  free   usb:1-1.2  example-board  upstream-a
 
-$ boardctrl sdk acquire upstream-a --task fix-usb-resume      # 租用源码树，切到分支 bsp/fix-usb-resume
+$ boardctrl sdk acquire upstream-a --task fix-usb-resume      # 租用源码树，切到分支 boardctrl/fix-usb-resume
 $ boardctrl sdk get upstream-a drivers/usb/core/hub.c -o hub.c    # 远程修改：取回、修改、写回
-$ vi hub.c && bsp sdk put upstream-a drivers/usb/core/hub.c hub.c
+$ vi hub.c && boardctrl sdk put upstream-a drivers/usb/core/hub.c hub.c
 $ boardctrl sdk build upstream-a kernel                       # 在编译服务器上编译，实时输出日志
 $ boardctrl dut acquire example-board
 $ boardctrl dut boot example-board --sdk upstream-a           # 内存启动；--method download 则为烧写
@@ -81,7 +81,7 @@ $ boardctrl dut boot example-board --sdk upstream-a           # 内存启动；-
   [  44.3s] done in 42.8s
 $ boardctrl dut console example-board "dmesg | grep -i usb"
 $ boardctrl sdk exec upstream-a -- git commit -am "'usb: fix resume'"   # 内层引号用于远程 shell
-$ boardctrl dut release example-board && bsp sdk release upstream-a
+$ boardctrl dut release example-board && boardctrl sdk release upstream-a
 ```
 
 出错时，错误信息会说明下一步该做什么：
@@ -97,7 +97,7 @@ hint: did you mean: example-board? known: example-board@lab-1
 ```mermaid
 flowchart TB
   subgraph you["你的电脑或编译服务器"]
-    user["开发者 / AI agent"] --> cli["bsp CLI"]
+    user["开发者 / AI agent"] --> cli["boardctrl CLI"]
   end
   subgraph build["编译服务器"]
     tree["SDK 工作区<br/>（源码树、任务分支、编译任务）"]
@@ -119,7 +119,7 @@ flowchart TB
 - **板控主机**：与开发板连线的 Linux 机器——GPIO 接到板子的复位键（以及可选的下载模式键），USB 用于
   fastboot，USB 转串口用于控制台。它运行 `boardctrld`，负责管理板子、租约和启动配方。
 - **编译服务器**：存放并编译 SDK 源码树的机器。只需要 ssh 和 Python ≥ 3.6，无需安装任何东西。
-- **客户端**：工作站或编译服务器上的 `bsp` 命令。
+- **客户端**：工作站或编译服务器上的 `boardctrl` 命令。
 
 具体环境的知识来自分层配置：通用的核心、随发行版提供的 **providers**（把一种工具接到一个角色上的适配器）、仓库自带的硬件 **platform**（SoC BootROM 特征、板卡排针定义等
 公开信息），以及你私有的 **site** 目录。完整模型见 [docs/architecture.md](docs/architecture.md)。
@@ -131,7 +131,7 @@ flowchart TB
 | 开发板（DUT） | BootROM 提供可用 `fastboot` 访问的 USB 下载模式的 SoC | 启动步骤是配置，其他流程无需写代码即可描述 |
 | 自带的 SoC 配置 | SpacemiT K1、SpacemiT K3（`platforms/spacemit`） | 已验证的被测板：K1-x MUSE Card（K1）、K3 deb1（K3） |
 | 板控主机 | 带 GPIO 排针（sysfs 或 libgpiod）、USB 主机口和 systemd 的 Linux | 自带两款用作板控主机的 SpacemiT 板卡的排针定义：K3 Com260 和 K1-x deb1；其他主机加一个 YAML 文件即可 |
-| 复位控制 | GPIO 开漏按键或继电器；由 bsp 提示人工操作（`human`） | Home Assistant 后端尚为占位实现 |
+| 复位控制 | GPIO 开漏按键或继电器；由 boardctrl 提示人工操作（`human`） | Home Assistant 后端尚为占位实现 |
 | 控制台 | 任意 USB 转串口，经由 serial-mux | |
 
 新增 SoC 只需一个 YAML 配置，以及可选的已知可用的引导程序镜像，见 [docs/porting.md](docs/porting.md)。
@@ -142,18 +142,18 @@ flowchart TB
 和 Web 控制台：
 
 ```bash
-git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-loop
-cd bsp-dev-loop
+git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git boardctrl
+cd boardctrl
 python3 -m venv .venv && .venv/bin/pip install -e '.[server]'
 
 export BOARDCTRL_SITE=$PWD/tests/fixtures/site
 .venv/bin/boardctrld -c tests/fixtures/site/hosts/dev-mock.yaml --port 8765 &
 
 export BOARDCTRL_URL=http://127.0.0.1:8765
-bin/bsp dut list                      # 两块模拟板子：mock-board（GPIO 复位）、mock-slot（人工复位）
-bin/bsp button click DUT1/reset       # 在模拟排针上"按下"复位键
-bin/bsp sdk list                      # 示例 SDK 目录
-bin/bsp sdk plan bsp-a --boot load    # bsp-a 内存启动会执行的步骤
+bin/boardctrl dut list                      # 两块模拟板子：mock-board（GPIO 复位）、mock-slot（人工复位）
+bin/boardctrl button click DUT1/reset       # 在模拟排针上"按下"复位键
+bin/boardctrl sdk list                      # 示例 SDK 目录
+bin/boardctrl sdk plan bsp-a --boot load    # bsp-a 内存启动会执行的步骤
 ```
 
 然后打开 <http://127.0.0.1:8765> 查看 Web 控制台。模拟板子可以租用，并用 `boardctrl dut reset mock-board --no-fdl`
@@ -163,7 +163,7 @@ bin/bsp sdk plan bsp-a --boot load    # bsp-a 内存启动会执行的步骤
 
 | 角色 | 需要 |
 |---|---|
-| 客户端 | Python ≥ 3.8 和 PyYAML（从源码目录运行 `bin/bsp`），或 Python ≥ 3.10（`pip install`）；`ssh` |
+| 客户端 | Python ≥ 3.8 和 PyYAML（从源码目录运行 `bin/boardctrl`），或 Python ≥ 3.10（`pip install`）；`ssh` |
 | 板控主机 | Linux、Python ≥ 3.10、systemd、root 权限、`fastboot`、sysfs 或 libgpiod 形式的 GPIO（后者还需系统库 `libgpiod`），安装时可访问 PyPI |
 | 编译服务器 | 基于密钥的 ssh 访问、Python ≥ 3.6、git；建议安装 `tmux` |
 | 执行部署的机器 | git、ssh、tar（仅密码登录时需要 `sshpass`） |
@@ -173,7 +173,7 @@ bin/bsp sdk plan bsp-a --boot load    # bsp-a 内存启动会执行的步骤
 带子模块克隆（提供串口控制台的 serial-mux 是子模块）：
 
 ```bash
-git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-loop
+git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git boardctrl
 ```
 
 接下来简要步骤如下：

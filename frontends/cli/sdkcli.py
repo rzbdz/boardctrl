@@ -1,4 +1,4 @@
-"""`bsp sdk ...` — SDK instances on build servers (client side, no service needed).
+"""`boardctrl sdk ...` — SDK instances on build servers (client side, no service needed).
 
 Everything runs on the build server through core/sdk/helper.py: piped over ssh,
 or executed locally when the CLI already runs on that server.
@@ -40,8 +40,8 @@ def catalog() -> SdkCatalog:
     layer = registry_layer()                 # the registry's catalog above the site, when there is a registry
     if layer:
         roots.append(layer)
-    if os.environ.get("BSP_SDK_CATALOG"):
-        roots.append(Path(os.environ["BSP_SDK_CATALOG"]))
+    if naming.get("BOARDCTRL_SDK_CATALOG"):
+        roots.append(Path(naming.get("BOARDCTRL_SDK_CATALOG")))
     return SdkCatalog(roots)
 
 
@@ -56,7 +56,7 @@ def _local_ips() -> set[str]:
 
 
 def is_local(server) -> bool:
-    if os.environ.get("BSP_SDK_LOCAL") == "1":
+    if naming.get("BOARDCTRL_SDK_LOCAL") == "1":
         return True
     fq = socket.getfqdn()
     names = {server.id, server.raw.get("dns", ""), server.host}
@@ -78,7 +78,7 @@ def helper(inst, op: str, timeout: float = 120, **args: Any) -> Any:
     try:
         reply = json.loads(line)
     except ValueError:
-        raise BspError(f"cannot run the bsp helper on {inst.server.ssh}: {(r.stderr or r.stdout).strip()[-300:]}",
+        raise BspError(f"cannot run the boardctrl helper on {inst.server.ssh}: {(r.stderr or r.stdout).strip()[-300:]}",
                        hint="needs ssh key access and python3 on the build server") from None
     if not reply.get("ok"):
         e = reply["error"]
@@ -152,7 +152,7 @@ def sdk_status(args) -> tuple[Any, str]:
 
 def sdk_acquire(args, book) -> tuple[Any, str]:
     i = catalog().get(args.sdk)
-    token = args.lease or os.environ.get("BSP_SDK_LEASE") or book.get(_key(i))
+    token = args.lease or naming.get("BOARDCTRL_SDK_LEASE") or book.get(_key(i))
     projects = args.projects.split(",") if args.projects else i.dev_projects
     res = helper(i, "acquire", task=args.task, holder=args.holder, ttl=args.ttl, token=token,
                  projects=projects, branch=args.branch, sdk=i.id, workspace=i.workspace.id)
@@ -165,13 +165,13 @@ def sdk_acquire(args, book) -> tuple[Any, str]:
         lines.append(f"  {proj}: was {rec['orig_branch']}@{rec['orig_head'][:12]}"
                      + (f", stashed local changes as {rec['stash'][:12]}" if rec.get("stash") else ", clean")
                      + f" -> now on {res['branch']}")
-    lines.append(f"edit under {i.server.id}:{i.path}/{projects[0]} , then `bsp sdk build {i.id} <component>`")
+    lines.append(f"edit under {i.server.id}:{i.path}/{projects[0]} , then `boardctrl sdk build {i.id} <component>`")
     return res, "\n".join(lines)
 
 
 def sdk_release(args, book) -> tuple[Any, str]:
     i = catalog().get(args.sdk)
-    token = args.lease or os.environ.get("BSP_SDK_LEASE") or book.get(_key(i))
+    token = args.lease or naming.get("BOARDCTRL_SDK_LEASE") or book.get(_key(i))
     res = helper(i, "release", token=token, restore=not args.keep, force=args.force)
     book.drop(_key(i))
     if not res.get("released"):
@@ -184,7 +184,7 @@ def sdk_release(args, book) -> tuple[Any, str]:
 
 def sdk_build(args, book, out=sys.stdout) -> tuple[Any, str]:
     i = catalog().get(args.sdk)
-    token = args.lease or os.environ.get("BSP_SDK_LEASE") or book.get(_key(i))
+    token = args.lease or naming.get("BOARDCTRL_SDK_LEASE") or book.get(_key(i))
     cmd = i.build_command(args.component, args.clean)
     job = helper(i, "build_start", command=cmd, component=args.component, token=token,
                  path_prepend=i.path_prepend, env_vars=i.env_vars)
@@ -192,7 +192,7 @@ def sdk_build(args, book, out=sys.stdout) -> tuple[Any, str]:
     if job.get("attach"):
         print(f"  (attach: ssh {i.server.ssh} -t {job['attach']})", file=out, flush=True)
     if args.no_wait:
-        return job, f"started; follow with `bsp sdk job {i.id} {job['id']}`"
+        return job, f"started; follow with `boardctrl sdk job {i.id} {job['id']}`"
     return follow_build(i, job["id"], args.verbose, out, args.timeout)
 
 
@@ -217,7 +217,7 @@ def follow_build(i, job_id: str, verbose: bool, out, timeout: float) -> tuple[An
             break
         if time.time() - t0 > timeout:
             raise BspError(f"build {job_id} still running after {timeout:g}s",
-                           hint=f"it keeps running; follow with `bsp sdk job {i.id} {job_id}`")
+                           hint=f"it keeps running; follow with `boardctrl sdk job {i.id} {job_id}`")
         if not v["chunk"]:
             time.sleep(1.0)
     v["elapsed_s"] = round(time.time() - t0, 1)
@@ -225,7 +225,7 @@ def follow_build(i, job_id: str, verbose: bool, out, timeout: float) -> tuple[An
     v["tail"] = tail[-25:]
     if v["status"] != "succeeded":
         raise BspError(f"build {job_id} failed (exit {v['rc']})",
-                       hint=f"full log: {i.server.ssh}:{v['log']}  (bsp sdk job {i.id} {job_id} --log)",
+                       hint=f"full log: {i.server.ssh}:{v['log']}  (boardctrl sdk job {i.id} {job_id} --log)",
                        details={"tail": tail[-25:]})
     arts = i.artifacts()
     v["artifacts"] = built_artifacts(i, job_id, out)
@@ -274,7 +274,7 @@ def sdk_jobs(args) -> tuple[Any, str]:
 
 
 def _token(i, args, book):
-    return getattr(args, "lease", None) or os.environ.get("BSP_SDK_LEASE") or book.get(_key(i))
+    return getattr(args, "lease", None) or naming.get("BOARDCTRL_SDK_LEASE") or book.get(_key(i))
 
 
 def sdk_exec(args, book) -> tuple[Any, str]:
@@ -284,7 +284,7 @@ def sdk_exec(args, book) -> tuple[Any, str]:
         words = words[1:]
     cmd = " ".join(words)
     if not cmd.strip():
-        raise InvalidRequest("no command given", hint="bsp sdk exec <sdk> -- git status")
+        raise InvalidRequest("no command given", hint="boardctrl sdk exec <sdk> -- git status")
     cwd = args.cwd if args.cwd is not None else (i.dev_projects[0] if i.dev_projects else ".")
     r = helper(i, "exec", timeout=args.timeout + 30, command=cmd, cwd=cwd, timeout_s=args.timeout,
                token=_token(i, args, book), mutating=not args.read_only)
@@ -415,4 +415,4 @@ def run(args, book):
         return sdk_get(args, book)
     if c == "put":
         return sdk_put(args, book)
-    raise InvalidRequest("missing sdk action", hint="bsp sdk --help")
+    raise InvalidRequest("missing sdk action", hint="boardctrl sdk --help")

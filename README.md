@@ -10,7 +10,7 @@ English | [简体中文](README.zh-CN.md)
 **Edit, build, boot and verify embedded Linux on real boards — from one command line that
 people and AI agents share.**
 
-`boardctrl` (formerly `bsp`) turns a lab of development boards into a shared, scriptable service, under boardlab:
+`boardctrl` turns a lab of development boards into a shared, scriptable service, under boardlab:
 boardlab coordinates the lab (locks, queues, agents), boardctrl controls one host's boards. You lease a board,
 build your kernel or bootloader on a remote build server, RAM-boot or flash it over fastboot,
 and check the result on the serial console — without logging in to the build server, touching
@@ -31,7 +31,7 @@ actionable error message, also reachable over HTTP and as an AI tool.
 - [Try it without hardware](#try-it-without-hardware)
 - [Requirements](#requirements)
 - [Installation](#installation)
-- [Using bsp with AI agents](#using-bsp-with-ai-agents)
+- [Using boardctrl with AI agents](#using-boardctrl-with-ai-agents)
 - [Interfaces](#interfaces)
 - [Configuration](#configuration)
 - [Security](#security)
@@ -58,9 +58,9 @@ actionable error message, also reachable over HTTP and as an AI tool.
 - **Serial consoles.** Persistent, logged consoles that survive USB-UART re-enumeration, via
   [serial-mux](https://github.com/TroyMitchell911/serial-mux) (a submodule: our fork with
   USB-port-following reconnects). Run a command and get its output, attach interactively, or
-  let people open a board's console with `ssh bsp-<board>@<host>` (optional).
+  let people open a board's console with `ssh boardctrl-<board>@<host>` (optional).
 - **Boards without wiring.** `boardctrl dut bind` turns a serial console and a USB port into a board
-  slot in seconds. When it needs a reset, bsp asks a person and continues once they confirm or
+  slot in seconds. When it needs a reset, boardctrl asks a person and continues once they confirm or
   once the board shows up in download mode — useful for batch flashing and quick bring-up.
 - **Many hosts, one CLI.** The client finds every board host it knows about, over HTTP or
   tunnelled through ssh, and routes each command to the host that owns the board.
@@ -77,9 +77,9 @@ $ boardctrl dut list --free
 DUT            HOST   SOC    BOARD    STAGE    LEASE  USB        CONSOLE        SDKS
 example-board  lab-1  soc-b  board-x  off-bus  free   usb:1-1.2  example-board  upstream-a
 
-$ boardctrl sdk acquire upstream-a --task fix-usb-resume      # lease the tree, branch bsp/fix-usb-resume
+$ boardctrl sdk acquire upstream-a --task fix-usb-resume      # lease the tree, branch boardctrl/fix-usb-resume
 $ boardctrl sdk get upstream-a drivers/usb/core/hub.c -o hub.c    # edit remotely: fetch, change, write back
-$ vi hub.c && bsp sdk put upstream-a drivers/usb/core/hub.c hub.c
+$ vi hub.c && boardctrl sdk put upstream-a drivers/usb/core/hub.c hub.c
 $ boardctrl sdk build upstream-a kernel                       # runs on the build server, streams the log
 $ boardctrl dut acquire example-board
 $ boardctrl dut boot example-board --sdk upstream-a           # RAM boot; --method download flashes instead
@@ -90,7 +90,7 @@ $ boardctrl dut boot example-board --sdk upstream-a           # RAM boot; --meth
   [  44.3s] done in 42.8s
 $ boardctrl dut console example-board "dmesg | grep -i usb"
 $ boardctrl sdk exec upstream-a -- git commit -am "'usb: fix resume'"   # inner quotes survive the remote shell
-$ boardctrl dut release example-board && bsp sdk release upstream-a
+$ boardctrl dut release example-board && boardctrl sdk release upstream-a
 ```
 
 When something goes wrong, the error says what to do next:
@@ -106,7 +106,7 @@ hint: did you mean: example-board? known: example-board@lab-1
 ```mermaid
 flowchart TB
   subgraph you["Your machine or build server"]
-    user["Developer / AI agent"] --> cli["bsp CLI"]
+    user["Developer / AI agent"] --> cli["boardctrl CLI"]
   end
   subgraph build["Build server"]
     tree["SDK workspace<br/>(source tree, task branch, build jobs)"]
@@ -128,9 +128,9 @@ flowchart TB
 - **Board host** — a Linux machine wired to the boards: GPIO lines to their reset (and
   optionally download-mode) buttons, USB for fastboot, USB-UART adapters for the consoles. It
   runs `boardctrld`, which owns the boards, their leases and the boot recipes.
-- **Build server** — where SDK source trees live and build. bsp needs only ssh and Python ≥ 3.6
+- **Build server** — where SDK source trees live and build. boardctrl needs only ssh and Python ≥ 3.6
   there; nothing is installed.
-- **Client** — the `bsp` command on a workstation or on the build server itself.
+- **Client** — the `boardctrl` command on a workstation or on the build server itself.
 
 Installation-specific knowledge comes from layers: the **core** (the kernel), the **providers** this
 release ships (each binding a tool to a role), the hardware **platforms** shipped in this repository
@@ -156,18 +156,18 @@ The repository ships a fictional site (`tests/fixtures/site/`) and a mock GPIO b
 explore the CLI, the HTTP API and the web console on any Linux machine:
 
 ```bash
-git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-loop
-cd bsp-dev-loop
+git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git boardctrl
+cd boardctrl
 python3 -m venv .venv && .venv/bin/pip install -e '.[server]'
 
 export BOARDCTRL_SITE=$PWD/tests/fixtures/site
 .venv/bin/boardctrld -c tests/fixtures/site/hosts/dev-mock.yaml --port 8765 &
 
 export BOARDCTRL_URL=http://127.0.0.1:8765
-bin/bsp dut list                      # two mock boards: mock-board (GPIO reset), mock-slot (manual reset)
-bin/bsp button click DUT1/reset       # "press" a reset button on the mock GPIO header
-bin/bsp sdk list                      # the example SDK catalog
-bin/bsp sdk plan bsp-a --boot load    # what a RAM boot of bsp-a would do
+bin/boardctrl dut list                      # two mock boards: mock-board (GPIO reset), mock-slot (manual reset)
+bin/boardctrl button click DUT1/reset       # "press" a reset button on the mock GPIO header
+bin/boardctrl sdk list                      # the example SDK catalog
+bin/boardctrl sdk plan bsp-a --boot load    # what a RAM boot of bsp-a would do
 ```
 
 Then open <http://127.0.0.1:8765> for the web console. The mock boards can be leased and reset
@@ -177,7 +177,7 @@ with `boardctrl dut reset mock-board --no-fdl`; download mode and booting need r
 
 | Role | Needs |
 |---|---|
-| Client | Python ≥ 3.8 and PyYAML (run `bin/bsp` from a clone), or Python ≥ 3.10 for `pip install`; `ssh` |
+| Client | Python ≥ 3.8 and PyYAML (run `bin/boardctrl` from a clone), or Python ≥ 3.10 for `pip install`; `ssh` |
 | Board host | Linux, Python ≥ 3.10, systemd, root access, `fastboot`, GPIO via sysfs or libgpiod (plus the `libgpiod` system library for the latter), network access to PyPI during installation |
 | Build server | ssh access with a key, Python ≥ 3.6, git; `tmux` recommended |
 | Machine that deploys hosts | git, ssh, tar (and `sshpass` only for password logins) |
@@ -187,14 +187,14 @@ with `boardctrl dut reset mock-board --no-fdl`; download mode and booting need r
 Clone with submodules (serial-mux, which provides the consoles, is a submodule):
 
 ```bash
-git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git bsp-dev-loop
+git clone --recurse-submodules https://github.com/rzbdz/boardctrl.git boardctrl
 ```
 
 Then, in short:
 
 1. **Create a site.** Copy `tests/fixtures/site/` to a private location (for example its own git
    repository) and describe your board hosts, build servers and SDKs. Point `BOARDCTRL_SITE` at it,
-   or place it at `~/.config/bsp/site`.
+   or place it at `~/.config/boardctrl/site`.
 2. **Deploy each board host:** `deploy/deploy.sh HOST_ID` installs `boardctrld` as a systemd
    service, using `SITE/deploy/HOST_ID.env` and `SITE/hosts/HOST_ID.yaml`.
 3. **Install the client** where you work: `deploy/install-client.sh USER@MACHINE --site SITE_DIR`,
@@ -205,12 +205,12 @@ Then, in short:
 [docs/getting-started.md](docs/getting-started.md) walks through each step, including the
 minimum site you need and how to probe safely.
 
-## Using bsp with AI agents
+## Using boardctrl with AI agents
 
 boardctrl is designed so an agent needs nothing but the CLI:
 
 - `deploy/install-skills.sh` installs the bundled skills (`skills/boardctrl`,
-  `skills/gpio`) for Claude Code, opencode and Hermes.
+  `skills/gpio-relay`) for Claude Code, opencode and Hermes.
 - `boardctrl install`, run inside an SDK tree, writes a `SKILL.md` that adds what this directory
   is, which boards can run it and your site's hints to the full skill.
 - `--json` gives `{"ok": true, "result": …}` or `{"ok": false, "error": {"code", "message",

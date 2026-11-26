@@ -31,7 +31,7 @@ def test_validate_rejects(args):
 def test_spec_routes_and_roundtrip():
     assert SPEC.http_path == "/api/v1/gpio/{target}/pulse"
     assert SPEC.tool_name == "gpio_pulse"
-    assert SPEC.cli_usage == "bsp gpio pulse <target> [--level] [--ms] [--wait]"
+    assert SPEC.cli_usage == "boardctrl gpio pulse <target> [--level] [--ms] [--wait]"
     again = CommandSpec.from_dict(SPEC.to_dict())
     assert again.input_schema() == SPEC.input_schema()
 
@@ -50,7 +50,7 @@ def test_parser_from_specs():
 def test_run_line():
     reg = CommandRegistry()
     reg.add(Command(SPEC, lambda **kw: kw, render=lambda r: f"pulsed {r['target']} {r['ms']}"))
-    assert reg.run_line("bsp gpio pulse P3 --ms 7")[:2] == (0, "pulsed P3 7\n")
+    assert reg.run_line("boardctrl gpio pulse P3 --ms 7")[:2] == (0, "pulsed P3 7\n")
     code, out, _ = reg.run_line("help gpio pulse")
     assert code == 0 and "--ms" in out
     assert reg.run_line("gpio pulse 'unterminated")[0] == 2

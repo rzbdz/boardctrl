@@ -1,11 +1,11 @@
 ---
-name: bsp-gpio-relay
-description: Control DUT reset / FDL (download-mode) lines and relays through the bsp host controller's GPIO header. Use when you need to reset a board, hold it in FDL/fastboot boot mode, toggle a relay, or inspect header pin state on a bsp board host (see `boardctrl hosts`).
+name: boardctrl-gpio-relay
+description: Control DUT reset / FDL (download-mode) lines and relays through the boardctrl host controller's GPIO header. Use when you need to reset a board, hold it in FDL/fastboot boot mode, toggle a relay, or inspect header pin state on a boardctrl board host (see `boardctrl hosts`).
 ---
 
-# bsp gpio-relay
+# boardctrl gpio-relay
 
-A bsp host controller exposes its GPIO header as channels. Each channel is a
+A boardctrl host controller exposes its GPIO header as channels. Each channel is a
 header pin in one of three modes:
 
 - `gpio`   raw level: `high` / `low` / `input` (hi-Z)
@@ -20,12 +20,12 @@ service only resolves them.
 ## Discover first
 
 ```bash
-curl -s $BSP_URL/llms.txt                         # overview + every tool
-curl -s $BSP_URL/api/v1/tools?format=anthropic    # JSON-schema tool definitions
-curl -s $BSP_URL/api/v1/gpio/list                 # live state of every header pin
+curl -s $BOARDCTRL_URL/llms.txt                         # overview + every tool
+curl -s $BOARDCTRL_URL/api/v1/tools?format=anthropic    # JSON-schema tool definitions
+curl -s $BOARDCTRL_URL/api/v1/gpio/list                 # live state of every header pin
 ```
 
-Or with the CLI (stdlib only, from the repo): `BSP_URL=http://<host>:8765 bin/bsp gpio list`.
+Or with the CLI (stdlib only, from the repo): `BOARDCTRL_URL=http://<host>:8765 bin/boardctrl gpio list`.
 
 ## Common recipes
 

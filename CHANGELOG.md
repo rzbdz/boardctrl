@@ -34,7 +34,7 @@ All notable changes to this project are documented here. The format follows
 - serial-mux sends a connecting client the newest 5000 lines and at most 512 KB of history
   (`history_lines`, `history_bytes`), not its whole scrollback.
 - Host environment: a top-level `env:` map in `hosts/<host>.yaml`, and `env:NAME` anywhere in
-  the file to take a value from bsp-hostd's environment. Hooks get it as `req["env"]`, in their
+  the file to take a value from boardctrld's environment. Hooks get it as `req["env"]`, in their
   process environment, and `${NAME}` / `${NAME:-default}` in their `args`.
 - Boot recipe step `do: send`: type one line on the console and optionally wait for a regex,
   without the console's echo of the line satisfying the wait or failure pattern.
@@ -70,7 +70,7 @@ All notable changes to this project are documented here. The format follows
   build server or a host cache hit, the file's time on the build server, and the build job that wrote it
   (or a WARNING when the latest successful build did not rewrite it, or a build is still running). The
   boot result carries the same facts (`artifacts.<role>.source`, `built`, `build`). The host's copy is
-  used only when its sha256 and size match the build server's current file. `bsp sdk build` ends with
+  used only when its sha256 and size match the build server's current file. `boardctrl sdk build` ends with
   one `artifact <file> sha256 <12 hex> <size> built <time> job <id>` line per artifact.
 - Probe tries the reset lines slots had before first (`probe.pin_order`), presses a line that made
   several consoles speak again (`probe.retry_ambiguous`), skips consoles whose adapter is gone,
@@ -138,7 +138,7 @@ First public beta.
 - GPIO relay module with a web console: header pin map, channel modes, aliases, pin-mux checks.
 - `bsp dut bind` and the `human` control backend: boards without reset wiring, reset by a person
   on request and resumed with `bsp dut confirm` or automatic download-mode detection.
-- Console logins: `ssh bsp-<dut>@<host>` opens a board's console (opt-in).
+- Console logins: `ssh boardctrl-<dut>@<host>` opens a board's console (opt-in).
 - Multi-host CLI over HTTP or ssh tunnels, `--json` output and stateless mode for agents.
 - Agent skills, `bsp install` and `bsp hints`; the end-to-end acceptance test in `tests/e2e-material/`.
 - Configuration layers: core, hardware packs (`packs/spacemit` for SpacemiT K1 and K3) and an

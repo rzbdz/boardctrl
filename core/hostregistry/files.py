@@ -8,7 +8,7 @@ compile machine uses the same profiles, media-boot steps and hook scripts:
     GET /api/v1/registry/blobs/<sha256>   one file by its hash (large files, and images from <site>/.blobs)
 
 Shared are the SoC profiles (`socs/*/soc.yaml`) and every hook; images go only by hash, when a
-profile lists one with its `sha256` (a file next to the profile, or one `bsp images sync` fetched
+profile lists one with its `sha256` (a file next to the profile, or one `boardctrl images sync` fetched
 into <site>/.blobs). Small files come inline (base64), the rest by hash, and nothing is kept that
 does not hash right. Hook scripts are code that hosts run, so these routes need
 the registry's token when it has one, and the files only ever come from the catalog repository

@@ -15,9 +15,9 @@ from core.dut.slots import render_slots as _render_slots
 if TYPE_CHECKING:
     from core.dut.manager import DutModule
 
-DUT = Param("dut", help="DUT id (see `bsp dut list`)")
-SLOT = Param("slot", help="slot (s3, or <host>/s3; see `bsp slot list`)")
-LEASE = Param("lease", help="lease token from `bsp dut acquire` (the CLI fills it in / $BSP_LEASE)",
+DUT = Param("dut", help="DUT id (see `boardctrl dut list`)")
+SLOT = Param("slot", help="slot (s3, or <host>/s3; see `boardctrl slot list`)")
+LEASE = Param("lease", help="lease token from `boardctrl dut acquire` (the CLI fills it in / $BSP_LEASE)",
               required=False, positional=False)
 
 
@@ -51,17 +51,17 @@ def build_commands(mod: "DutModule") -> list[Command]:
             "(human control backend); naming the request makes a repeated confirmation say it already was",
             mod.confirm,
             [DUT, Param("note", help="what you did, for the log", required=False, default=""),
-             Param("request", help="the request id from `bsp dut status` / the attention event (repeats are idempotent)",
+             Param("request", help="the request id from `boardctrl dut status` / the attention event (repeats are idempotent)",
                    required=False, positional=False)],
             render=lambda r: (f"{r['dut']}: request {r['request']} was already answered"
                               f" ({r.get('how') or 'by a person'}, {r['waited_s']}s)" if r.get("repeat")
                               else f"{r['dut']}: confirmed '{r['confirmed']}' after {r['waited_s']}s")),
         cmd("dut.boot", "Boot an SDK: load = fastboot RAM boot, download = flash to media",
             mod.boot,
-            [DUT, Param("sdk", help="sdk instance (bsp sdk list)", positional=False),
+            [DUT, Param("sdk", help="sdk instance (boardctrl sdk list)", positional=False),
              Param("method", help="load | download", required=False, default="load", choices=list(BOOT_METHODS)),
              Param("variant", help="e.g. uboot-only", required=False),
-             Param("brk", help="stop at a break point of the recipe (debug U-Boot alone, say): bsp sdk show lists them", required=False, positional=False), LEASE],
+             Param("brk", help="stop at a break point of the recipe (debug U-Boot alone, say): boardctrl sdk show lists them", required=False, positional=False), LEASE],
             render=lambda r: f"job {r['job']}: {r['dut']} boot {r['sdk']} [{r['method']}]",
             description="Pulls the SDK's artifacts from its build server into the host cache, then runs the "
                         "recipe (enter-fdl, stage, continue, waits on serial + fastboot). Background job: the "
@@ -105,7 +105,7 @@ def build_commands(mod: "DutModule") -> list[Command]:
                    default=20)],
             render=lambda r: f"job {r['job']}: {r['dut']} boot {len(r['files'])} file(s)",
             description="Each file: fastboot stage + continue, then wait for the download port to come back "
-                        "before the next. Background job: follow it with `bsp job get`. Never flashes."),
+                        "before the next. Background job: follow it with `boardctrl job get`. Never flashes."),
         cmd("dut.flash", "Write a package (flash images and their layout) to the board",
             mod.flash,
             [DUT, Param("package", help="http(s) URL the host downloads, or sha256 of an uploaded package file",
@@ -196,7 +196,7 @@ def build_commands(mod: "DutModule") -> list[Command]:
              Param("pulse_ms", "integer", "reset pulse width", required=False, positional=False),
              Param("fdl", help="strapped | button | unset", required=False, positional=False, choices=["strapped", "button", "unset"]),
              Param("fdl_pin", help="header pin of the FDL line (fdl=button)", required=False, positional=False),
-             Param("console_provider", help="who serves its console (see `bsp status` → providers)",
+             Param("console_provider", help="who serves its console (see `boardctrl status` → providers)",
                    required=False, positional=False),
              Param("download_provider", help="who serves its download port", required=False, positional=False),
              Param("flash_provider", help="who writes images to it", required=False, positional=False),
@@ -235,7 +235,7 @@ def build_commands(mod: "DutModule") -> list[Command]:
                    required=False, default=False),
              Param("prefer", help="try these header GPIOs first, as written on the board (12,13 / GPIO12)", required=False)],
             render=_render_probe,
-            description="Hook-driven (hooks/probe/*). Results are proposals: confirm with `bsp dut add`, "
+            description="Hook-driven (hooks/probe/*). Results are proposals: confirm with `boardctrl dut add`, "
                         "or pass register=true to register each board as it is found."),
         cmd("dut.refresh", "Re-read the board in a DUT's slot (after swapping boards): reset into download mode, "
                            "identify, update board/soc/model and, if it moved, the download port",
@@ -261,7 +261,7 @@ def build_commands(mod: "DutModule") -> list[Command]:
         cmd("debug.stop", "Stop a board's debug path", mod.debug_stop, [DUT, LEASE],
             render=lambda r: f"{r.get('dut')}: debug session stopped"),
         cmd("debug.action", "Run one action of a board's debug provider (halt, run, reset, step, regs, …)",
-            mod.debug_action, [DUT, Param("action", help="an action the provider offers (`bsp debug status`)"), LEASE],
+            mod.debug_action, [DUT, Param("action", help="an action the provider offers (`boardctrl debug status`)"), LEASE],
             render=lambda r: "\n".join(f"{k}: {v}" for k, v in r.items() if k not in ("dut", "action"))
                              or f"{r['dut']}: {r['action']} done"),
         # ---- slots: every console on the host is a slot; reset, download port and DUT are attached to it
@@ -308,7 +308,7 @@ def _resolving(mod: "DutModule", handler):
 # ================================================================= renders --
 def _render_list(items: list[dict[str, Any]]) -> str:
     if not items:
-        return "(no DUTs on this host — run `bsp probe`)"
+        return "(no DUTs on this host — run `boardctrl probe`)"
     rows = [("DUT", "HOST", "BOARD", "STAGE", "LEASE", "USB", "CONSOLE")]
     for d in items:
         lease = d["lease"]

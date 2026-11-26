@@ -2,16 +2,16 @@
 # Install (or update) boardctrld on this machine from an unpacked tree, with a config generated from what this
 # machine is: no site directory to write by hand. Run as root, from the tree it installs (boardlab runs it over ssh).
 #
-#   deploy/bspd-install.sh --id <host id> [--port 8765] [--bind 127.0.0.1] [--token <token> | --no-token] [--board auto|<board>]
+#   deploy/install.sh --id <host id> [--port 8765] [--bind 127.0.0.1] [--token <token> | --no-token] [--board auto|<board>]
 #                          [--relay auto|sysfs|gpiod|none] [--site <dir>] [--prefix /opt/boardctrl] [--force]
-#   deploy/bspd-install.sh --uninstall [--purge] [--force]
+#   deploy/install.sh --uninstall [--purge] [--force]
 #
 # A running job (a flash, a boot) lives in the service's process: before stopping the service, this waits for the jobs
 # it runs, naming them, up to BOARDCTRL_UPGRADE_WAIT seconds (default 600), and refuses if they are still running.
 # `--force` stops the service anyway; those jobs then read `interrupted by a service restart`.
 #
-# The file keeps its old name (boardlab on older lines runs it); an older bspd install on the machine is taken over:
-# its service stops, its site moves to /etc/boardctrl/site, its state is kept.
+# An older install on the machine (the program under its earlier names) is taken over: its service stops, its
+# site moves to /etc/boardctrl/site, its state to /var/lib/boardctrl.
 #
 # Idempotent: each run rebuilds the venv beside the old one, swaps it in, rewrites the unit and restarts the service.
 # The host config goes to <site>/hosts/<id>.yaml (default site /etc/boardctrl/site, made here; an existing site is
@@ -91,7 +91,7 @@ wait_for_jobs() {  # $1 port, $2 what is about to happen to the service
 # The port the running service listens on, from the config it was started with (this install may change it).
 running_port() {
   local f p
-  for f in "$SITE/hosts/$ID.yaml" "/etc/bsp/site/hosts/$ID.yaml"; do
+  for f in "$SITE/hosts/$ID.yaml" "/etc/boardctrl/site/hosts/$ID.yaml" "/etc/bsp/site/hosts/$ID.yaml"; do
     [[ -n $ID && -f $f ]] || continue
     p=$(sed -n 's/^  port: *\([0-9]*\).*/\1/p' "$f" | head -1)
     [[ -n $p ]] && { echo "$p"; return; }
@@ -116,23 +116,30 @@ if [[ -f /etc/systemd/system/$OLD_UNIT || -d $OLD_PREFIX/current || -d /etc/bsp 
     cp -a "$OLD_SITE" "$SITE"
     echo "--> site kept and copied to $SITE"
   fi
+  # The host's state (leases, probed boards, artifacts, job records) moves with it: a flashed package cache and the
+  # boards a probe found are not things to rediscover. Only when the new place has none, so a reinstall keeps its own.
+  if [[ -d /var/lib/bsp && ! -e /var/lib/boardctrl ]]; then
+    mkdir -p /var/lib
+    mv /var/lib/bsp /var/lib/boardctrl
+    echo "--> state kept and moved to /var/lib/boardctrl"
+  fi
   # The token it ran with is the one this install keeps. Whoever asks the host reads both files, and the two names have
   # different precedence, so the merged file names the one token under both names: the daemon and a sync then take the
   # same one. The new file's own token wins (an install was given one); the old file's fills in where it has none.
   if [[ -f /etc/bsp/hostd.env ]]; then
     mkdir -p /etc/boardctrl
-    from_old() { (set -a; . /etc/bsp/hostd.env; set +a; printf '%s' "${BOARDCTRL_TOKEN:-${BSP_TOKEN:-}}"); }
-    token=$( (set -a; . /etc/boardctrl/boardctrld.env 2>/dev/null; set +a; printf '%s' "${BOARDCTRL_TOKEN:-${BSP_TOKEN:-}}") )
+    from_old() { (set -a; . /etc/bsp/hostd.env; set +a; printf '%s' "${BOARDCTRL_TOKEN:-${BOARDCTRL_TOKEN:-}}"); }
+    token=$( (set -a; . /etc/boardctrl/boardctrld.env 2>/dev/null; set +a; printf '%s' "${BOARDCTRL_TOKEN:-${BOARDCTRL_TOKEN:-}}") )
     [[ -n $token ]] || token=$(from_old)
     if [[ -n $token ]]; then
       grep -qE '^BOARDCTRL_TOKEN=' /etc/boardctrl/boardctrld.env 2>/dev/null || printf 'BOARDCTRL_TOKEN=%s\n' "$token" >> /etc/boardctrl/boardctrld.env
-      grep -qE '^BSP_TOKEN=' /etc/boardctrl/boardctrld.env 2>/dev/null || printf 'BSP_TOKEN=%s\n' "$token" >> /etc/boardctrl/boardctrld.env
+      grep -qE '^BOARDCTRL_TOKEN=' /etc/boardctrl/boardctrld.env 2>/dev/null || printf 'BOARDCTRL_TOKEN=%s\n' "$token" >> /etc/boardctrl/boardctrld.env
     elif [[ -s /etc/bsp/hostd.env ]]; then
       cp -a /etc/bsp/hostd.env /etc/boardctrl/boardctrld.env
     fi
     chmod 600 /etc/boardctrl/boardctrld.env
     # Gone only once the new place holds a token: otherwise the old file is still the only one that has it.
-    grep -qE '^(BOARDCTRL_TOKEN|BSP_TOKEN)=' /etc/boardctrl/boardctrld.env && rm -f /etc/bsp/hostd.env
+    grep -qE '^(BOARDCTRL_TOKEN|BOARDCTRL_TOKEN)=' /etc/boardctrl/boardctrld.env && rm -f /etc/bsp/hostd.env
   fi
 fi
 
@@ -142,7 +149,7 @@ if [[ -n $UNINSTALL ]]; then
   systemctl daemon-reload
   for b in boardctrl boardctrld bsp bsp-hostd smtty serial-mux; do [[ $(readlink -f /usr/local/bin/$b 2>/dev/null) == $PREFIX/* ]] && rm -f /usr/local/bin/$b; done
   rm -rf "$PREFIX" /etc/boardctrl/boardctrld.env /etc/bsp/hostd.env
-  [[ -n $PURGE ]] && rm -rf /etc/boardctrl /etc/bsp /var/lib/bsp
+  [[ -n $PURGE ]] && rm -rf /etc/boardctrl /var/lib/boardctrl /etc/bsp /var/lib/bsp
   echo "BOARDCTRLD-REMOVED"
   echo "BSPD-REMOVED"      # what older boardds parse
   exit 0
@@ -153,7 +160,7 @@ python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' || { echo "python3
 python3 -c 'import venv, ensurepip' 2>/dev/null || { echo "python3-venv is missing: apt install python3-venv" >&2; exit 1; }
 
 VERSION=$(cat REVISION 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev)
-echo "--> bspd $VERSION as $ID on $BIND:$PORT"
+echo "--> boardctrld $VERSION as $ID on $BIND:$PORT"
 export PYTHONUNBUFFERED=1
 # A long command, with a line every few seconds while it runs quiet.
 ticking() {
@@ -250,7 +257,7 @@ ls -1dt "$PREFIX"/releases/* 2>/dev/null | tail -n +3 | xargs -r rm -rf
 
 # The config, generated: the site's own hosts file for this id.
 echo "--> [4/6] writing the config"
-mkdir -p "$SITE/hosts" /etc/boardctrl /var/lib/bsp
+mkdir -p "$SITE/hosts" /etc/boardctrl /var/lib/boardctrl
 CONF=$SITE/hosts/$ID.yaml
 # What this installer knows about the machine is merged into what the file already holds. Reinstalling upgrades the
 # program: it does not take the site's configuration away — neither the rendezvous settings nor a provider's own section
@@ -266,14 +273,14 @@ old = (yaml.safe_load(p.read_text()) or {}) if p.is_file() else {}
 cfg = dict(old)
 cfg["host"] = {"id": ident, "description": f"{model} ({ident})"}
 server = dict(cfg.get("server") or {})
-server.update({"bind": bind, "port": int(port), "state_dir": "/var/lib/bsp"})
+server.update({"bind": bind, "port": int(port), "state_dir": "/var/lib/boardctrl"})
 cfg["server"] = server
 generated = {}
 if board and relay != "none":
     generated["gpio"] = {"board": board, "backend": relay, "hw_timeout_s": 3.0, "pinmux": True,
                          "max_pulse_ms": 60000, "protected": [], "channels": {}, "aliases": {}}
 generated["sdk"] = {}
-# serial-mux keeps its sockets, runtime and logs under ~/.serial-mux of the user it runs as; bspd finds them beside
+# serial-mux keeps its sockets, runtime and logs under ~/.serial-mux of the user it runs as; boardctrld finds them beside
 # serial_log_dir, so that stays serial-mux's own.
 # Site hooks (possibly a scp/flashing step) take precedence over the generic platform hooks below them: without this,
 # a synced flash recipe names a hook the running host cannot find after every reinstall.
@@ -315,16 +322,16 @@ if site_hosts:
             server["announce"] = dict(their_server["announce"])
             cfg["server"] = server
 tmp = p.with_name(p.name + ".new")
-tmp.write_text("# Generated by bspd-install for %s; boardlab rewrites the parts it knows on every install and keeps\n"
+tmp.write_text("# Generated by install for %s; boardlab rewrites the parts it knows on every install and keeps\n"
                "# the rest (a site's provider section, its registry settings) as the file has them.\n%s"
                % (ident, yaml.safe_dump(cfg, default_flow_style=False, sort_keys=False)), encoding="utf-8")
 tmp.replace(p)
 EOF
 # A token, if given (boardlab gives one); an existing one is kept otherwise.
 mkdir -p /etc/boardctrl
-if [[ -n $TOKEN ]]; then umask 077; printf 'BOARDCTRL_TOKEN=%s\nBSP_TOKEN=%s\n' "$TOKEN" "$TOKEN" > /etc/boardctrl/boardctrld.env; fi
+if [[ -n $TOKEN ]]; then umask 077; printf 'BOARDCTRL_TOKEN=%s\n' "$TOKEN" > /etc/boardctrl/boardctrld.env; fi
 # No token at all (`--no-token`): every request is accepted, so keep the port where only trusted machines reach it.
-if [[ -n $NO_TOKEN ]]; then sed -i -E '/^(BOARDCTRL_TOKEN|BSP_TOKEN)=/d' /etc/boardctrl/boardctrld.env 2>/dev/null || true; fi
+if [[ -n $NO_TOKEN ]]; then sed -i -E '/^(BOARDCTRL_TOKEN|BOARDCTRL_TOKEN)=/d' /etc/boardctrl/boardctrld.env 2>/dev/null || true; fi
 [[ -f /etc/boardctrl/boardctrld.env ]] || { umask 077; : > /etc/boardctrl/boardctrld.env; }
 chmod 600 /etc/boardctrl/boardctrld.env
 # A certificate this host must trust (the network's own CA, say): installed beside the system's before anything is
@@ -356,7 +363,7 @@ Environment=PYTHONUNBUFFERED=1
 Environment=PATH=$PREFIX/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=BOARDCTRL_SITE=$SITE
 # Read too, so a hook or a program written for the old name still sees the site.
-Environment=BSP_SITE=$SITE
+Environment=BOARDCTRL_SITE=$SITE
 EnvironmentFile=-/etc/bsp/hostd.env
 # Read after the old file, so this install's token is the one that counts.
 EnvironmentFile=-/etc/boardctrl/boardctrld.env
