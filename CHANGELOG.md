@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- A provider declares the services it reads (`REQUIRES = ("gpio", "smtty")` in its `provider.py`). Every setup has
+  run before they are checked, so a provider whose service the host does not offer is degraded, keeps what it
+  registered, and says in its status which service it waits for — where the host config that caused it is fixed —
+  instead of failing the first time a board is used.
 - `dut boot-marks DUT`: the console lines that start a boot stage on a board, from its SoC: the boot-ROM
   `fingerprint` as the `rom` mark, then an optional `boot_marks:` list in soc.yaml
   ({id, title, pattern, flags, stage, tone}) that adds marks or changes one by id. A pattern that does not

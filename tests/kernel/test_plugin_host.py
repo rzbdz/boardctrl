@@ -626,3 +626,21 @@ def test_a_mistyped_provider_is_refused_before_it_is_written(tmp_path, monkeypat
         # The record on disk is untouched, so the next start builds the board exactly as this one did.
         after = client.post("/api/v1/tools/dut_status", json={"dut": "b1"}).json()["result"]
         assert after["services"]["download"] == "fastboot"
+
+
+def test_a_plugin_declares_what_it_needs_and_says_so_when_it_is_not_there(client):
+    """`REQUIRES` is checked once every setup has run: a service the host does not offer degrades the plugin.
+
+    Without it the first sign is an error when a board is used, several steps away from the host config that caused
+    it. The declaration is what the page and `/api/v1/status` read, so the host config is where the fix is.
+    """
+    hub = client.app.state.hub
+    hub.providers.loaded["fake"].module.REQUIRES = ("gpio", "nowhere")
+    hub.providers.check()
+    view = client.post("/api/v1/tools/status", json={}).json()["result"]["modules"]["fake"]
+    # What is there is not reported; only the service the host does not offer is, with what to do about it.
+    assert view["missing"] == ["nowhere"]
+    assert "nowhere" in view["error"]
+    assert "gpio" not in view["missing"]
+    # The plugin is not unloaded: it keeps what it registered, and says which part of it cannot work.
+    assert "fake" in hub.providers.loaded

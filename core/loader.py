@@ -12,6 +12,12 @@ router, the services other providers read, and the callbacks the host calls as i
 Every `setup` runs before any provider's startup callback, so one may build what it needs from another's service
 when it starts — in any order, because nothing has to be there while another sets up.
 
+What a provider needs is declared, not discovered later: `REQUIRES = ("gpio", "smtty")` in its `provider.py` names
+the services it reads. Every setup has already run when the next requirement is checked, so a provider whose
+requirements are not all there is *degraded*: it stays loaded, keeps what it registered, and its status says what it
+waits for. Without the declaration a missing service shows up as an error the first time a board is used, far from
+the host configuration that caused it.
+
 The providers this repository ships (`providers/<name>/`) and a site's own (`<site>/providers/<name>/`) are
 loaded by the same loader, and a site's copy of a name replaces the shipped one. One that fails to load is
 reported as degraded and never takes the host with it.
@@ -106,6 +112,7 @@ class Loaded:
         # what the provider's setup built for itself (its manager), for a helper or a test that drives it directly
         self.manager = manager
         self.title = str(getattr(module, "TITLE", "") or "")
+        self.missing: list[str] = []
 
     def startup(self) -> None:
         for fn in self.api._startup:
@@ -128,6 +135,9 @@ class Loaded:
         """What `/api/v1/status` says about this provider: its title, what it registered, and its own health."""
         return {"title": self.title, "providers": list(self.api.providers),
                 "commands": [c.spec.name for c in self.api.commands], "services": list(self.api.services),
+                # A service it declared and does not have: the provider is degraded until the host offers it.
+                **({"missing": list(self.missing),
+                    "error": f"needs {', '.join(self.missing)}: enable the module that provides it"} if self.missing else {}),
                 **self.status()}
 
 
@@ -228,6 +238,20 @@ class Providers:
 
     def open_paths(self) -> list[str]:
         return [p for m in self.loaded.values() for p in m.api.open_paths]
+
+    def check(self) -> None:
+        """Mark the providers whose declared services are not there (`REQUIRES`): loaded, degraded, and saying why.
+
+        Every `setup` has run by now, so the services map is what the host offers: one provider may satisfy another's
+        requirement in either order.
+        """
+        for provider in self.loaded.values():
+            declared = [str(name) for name in (getattr(provider.module, "REQUIRES", None) or ())]
+            provider.missing = [name for name in declared if name not in self.services()]
+
+    def services(self) -> set[str]:
+        """Every service the loaded providers published, by name."""
+        return {name for provider in self.loaded.values() for name in provider.api.services}
 
     def startup(self) -> None:
         for m in self.loaded.values():

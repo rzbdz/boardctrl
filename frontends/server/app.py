@@ -322,6 +322,9 @@ def create_app(config: HostConfig) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await run_in_threadpool(hub.dut.startup)
+        # Which providers' declared services are there: every setup has run, so this is the host's whole service map.
+        # A provider missing one is degraded and says so in its status; that must be known before anything uses it.
+        hub.providers.check()
         await run_in_threadpool(hub.providers.startup)
         hub.bus.publish("service.started", version=__version__)
         announcer = None
