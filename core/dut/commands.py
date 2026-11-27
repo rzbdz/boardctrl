@@ -124,7 +124,10 @@ def build_commands(mod: "DutModule") -> list[Command]:
                                       "host fetches and unpacks it, the flasher reads it, no board is touched",
                    required=False, default=False),
              Param("partitions", help="write only these partitions (comma-separated, names as the plan gives "
-                                      "them); the flasher must support it", required=False)],
+                                      "them); the flasher must support it", required=False),
+             Param("layout", help="write only this layout's medium (a partition layout's file name, as a plan's "
+                                  "preset names it); for a package carrying a layout for each medium",
+                   required=False)],
             render=lambda r: f"job {r['job']}: {r['dut']} {'plan' if r.get('plan') else 'flash'} {r['package']} with {r['flasher']}",
             description="The package is a .tar.gz, .tgz, .tar or .zip (the CLI sends a local directory as a .tar). "
                         "With the board's flash provider `hook` (the default), the host unpacks it, puts the board "

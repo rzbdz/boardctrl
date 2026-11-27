@@ -604,8 +604,52 @@ def test_a_plan_reads_the_package_and_touches_no_board(host, web, monkeypatch):
     assert job["status"] == "succeeded", job
     plan = job["result"]["plan"]
     assert plan["package"] == "p.zip" and [p["name"] for p in plan["media"][0]["partitions"]] == ["fastboot.yaml", "u-boot.itb"]
+    # A package with no layout at all is the flasher's own format: it is unpacked whole and handed all of it.
     assert any("nothing was written" in l for l in job["lines"])
     assert not (host.tmp / "flash.json").exists()
+
+
+LAYOUT_ONLY_FLASHER = """#!/usr/bin/env python3
+# bsp-hook: plan only
+import json, os, sys
+req = json.load(sys.stdin)
+if req.get('plan'):
+    files = sorted(os.listdir(req['package_dir']))
+    print('reading ' + ', '.join(files), flush=True)
+    parts = [{'name': n, 'offset': None, 'size': None, 'image': n, 'payload': (os.path.getsize(os.path.join(req['package_dir'], n))
+             if os.path.exists(os.path.join(req['package_dir'], n)) else None), 'selectable': True}
+             for n in ('boot.img', 'rootfs.ext4')]
+    print(json.dumps({'plan': {'package': 'x', 'partial': True, 'notes': [], 'media': [{'id': 'disk', 'label': 'disk',
+          'size': None, 'partitions': parts}]}}))
+    sys.exit(0)
+sys.exit(1)
+"""
+
+
+def test_a_plan_reads_the_layouts_only_and_is_kept_by_its_package(host, web):
+    """A plan of a package carrying big images unpacks its layouts and nothing else (the images' sizes come from the
+    archive's index), and the second ask reads the kept plan: the plan is what a person sees before choosing, and it
+    must not cost a multi-gigabyte unpack twice."""
+    had = host.tmp / "hooks" / "flash" / "planner"
+    had.write_text(LAYOUT_ONLY_FLASHER)
+    had.chmod(had.stat().st_mode | stat.S_IEXEC)
+    layout = json.dumps({"format": "gpt", "partitions": [{"name": "boot", "image": "boot.img"},
+                                                        {"name": "rootfs", "image": "rootfs.ext4"}]}).encode()
+    data = _tgz({"pkg/fastboot.yaml": b"actions: []\n", "pkg/partition_4M.json": layout,
+                 "pkg/boot.img": b"b", "pkg/rootfs.ext4": b"r" * 4096})
+    (web.root / "p.zip").write_bytes(data)
+    token = _call(host, "dut_acquire", dut="mock-board", holder="t", ttl=60)["token"]
+    first = _call(host, "dut_flash", dut="mock-board", package=f"{web.url}/p.zip", plan=True, flasher="planner", lease=token)
+    job = _call(host, "job_get", id=first["job"], wait=20)
+    assert job["status"] == "succeeded", job
+    plan = job["result"]["plan"]
+    # The sizes are the archive's, read from its index: the images themselves were never unpacked.
+    assert [p["payload"] for p in plan["media"][0]["partitions"]] == [1, 4096]
+    second = _call(host, "dut_flash", dut="mock-board", package=f"{web.url}/p.zip", plan=True, flasher="planner", lease=token)
+    job2 = _call(host, "job_get", id=second["job"], wait=20)
+    assert job2["status"] == "succeeded", job2
+    assert any("read before" in line for line in job2["lines"])
+    assert job2["result"]["plan"] == plan
 
 
 def test_chosen_partitions_reach_the_flasher_and_a_flasher_without_them_refuses(host):

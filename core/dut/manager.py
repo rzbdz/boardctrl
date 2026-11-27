@@ -964,7 +964,7 @@ class DutManager:
 
     def flash(self, dut: str, package: str, sha256: str | None, flasher: str | None, lease: str | None,
               timeout: float, reset: bool, refresh: bool = False, plan: bool = False,
-              partitions: list[str] | str | None = None) -> dict[str, Any]:
+              partitions: list[str] | str | None = None, layout: str | None = None) -> dict[str, Any]:
         """Write a package to the board.
 
         With the flash role's built-in `hook` provider: enter download mode, then run the flash hook on the unpacked
@@ -989,6 +989,8 @@ class DutManager:
         provider = b.flash_provider
         hook_based = isinstance(provider, HookFlash)
         only = _partition_names(partitions)
+        if layout is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_+-]*\.json", str(layout)):
+            raise InvalidRequest(f"not a partition layout name: {layout!r}", hint="a file name such as partition_16M.json")
         if (plan or only) and not hook_based:
             raise InvalidRequest(f"{dut}'s flash provider {provider.provider_name} writes the whole file",
                                  hint="it cannot say what a package holds or write only some partitions")
@@ -1006,8 +1008,8 @@ class DutManager:
                              "args": expand(dict(self.flash_cfg.get("args") or {}), self.ctx.env)})
         else:
             name, why = provider.provider_name, f"{dut}'s flash provider"
-        if hook_based and (plan or only):
-            # Before any transfer: the hook must know how to plan, or to write only some partitions.
+        if hook_based and (plan or only or layout):
+            # Before any transfer: the hook must know how to plan, or to write only some partitions or one layout.
             need = "plan" if plan else "only"
             if not self.hooks.declares("flash", name, need):
                 raise InvalidRequest(f"flasher {name} cannot {'say what a package would write' if plan else 'write only some partitions'}",
@@ -1063,6 +1065,20 @@ class DutManager:
             token.check()
             self._flash_work.mkdir(parents=True, exist_ok=True)
             work = Path(tempfile.mkdtemp(prefix=f"{dut}-", dir=self._flash_work))
+            # A plan is kept by the package it read: asking again (the CLI does, to offer presets) reads the kept one
+            # instead of unpacking the package again. Its images' sizes come from the archive's index, so a kept plan
+            # says what the package holds without holding it. A flash writes over it: its own unpack is the newer one.
+            kept: Path | None = None
+            if plan:
+                import hashlib
+                kept = self._flash_work / "plans" / hashlib.sha256(str(path).encode() + str(path.stat().st_size).encode()
+                                                                   + str(path.stat().st_mtime_ns).encode()).hexdigest()
+                if (kept / "plan.json").is_file():
+                    token.at(f"read the kept plan of {path.name}")
+                    kept_plan = json.loads((kept / "plan.json").read_text())
+                    log(f"{path.name}: what it holds was read before ({len(kept_plan.get('media') or [])} medium/media)")
+                    return {"dut": dut, "flasher": name, "package": path.name, "plan": kept_plan,
+                            "elapsed_s": round(time.monotonic() - t0, 1)}
             try:
                 if not hook_based:
                     # The provider writes the file itself: no unpacking, no download mode, no hook.
@@ -1076,10 +1092,10 @@ class DutManager:
                     self._event("flashed", dut=dut, flasher=name, package=path.name)
                     return out
                 token.at(f"unpack {path.name}")
-                # Only some partitions: the rest of the package is read past, not unpacked (a whole image can be
-                # several gigabytes). A directory uploaded as it is comes whole.
-                pkg_dir = flashpkg.unpack(path, work / "pkg", max_bytes=4 * max_bytes,
-                                          want=flashpkg.only_entries(path, only) if only else None)
+                # A plan reads only what says what the package would write (its layouts); only some partitions leaves
+                # every image nobody asked for on the wire; a directory uploaded as it is comes whole.
+                pkg_dir = flashpkg.unpack(path, (kept or work) / "pkg", max_bytes=4 * max_bytes,
+                                          want=flashpkg.only_entries(path, only, layout) if (only or layout) else flashpkg.layout_entries(path) if plan else None)
                 files = sum(1 for p in pkg_dir.rglob("*") if p.is_file())
                 log(f"unpacked {path.name}: {files} file(s)")
                 if plan:
@@ -1092,8 +1108,12 @@ class DutManager:
                         err = got.data.get("error") or "the flasher gave no plan"
                         raise HardwareError(f"flash/{name}: {err}", hint=got.data.get("hint") or "")
                     out_plan = {**got.data["plan"], "package": path.name}
+                    _sizes_of_images(out_plan, path, pkg_dir, flashpkg)
                     log(f"{path.name}: {sum(len(m.get('partitions') or []) for m in out_plan.get('media') or [])} "
                         f"partition(s) on {len(out_plan.get('media') or [])} medium/media; nothing was written")
+                    if kept is not None:
+                        kept.mkdir(parents=True, exist_ok=True)
+                        (kept / "plan.json").write_text(json.dumps(out_plan))
                     return {"dut": dut, "flasher": name, "package": path.name, "plan": out_plan,
                             "elapsed_s": round(time.monotonic() - t0, 1)}
                 token.at("enter download mode")
@@ -1115,6 +1135,8 @@ class DutManager:
                        "args": expand(dict(self.flash_cfg.get("args") or {}), self.ctx.env)}
                 if only:
                     req["args"]["only"] = only
+                if layout:
+                    req["args"]["layout"] = layout
                 try:
                     res = self.hooks.run("flash", name, req, timeout=timeout, log=log,
                                          progress=getattr(log, "progress", None))
@@ -1685,6 +1707,27 @@ def _stage(fb: dict | None, download_rx: str | None) -> str:
 _PARTITION = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}")
 # Where a log window starts: either end, a line number, or a line's position (`<day>:<byte offset>`)
 _LOG_AT = re.compile(r"^(start|end|line:\d+|\d{4}-\d\d-\d\d:\d+)$")
+
+
+def _sizes_of_images(plan: dict[str, Any], path: Path, pkg_dir: Path, flashpkg: Any) -> None:
+    """Put each image's size into a plan read from a package that was not unpacked whole: an image the plan named but
+    whose bytes are still in the archive takes its size from the archive's index (a directory is unpacked, so it is
+    there). A plan already says sizes for a package it did read; those stay."""
+    sizes = flashpkg.sizes_of(path)
+    wrapper = flashpkg.top_dir_of(list(sizes)) if sizes else ""
+    for medium in plan.get("media") or []:
+        for part in medium.get("partitions") or []:
+            if part.get("payload") is not None or not part.get("image"):
+                continue
+            name = str(part["image"])
+            for candidate in (name, f"{wrapper}/{name}" if wrapper else None):
+                if candidate and candidate in sizes:
+                    part["payload"] = sizes[candidate]
+                    break
+            else:
+                on_disk = pkg_dir / name
+                if on_disk.exists():
+                    part["payload"] = on_disk.stat().st_size
 
 
 def _partition_names(value: list[str] | str | None) -> list[str]:

@@ -23,7 +23,9 @@ nothing: {"plan": {"package", "media": [{"id", "label", "size", "partitions": [{
 "image", "payload", "selectable"}]}], "partial": true, "notes": [...]}} (bytes; null where the layout leaves it
 open). Every layout in the package is listed: which one is written is chosen from the sizes the board reports.
 `args.only` (partition names) flashes only those partitions, on each medium whose layout has one; a medium with
-none of them is left alone. A name no layout has is refused with the names there are.
+none of them is left alone. A name no layout has is refused with the names there are. `args.layout` (a layout's
+file name) writes that layout's medium alone: a preset says both, so picking "NOR boot" for a board whose medium is
+a disk is refused here, with what the board has.
 """
 import json
 import os
@@ -179,17 +181,48 @@ def plan(req):
         sized = name[len("partition_"):-len(".json")]
         medium = nbytes(sized) if re.fullmatch(r"\d+[KMGT]", sized) else None
         label = ("NOR" if fmt == "mtd" else "block") + f" ({fmt}) · {name}"
-        media.append({"id": name, "label": label, "size": medium, "partitions": parts})
+        media.append({"id": name, "label": label, "size": medium, "kind": "nor" if fmt == "mtd" else "emmc", "partitions": parts})
     notes = []
-    kinds = [m["label"].split(" ", 1)[0] for m in media]
+    kinds = [medium_kind(m) for m in media]
     if any(kinds.count(kind) > 1 for kind in kinds):
         notes.append("the package carries several layouts: the one written to each medium is chosen from the size "
                      "the board reports for it (getvar mtd-size / blk-size) when it is flashed")
     notes.append("with chosen partitions, each medium holding one has its layout written again first; the other "
                  "media are left alone")
     print(json.dumps({"plan": {"package": os.path.basename(os.path.normpath(work)), "media": media,
-                               "partial": True, "notes": notes}}))
+                               "partial": True, "presets": presets_of(media), "notes": notes}}))
     return 0
+
+
+def medium_kind(medium):
+    """Which medium a layout is for: the NOR flash (`mtd`), or a block device (`gpt`)."""
+    return "NOR" if "(mtd)" in medium["label"] else "block"
+
+
+def presets_of(media):
+    """The selections worth offering by name, one per medium: a board boots from its NOR flash or from its eMMC/SD,
+    and the package carries a layout for each. Picking one is picking both the medium and those partitions, instead
+    of reading every layout's names.
+
+    Each preset says the layout it writes, so a board whose medium is not the one picked is told so rather than given
+    a partition list that belongs to another medium. A package with a single medium has nothing to choose between."""
+    kinds = {medium_kind(m) for m in media}
+    if len(kinds) < 2:
+        return []
+    presets = []
+    for kind in ("NOR", "block"):
+        chosen = [m for m in media if medium_kind(m) == kind]
+        if not chosen:
+            continue
+        names = []
+        for m in chosen:
+            names.extend(p["name"] for p in m["partitions"] if p["selectable"] and p["name"] not in names)
+        label = "NOR 启动" if kind == "NOR" else "eMMC/SD"
+        about = (f"只刷 NOR 上那套（{', '.join(m['id'] for m in chosen)}）" if kind == "NOR"
+                 else f"只刷块设备上那套（{', '.join(m['id'] for m in chosen)}）")
+        presets.append({"id": "nor" if kind == "NOR" else "block", "label": label, "about": about,
+                        "layout": chosen[0]["id"], "partitions": names})
+    return presets
 
 
 def main():
@@ -251,32 +284,52 @@ def flash(req, work, pkg, binary, usb, args, media, skip, t0, only=frozenset()):
         m = re.fullmatch(r"(\d+)([KMG])", v or "")
         return int(m.group(1)) * {"K": 1 / 1024, "M": 1, "G": 1024}[m.group(2)] if m else None
 
+    # A preset names the layout it writes: that medium alone, and only if the board has it. Choosing "NOR boot" on a
+    # board with no NOR (or a board whose NOR is another size than the package's layout) is a mistake said here,
+    # before any of it is written.
+    wanted = args.get("layout")
     layouts = []
-    for fmt in media:
+    if wanted:
+        if not os.path.exists(os.path.join(work, str(wanted))):
+            print(json.dumps({"error": f"no layout {wanted} in this package",
+                              "hint": f"layouts here: {', '.join(sorted(n for n in os.listdir(work) if n.startswith('partition_')))}"}))
+            return 1
+        fmt = json.load(open(os.path.join(work, str(wanted)))).get("format")
+        if fmt not in media:
+            print(json.dumps({"error": f"layout {wanted} is for {fmt}, which this flash does not write"}))
+            return 1
         if fmt in absent:
-            print(f"device has no {fmt} medium ({'mtd' if fmt == 'mtd' else 'blk'}-size={sizes[fmt]}); skipping {fmt}")
-            continue
-        cand = []
-        if sizes.get(fmt):
-            cand.append(f"partition_{sizes[fmt]}.json")
-        sized = []
-        for name in sorted(os.listdir(work)):
-            if name.startswith("partition_") and name.endswith(".json"):
-                size = mib(name[len("partition_"):-len(".json")])
-                sized.append((size, name))
-        dev = mib(sizes.get(fmt))
-        # exact match first; else the largest sized layout that fits the device; then the rest
-        fits = sorted((s, n) for s, n in sized if s is not None and (dev is None or s <= dev))
-        cand += [n for _, n in reversed(fits)] + [n for s, n in sized if s is None]
-        if dev and f"partition_{sizes[fmt]}.json" not in os.listdir(work) and fits:
-            print(f"no partition_{sizes[fmt]}.json in package; using {fits[-1][1]} (largest layout <= {sizes[fmt]})")
-        for name in cand:
-            p = os.path.join(work, name)
-            if os.path.exists(p) and json.load(open(p)).get("format") == fmt:
-                layouts.append((fmt, name))
-                break
-        else:
-            print(f"no {fmt} layout in package or device has no {fmt} medium; skipping {fmt}")
+            print(json.dumps({"error": f"the board has no {'NOR' if fmt == 'mtd' else 'block'} medium ({'mtd' if fmt == 'mtd' else 'blk'}-size={sizes[fmt]}), so {wanted} cannot be written",
+                              "hint": "pick the other layout, or leave the choice to the board"}))
+            return 1
+        layouts = [(fmt, str(wanted))]
+        print(f"writing {wanted} only ({fmt})")
+    else:
+        for fmt in media:
+            if fmt in absent:
+                print(f"device has no {fmt} medium ({'mtd' if fmt == 'mtd' else 'blk'}-size={sizes[fmt]}); skipping {fmt}")
+                continue
+            cand = []
+            if sizes.get(fmt):
+                cand.append(f"partition_{sizes[fmt]}.json")
+            sized = []
+            for name in sorted(os.listdir(work)):
+                if name.startswith("partition_") and name.endswith(".json"):
+                    size = mib(name[len("partition_"):-len(".json")])
+                    sized.append((size, name))
+            dev = mib(sizes.get(fmt))
+            # exact match first; else the largest sized layout that fits the device; then the rest
+            fits = sorted((s, n) for s, n in sized if s is not None and (dev is None or s <= dev))
+            cand += [n for _, n in reversed(fits)] + [n for s, n in sized if s is None]
+            if dev and f"partition_{sizes[fmt]}.json" not in os.listdir(work) and fits:
+                print(f"no partition_{sizes[fmt]}.json in package; using {fits[-1][1]} (largest layout <= {sizes[fmt]})")
+            for name in cand:
+                p = os.path.join(work, name)
+                if os.path.exists(p) and json.load(open(p)).get("format") == fmt:
+                    layouts.append((fmt, name))
+                    break
+            else:
+                print(f"no {fmt} layout in package or device has no {fmt} medium; skipping {fmt}")
     if not layouts:
         print(json.dumps({"error": "no usable partition layout", "hint": "is U-Boot (not SPL) answering fastboot?"}))
         return 1

@@ -288,6 +288,14 @@ def unpack(path: Path, dest: Path, max_bytes: int = 4 * DEFAULT_MAX_BYTES,
     without being written. It is how a flash of some partitions leaves a several-gigabyte image on the wire instead of
     on disk — the archive is still streamed whole (a `.zip` keeps its directory at the end), but only what is asked
     for is unpacked. The `max_bytes` check counts what is written, not what the archive holds."""
+    # Empty: unpacked now. Already unpacked (a plan left it there, say): read again, cheaply, from the archive.
+    dest.mkdir(parents=True, exist_ok=True)
+    if not any(dest.iterdir()):
+        _unpack_into(path, dest, max_bytes, want)
+    return top_dir(dest)
+
+
+def _unpack_into(path: Path, dest: Path, max_bytes: int, want: Callable[[str], bool] | None) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     kind = kind_of(path)
     total = 0
@@ -347,10 +355,34 @@ def unpack(path: Path, dest: Path, max_bytes: int = 4 * DEFAULT_MAX_BYTES,
     for p in dest.rglob("*"):
         if p.is_symlink() or not p.resolve().is_relative_to(root):
             raise InvalidRequest(f"package entry {p.relative_to(dest)} points outside the package")
-    return top_dir(dest)
 
 
-def only_entries(path: Path, partitions: list[str]) -> Callable[[str], bool]:
+def layout_entries(path: Path) -> Callable[[str], bool]:
+    """Which entries say what the package would write: its partition layouts, and nothing else — no image of any
+    partition. A plan needs those and takes every image's size from the archive's index, so a plan of a
+    several-gigabyte package is over in a moment and writes a few kilobytes.
+
+    A package with no `partition_*.json` is not one a plan can read (a flasher whose own format says what it writes):
+    it is unpacked whole, and the flasher is handed all of it, as it would be without a plan at all."""
+    layouts = {name for name in entries(path)
+               if (rel := _safe_name(name)).parts and rel.name.startswith("partition_") and rel.name.endswith(".json")}
+    return (lambda name: name in layouts) if layouts else (lambda name: True)
+
+
+def sizes_of(path: Path) -> dict[str, int]:
+    """How many bytes each file inside the archive at `path` is, from its index: a plan says an image's size without
+    unpacking it (nothing for a directory, whose files are read from disk)."""
+    kind = kind_of(path)
+    if kind == "zip":
+        with zipfile.ZipFile(path) as z:
+            return {i.filename: i.file_size for i in z.infolist() if not i.is_dir()}
+    if kind == "tar":
+        with tarfile.open(path, "r:*") as t:
+            return {m.name: m.size for m in t if m.isfile()}
+    return {}
+
+
+def only_entries(path: Path, partitions: list[str], layout: str | None = None) -> Callable[[str], bool]:
     """Which entries of the package at `path` a flash of `partitions` needs: its partition layouts, the images those
     partitions are written from, `fastboot.yaml` and the files it stages — the rest of a multi-gigabyte package is
     read past rather than unpacked.
@@ -387,6 +419,9 @@ def only_entries(path: Path, partitions: list[str]) -> Callable[[str], bool]:
                     stages.add(str(_within(here, wrapper, str(staged["file"]))))
             continue
         if not (rel.name.startswith("partition_") and rel.name.endswith(".json")):
+            continue
+        # One layout asked for (a preset's): the others are a medium this flash does not write, and stay unread.
+        if layout and rel.name != layout:
             continue
         layouts.add(str(rel))
         try:
