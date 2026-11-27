@@ -1066,6 +1066,46 @@ def test_spacemit_pkg_plans_a_package_without_touching_the_board(tmp_path):
     assert rootfs == {"name": "rootfs", "offset": 12 * M + 256 * M, "size": None, "image": None, "payload": None,
                       "selectable": False}
     assert not (tmp_path / "fastboot.log").exists()
+    # A board boots from its NOR flash or its eMMC/SD: each medium is offered by name, with the layout it writes.
+    assert [(p["id"], p["label"], p["layout"]) for p in plan["presets"]] == [
+        ("nor", "NOR 启动", "partition_4M.json"), ("block", "eMMC/SD", "partition_universal.json")]
+    assert plan["presets"][0]["partitions"] == ["fsbl", "env", "uboot"]
+    assert plan["presets"][1]["partitions"] == ["env", "bootfs"]
+    assert [m["kind"] for m in plan["media"]] == ["nor", "emmc"]
+
+
+def test_spacemit_pkg_writes_one_layout_alone_when_a_preset_names_it(tmp_path):
+    """`args.layout`: the preset's medium, and only it; a board without that medium is told so before anything is
+    written, rather than handed another medium's partitions."""
+    import subprocess
+
+    pkg = _spacemit_pkg_dir(tmp_path)
+    log = tmp_path / "fastboot.log"
+    fb = tmp_path / "fastboot"
+    fb.write_text(f"""#!/bin/sh
+echo "$*" >> {log}
+if [ "$1" = devices ]; then printf 'x\tfastboot usb:2-1.1\n'; exit 0; fi
+case "$3 $4" in
+  "getvar mtd-size") echo "mtd-size: 4M" >&2 ;;
+  "getvar blk-size") echo "blk-size: universal" >&2 ;;
+  *) echo OKAY >&2 ;;
+esac
+""")
+    fb.chmod(0o755)
+    hook = ROOT / "platforms" / "spacemit" / "hooks" / "flash" / "spacemit-pkg"
+    req = {"usb": "usb:2-1.1", "fastboot": str(fb), "package_dir": str(pkg), "artifacts": {},
+           "args": {"layout": "partition_4M.json"}}
+    r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stdout + r.stderr
+    # The layout is written first (it is the table), then every partition of it that has an image here.
+    assert [(f["layout"], f["partition"]) for f in json.loads(r.stdout.strip().splitlines()[-1])["flashed"]] == [
+        ("partition_4M.json", "mtd"), ("partition_4M.json", "fsbl"), ("partition_4M.json", "env"),
+        ("partition_4M.json", "uboot")]
+    assert "partition_universal.json" not in r.stdout
+    # The board says it has no NOR: the preset cannot be written, and the flash stops before the first write.
+    fb.write_text(fb.read_text().replace("mtd-size: 4M", "mtd-size: NULL"))
+    r = subprocess.run([sys.executable, str(hook)], input=json.dumps(req), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 1 and "no NOR medium" in json.loads(r.stdout.strip().splitlines()[-1])["error"]
 
 
 def test_spacemit_pkg_flashes_only_the_partitions_asked_for(tmp_path):
